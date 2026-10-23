@@ -6,6 +6,9 @@ name: CI
 on:
   pull_request:
     branches: [main]
+    # "edited" fires when GitHub retargets a stacked PR onto main after its base merges;
+    # without it the required check never starts on the retargeted PR.
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
 
