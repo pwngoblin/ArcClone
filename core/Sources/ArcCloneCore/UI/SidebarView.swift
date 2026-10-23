@@ -344,6 +344,7 @@ private struct SidebarFooter: View {
                 NavButton(symbol: "clock", help: "History") { window.panel = window.panel == .history ? .tabs : .history }
                     .foregroundStyle(window.panel == .history ? .primary : .secondary)
             }
+            DownloadsButton(downloads: DownloadManager.shared, window: window)
             if window.canReopenClosed {
                 NavButton(symbol: "arrow.uturn.backward", help: "Reopen Closed Tab (⇧⌘T)") { window.reopenClosed() }
             }
