@@ -1,0 +1,54 @@
+# Keeps the branch list honest. Merged branches are deleted by GitHub ("Automatically delete
+# head branches"); this deletes branches whose PR was closed without merging after 14 days, and
+# reports branches that never had a PR. main, release and testing are never touched.
+name: Branch hygiene
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Only report, delete nothing
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run || false }}
+    steps:
+      - name: Prune stale branches
+        run: |
+          set -euo pipefail
+          repo="${{ github.repository }}"
+          cutoff=$(date -u -d '14 days ago' +%s)
+          {
+            echo "### Branch hygiene"
+            echo "| Branch | Status | Action |"
+            echo "|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          gh api --paginate "repos/$repo/branches" -q '.[].name' | while read -r branch; do
+            case "$branch" in main|release|testing) continue ;; esac
+            open=$(gh pr list -R "$repo" --head "$branch" --state open --json number -q 'length')
+            [ "$open" -gt 0 ] && continue
+            last=$(gh pr list -R "$repo" --head "$branch" --state all --limit 1 --json state,closedAt,mergedAt -q '.[0] // empty')
+            if [ -z "$last" ]; then
+              echo "| \`$branch\` | no pull request | report only |" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            closed=$(jq -r '.mergedAt // .closedAt' <<< "$last")
+            [ "$(date -u -d "$closed" +%s)" -gt "$cutoff" ] && continue
+            if [ "$DRY_RUN" = true ]; then
+              echo "| \`$branch\` | PR $(jq -r .state <<< "$last") $closed | would delete |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              gh api -X DELETE "repos/$repo/git/refs/heads/$branch"
+              echo "| \`$branch\` | PR $(jq -r .state <<< "$last") $closed | deleted |" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
