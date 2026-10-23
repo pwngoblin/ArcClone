@@ -144,6 +144,24 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
         return menu
     }
 
+    /// Toolbar → Extensions: run an extension, add one, or manage them.
+    @objc public func showExtensions(_ sender: Any?) {
+        let popover = NSPopover()
+        popover.behavior = .transient
+        let content: AnyView
+        if #available(macOS 15.4, *), let manager = (NSApp.delegate as? AppDelegate)?.extensions as? ExtensionManager {
+            content = AnyView(ExtensionsPopoverView(manager: manager) { [weak popover] in popover?.performClose(nil) })
+        } else {
+            content = AnyView(Text("Web extensions need macOS 15.4 or later.").padding(16))
+        }
+        popover.contentViewController = NSHostingController(rootView: content.appAccent())
+        if let item = sender as? NSToolbarItem {
+            popover.show(relativeTo: item)
+        } else if let view = window?.contentView {
+            popover.show(relativeTo: NSRect(x: view.bounds.maxX - 120, y: view.bounds.maxY - 10, width: 1, height: 1), of: view, preferredEdge: .minY)
+        }
+    }
+
     /// Toolbar → Site Settings: a popover for the current site.
     @objc public func showSiteSettings(_ sender: Any?) {
         guard let settings = factory.siteSettings, let url = tabs.active?.webView.url, SiteSettings.key(for: url) != nil else { return }

@@ -56,3 +56,56 @@ struct ExtensionsSettingsView: View {
         .padding(20)
     }
 }
+
+/// The toolbar's Extensions popover: each loaded extension (click to run its action), add, manage.
+@available(macOS 15.4, *)
+struct ExtensionsPopoverView: View {
+    @Bindable var manager: ExtensionManager
+    let close: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Extensions").font(.headline).padding(.horizontal, 6)
+            if manager.loaded.isEmpty {
+                Text(manager.installed.isEmpty ? "No extensions installed yet." : "Your extensions are turned off.")
+                    .font(.callout).foregroundStyle(.secondary).padding(.horizontal, 6).padding(.vertical, 4)
+            } else {
+                ForEach(manager.loaded) { loaded in
+                    Button {
+                        close()
+                        manager.performAction(loaded.id)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Group {
+                                if let icon = loaded.context.webExtension.actionIcon(for: CGSize(width: 18, height: 18)) ?? loaded.icon {
+                                    Image(nsImage: icon).resizable()
+                                } else {
+                                    Image(systemName: "puzzlepiece.extension").resizable().scaledToFit()
+                                }
+                            }
+                            .frame(width: 18, height: 18)
+                            Text(loaded.name).lineLimit(1)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 6).frame(height: 28)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            Divider()
+            Button {
+                close()
+                Task { await manager.install(presentingIn: NSApp.keyWindow) }
+            } label: { Label("Add Extension…", systemImage: "plus") }
+                .buttonStyle(.plain).padding(.horizontal, 6)
+            Button {
+                close()
+                (NSApp.delegate as? AppDelegate)?.showExtensionsSettings(nil)
+            } label: { Label("Manage Extensions…", systemImage: "gearshape") }
+                .buttonStyle(.plain).padding(.horizontal, 6)
+        }
+        .padding(10)
+        .frame(width: 260)
+    }
+}
