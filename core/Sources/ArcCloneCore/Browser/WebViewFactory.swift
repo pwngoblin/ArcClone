@@ -42,6 +42,8 @@ public final class WebViewFactory {
         config.preferences.isElementFullscreenEnabled = true
         config.preferences.javaScriptCanOpenWindowsAutomatically = false
         config.preferences.isFraudulentWebsiteWarningEnabled = true
+        // Pages that aren't visible (background tabs) have their timers and rendering suspended.
+        config.preferences.inactiveSchedulingPolicy = .suspend
         config.defaultWebpagePreferences.allowsContentJavaScript = true
         config.defaultWebpagePreferences.preferredContentMode = .desktop
 

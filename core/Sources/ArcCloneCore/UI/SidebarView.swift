@@ -288,10 +288,14 @@ private struct TabRow: View {
         HStack(spacing: 8) {
             ZStack {
                 FaviconView(url: tab.favicon ?? tab.url?.faviconGuess, size: 16)
+                    .opacity(tab.isSleeping ? 0.45 : 1)
+                    .saturation(tab.isSleeping ? 0 : 1)
                 if tab.isLoading { ProgressView().controlSize(.mini).scaleEffect(0.8) }
             }
             .frame(width: 18)
             Text(tab.title).lineLimit(1).truncationMode(.tail)
+                .foregroundStyle(tab.isSleeping ? .secondary : .primary)
+                .help(tab.isSleeping ? "Sleeping to save memory. Opens where you left off." : tab.title)
             Spacer(minLength: 0)
             if tab.inSplit {
                 Image(systemName: "rectangle.split.2x1").font(.system(size: 10)).foregroundStyle(.tint).help("In Split View")

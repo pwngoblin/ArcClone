@@ -14,6 +14,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     private(set) var adBlocker: AdBlocker!
     /// ExtensionManager on macOS 15.4+.
     private(set) var extensions: AnyObject?
+    private var memoryPressure: DispatchSourceMemoryPressure?
     private var historyWindow: HistoryWindowController?
     private let historyMenuDelegate = HistoryMenuDelegate()
     private var windows: [BrowserWindowController] = []
@@ -27,7 +28,21 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         Log.app.info("Resources at \(self.paths.root.path, privacy: .public)")
         NSApp.mainMenu = MainMenu.build()
         AppearanceStyle.applyAppAppearance()
+        watchMemoryPressure()
         Task { await launch() }
+    }
+
+    /// When macOS runs low on memory, unload every background tab that can sleep.
+    private func watchMemoryPressure() {
+        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        source.setEventHandler { [weak self] in
+            MainActor.assumeIsolated {
+                Log.app.info("Memory pressure: putting background tabs to sleep")
+                self?.windows.forEach { $0.sleepBackgroundTabs() }
+            }
+        }
+        source.resume()
+        memoryPressure = source
     }
 
     private func launch() async {

@@ -10,7 +10,8 @@ public struct AssistantConfiguration: Sendable, Equatable {
     public var maxContextChars = 24_000
     public var chunkChars = 12_000
     public var requestTimeout: TimeInterval = 300
-    public var keepAlive = "10m"
+    /// How long Ollama keeps the model in memory after a request (that memory is Ollama's, not ours).
+    public var keepAlive = "5m"
     /// SPKI SHA-256 pins (base64) the Ollama server must present; empty means system trust only.
     public var pinnedKeys: Set<String> = []
 
