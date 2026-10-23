@@ -99,9 +99,12 @@ enum FilterListConverter {
         return out
     }
 
-    private static func isSupportedSelector(_ selector: String) -> Bool {
+    static func isSupportedSelector(_ selector: String) -> Bool {
+        // WebKit builds `selector { display: none }`; braces, semicolons, at-rules or escapes in a
+        // selector could smuggle extra CSS (e.g. tracking backgrounds) into every page.
         !selector.isEmpty && !selector.contains(":-abp-") && !selector.contains(":has-text") && !selector.hasPrefix("+js")
             && !selector.contains(":style(") && selector.count < 500
+            && selector.rangeOfCharacter(from: CharacterSet(charactersIn: "{};@\\<>")) == nil && !selector.lowercased().contains("url(")
     }
 }
 

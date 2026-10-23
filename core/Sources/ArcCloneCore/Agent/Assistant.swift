@@ -174,7 +174,7 @@ public final class Assistant {
         for (index, chunk) in chunks.enumerated() {
             if Task.isCancelled { throw IPCError.cancelled }
             emit(.reading(requestID: requestID, kind: kind, part: index + 1, of: chunks.count))
-            let excerpt = "<excerpt part=\"\(index + 1)/\(chunks.count)\" kind=\"\(kind)\">\n\(chunk)\n</excerpt>\n\n\(Prompts.chunkNotes)"
+            let excerpt = "<excerpt part=\"\(index + 1)/\(chunks.count)\" kind=\"\(kind)\">\n\(Prompts.defang(chunk))\n</excerpt>\n\n\(Prompts.chunkNotes)"
             let result = try await ollama.chat(model: model, messages: [ChatMessage(.system, Prompts.condenseSystem), ChatMessage(.user, excerpt)],
                                                options: options)
             notes.append("Part \(index + 1)/\(chunks.count):\n\(result.content.trimmingCharacters(in: .whitespacesAndNewlines))")
