@@ -19,6 +19,7 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     private let splitController = NSSplitViewController()
     private let contentController = TabContentViewController()
     private var overlayHost: NSHostingView<CommandBarOverlay>?
+    private let windowToolbar = WindowToolbar()
     private var commandBarObservation: Task<Void, Never>?
     var onClose: (@MainActor (BrowserWindowController) -> Void)?
     var onSessionChange: (@MainActor () -> Void)?
@@ -37,13 +38,11 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1320, height: 860),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)
-        window.titleVisibility = .hidden
+        // Native unified toolbar: navigation over the sidebar, the page title over the content.
+        // Web content starts below it, so no part of a page sits under the title bar.
+        window.titleVisibility = .visible
         window.titlebarAppearsTransparent = true
-        // An empty unified toolbar makes the title bar 52pt tall, so the traffic lights sit centered
-        // in the sidebar's title row instead of crowding the navigation buttons.
-        let toolbar = NSToolbar(identifier: "ArcCloneWindow")
-        toolbar.showsBaselineSeparator = false
-        window.toolbar = toolbar
+        window.toolbar = windowToolbar.toolbar
         window.toolbarStyle = .unified
         window.isMovableByWindowBackground = false
         window.minSize = NSSize(width: 640, height: 420)
@@ -240,7 +239,7 @@ final class TabContentViewController: NSViewController {
         NSLayoutConstraint.activate([
             card.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 2),
             card.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -8),
-            card.topAnchor.constraint(equalTo: root.topAnchor, constant: 8),
+            card.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
             card.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -8),
         ])
         emptyLabel.textColor = .tertiaryLabelColor

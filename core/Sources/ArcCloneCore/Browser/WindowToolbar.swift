@@ -1,0 +1,51 @@
+import AppKit
+
+/// The window's native toolbar, Safari/Notes style: sidebar toggle and navigation over the sidebar,
+/// the page title and page controls over the content, split by a separator that follows the divider.
+@MainActor
+final class WindowToolbar: NSObject, NSToolbarDelegate {
+    static let back = NSToolbarItem.Identifier("ArcClone.back")
+    static let forward = NSToolbarItem.Identifier("ArcClone.forward")
+    static let reload = NSToolbarItem.Identifier("ArcClone.reload")
+    static let newTab = NSToolbarItem.Identifier("ArcClone.newTab")
+
+    let toolbar: NSToolbar
+
+    override init() {
+        toolbar = NSToolbar(identifier: "ArcCloneBrowserToolbar")
+        super.init()
+        toolbar.delegate = self
+        toolbar.displayMode = .iconOnly
+        toolbar.allowsUserCustomization = false
+    }
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.toggleSidebar, .flexibleSpace, Self.back, Self.forward, Self.reload, .sidebarTrackingSeparator, .flexibleSpace, Self.newTab]
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        toolbarDefaultItemIdentifiers(toolbar)
+    }
+
+    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        switch id {
+        case Self.back: return button(id, "Back", "chevron.left", #selector(BrowserWindowController.goBack(_:)))
+        case Self.forward: return button(id, "Forward", "chevron.right", #selector(BrowserWindowController.goForward(_:)))
+        case Self.reload: return button(id, "Reload", "arrow.clockwise", #selector(BrowserWindowController.reloadPage(_:)))
+        case Self.newTab: return button(id, "New Tab", "plus", #selector(BrowserWindowController.newTab(_:)))
+        default: return nil
+        }
+    }
+
+    /// Target nil: the action and its validation go through the responder chain to the window controller.
+    private func button(_ id: NSToolbarItem.Identifier, _ label: String, _ symbol: String, _ action: Selector) -> NSToolbarItem {
+        let item = NSToolbarItem(itemIdentifier: id)
+        item.label = label
+        item.toolTip = label
+        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+        item.action = action
+        item.isBordered = true
+        item.autovalidates = true
+        return item
+    }
+}
