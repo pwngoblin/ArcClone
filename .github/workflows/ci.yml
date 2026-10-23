@@ -35,7 +35,7 @@ jobs:
           swift --version
 
       - name: Test
-        run: make test-ui test-core
+        run: make check
 
       - name: Package and audit (scripts/verify-app.sh)
         run: make app

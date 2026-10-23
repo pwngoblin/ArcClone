@@ -104,7 +104,7 @@ jobs:
           swift --version
 
       - name: Test
-        run: make test-ui test-core
+        run: make check
 
       - name: Import signing certificate
         if: env.MACOS_CERTIFICATE_P12 != ''
