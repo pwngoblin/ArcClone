@@ -104,6 +104,37 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
         Haptics.perform(.alignment)
     }
 
+    // MARK: Split view
+
+    /// View → Split View → <layout>; the layout travels in the item's representedObject.
+    @objc public func splitView(_ sender: Any?) {
+        guard let raw = (sender as? NSMenuItem)?.representedObject as? String, let layout = SplitLayout(rawValue: raw) else { return }
+        if tabs.active == nil { tabs.create(url: nil) }
+        tabs.makeSplit(layout)
+    }
+
+    @objc public func exitSplitView(_ sender: Any?) {
+        tabs.exitSplit()
+        Haptics.perform(.generic)
+    }
+
+    /// The Split View submenu, shared by the View menu and the toolbar.
+    static func splitMenu() -> NSMenu {
+        let menu = NSMenu(title: "Split View")
+        for (index, layout) in SplitLayout.allCases.enumerated() {
+            let item = NSMenuItem(title: layout.title, action: #selector(splitView(_:)), keyEquivalent: "\(index + 1)")
+            item.keyEquivalentModifierMask = [.command, .control]
+            item.representedObject = layout.rawValue
+            item.image = NSImage(systemSymbolName: layout.symbol, accessibilityDescription: layout.title)
+            menu.addItem(item)
+        }
+        menu.addItem(.separator())
+        let exit = NSMenuItem(title: "Exit Split View", action: #selector(exitSplitView(_:)), keyEquivalent: "0")
+        exit.keyEquivalentModifierMask = [.command, .control]
+        menu.addItem(exit)
+        return menu
+    }
+
     /// Toolbar → Site Settings: a popover for the current site.
     @objc public func showSiteSettings(_ sender: Any?) {
         guard let settings = factory.siteSettings, let url = tabs.active?.webView.url, SiteSettings.key(for: url) != nil else { return }
@@ -160,6 +191,10 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
         case #selector(togglePinTab(_:)):
             item.title = tabs.active?.isPinned == true ? "Unpin Tab" : "Pin Tab"
             return tabs.active != nil
+        case #selector(exitSplitView(_:)): return tabs.split != nil
+        case #selector(splitView(_:)):
+            item.state = (item.representedObject as? String) == tabs.split?.layout.rawValue ? .on : .off
+            return true
         case #selector(selectTabByNumber(_:)): return item.tag == 9 ? !tabs.tabs.isEmpty : tabs.tabs.count >= item.tag
         default: return true
         }

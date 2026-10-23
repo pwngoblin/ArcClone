@@ -62,6 +62,8 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         tabs.tabDelegate = self
         tabs.onChange = { [weak self] in self?.scheduleSnapshot() }
         tabs.onActiveChange = { [weak self] tab in self?.showTab(tab) }
+        tabs.onSplitChange = { [weak self] in self?.showTab(self?.tabs.active) }
+        contentController.onFocus = { [weak self] id in self?.tabs.activate(id) }
         registerPageHandlers()
     }
 
@@ -143,7 +145,7 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     // MARK: Tab display
 
     private func showTab(_ tab: Tab?) {
-        contentController.display(tab?.webView)
+        contentController.display(active: tab, split: tabs.split) { [tabs] in tabs.tab($0) }
         window?.makeFirstResponder(tab?.webView)
         model.selection = tab?.lastSelection
     }
@@ -203,6 +205,7 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         onClose = nil
         onSessionChange = nil
         commandBarObservation?.cancel()
+        contentController.tearDown()
         model.assistant.detach()
         tabs.tabs.forEach { assistant.context.ingest(tabID: $0.id, type: "tab.closed", payload: .null) }
         tabs.closeAll()
@@ -223,54 +226,6 @@ extension BrowserWindowController: TabDelegate {
 
     public func tabRequestsClose(_ tab: Tab) {
         tabs.close(tab.id)
-    }
-}
-
-/// Right-hand pane: holds the active tab's web view inside a rounded, inset card.
-@MainActor
-final class TabContentViewController: NSViewController {
-    private let card = NSView()
-    private let emptyLabel = NSTextField(labelWithString: "Press ⌘T to open a tab")
-
-    override func loadView() {
-        let root = NSView()
-        card.wantsLayer = true
-        card.layer?.cornerRadius = 10
-        card.layer?.masksToBounds = true
-        card.layer?.borderWidth = 0.5
-        card.layer?.borderColor = NSColor.separatorColor.cgColor
-        card.translatesAutoresizingMaskIntoConstraints = false
-        root.addSubview(card)
-        NSLayoutConstraint.activate([
-            card.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 2),
-            card.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -8),
-            card.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
-            card.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -8),
-        ])
-        emptyLabel.textColor = .tertiaryLabelColor
-        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
-        root.addSubview(emptyLabel)
-        NSLayoutConstraint.activate([
-            emptyLabel.centerXAnchor.constraint(equalTo: root.centerXAnchor),
-            emptyLabel.centerYAnchor.constraint(equalTo: root.centerYAnchor),
-        ])
-        view = root
-    }
-
-    func display(_ webView: WKWebView?) {
-        _ = view
-        card.subviews.forEach { $0.removeFromSuperview() }
-        emptyLabel.isHidden = webView != nil
-        card.isHidden = webView == nil
-        guard let webView else { return }
-        webView.translatesAutoresizingMaskIntoConstraints = false
-        card.addSubview(webView)
-        NSLayoutConstraint.activate([
-            webView.leadingAnchor.constraint(equalTo: card.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: card.trailingAnchor),
-            webView.topAnchor.constraint(equalTo: card.topAnchor),
-            webView.bottomAnchor.constraint(equalTo: card.bottomAnchor),
-        ])
     }
 }
 
