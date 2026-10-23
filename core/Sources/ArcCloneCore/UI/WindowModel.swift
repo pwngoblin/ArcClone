@@ -11,7 +11,6 @@ public final class WindowModel {
         var url: URL?
         var favicon: URL?
         var isLoading: Bool
-        var progress: Double
         var isPinned: Bool
         var isYouTubeVideo: Bool
         var inSplit: Bool
@@ -98,7 +97,7 @@ public final class WindowModel {
     func refresh(from store: TabStore) {
         let items = store.visibleTabs.map { tab in
             TabItem(id: tab.id, title: tab.title.isEmpty ? (tab.url?.host ?? "New Tab") : tab.title, url: tab.url,
-                    favicon: tab.faviconURL, isLoading: tab.isLoading, progress: tab.progress, isPinned: tab.isPinned,
+                    favicon: tab.faviconURL, isLoading: tab.isLoading, isPinned: tab.isPinned,
                     isYouTubeVideo: tab.youtubeVideoID != nil, inSplit: store.split?.tabIDs.contains(tab.id) ?? false,
                     isSleeping: tab.isSleeping)
         }

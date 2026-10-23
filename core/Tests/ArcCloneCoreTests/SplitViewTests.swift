@@ -38,7 +38,7 @@ import Testing
 
 @Suite @MainActor struct SidebarSplitGroupingTests {
     func tab(_ title: String, pinned: Bool = false) -> WindowModel.TabItem {
-        .init(id: UUID(), title: title, url: nil, favicon: nil, isLoading: false, progress: 0, isPinned: pinned, isYouTubeVideo: false, inSplit: false)
+        .init(id: UUID(), title: title, url: nil, favicon: nil, isLoading: false, isPinned: pinned, isYouTubeVideo: false, inSplit: false)
     }
 
     @Test func splitMembersFoldIntoOneItemAtTheFirstMember() {

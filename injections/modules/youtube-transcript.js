@@ -237,5 +237,10 @@
   }
   announce();
   document.addEventListener("yt-navigate-finish", () => setTimeout(announce, 100));
-  setInterval(announce, 1500);
+  window.addEventListener("popstate", announce);
+  // Also nudged by native code on URL changes (no polling timer).
+  arc.register("youtube.recheck", () => {
+    announce();
+    return null;
+  });
 })();

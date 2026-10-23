@@ -52,11 +52,37 @@
     }
   }
 
-  const observer = new MutationObserver(handlePlayer);
+  // Watch only the player's class attribute ("ad-showing" toggles there). Observing YouTube's
+  // whole DOM would run this hundreds of times per second.
+  const playerObserver = new MutationObserver(handlePlayer);
+  let watchedPlayer = null;
+  let finder = null;
+
+  function attachToPlayer() {
+    const player = document.querySelector(".html5-video-player");
+    if (player === watchedPlayer) return !!player;
+    playerObserver.disconnect();
+    watchedPlayer = player;
+    if (!player) return false;
+    playerObserver.observe(player, { attributes: true, attributeFilter: ["class"] });
+    handlePlayer();
+    return true;
+  }
+
+  /// Until the player exists, look for it on DOM additions only; stop as soon as it's found.
+  function findPlayer() {
+    if (attachToPlayer() || finder) return;
+    finder = new MutationObserver(() => {
+      if (attachToPlayer()) { finder.disconnect(); finder = null; }
+    });
+    finder.observe(document.documentElement, { childList: true, subtree: true });
+  }
+
   function start() {
     setStyle(enabled);
-    observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
-    handlePlayer();
+    findPlayer();
+    // YouTube swaps players on some navigations.
+    document.addEventListener("yt-navigate-finish", findPlayer);
   }
 
   arc.register("adblock.configure", ({ enabled: on } = {}) => {

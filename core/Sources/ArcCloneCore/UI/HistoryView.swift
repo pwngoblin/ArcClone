@@ -105,9 +105,10 @@ struct HistoryView: View {
         NavigationSplitView {
             List(selection: $filter) {
                 Section {
+                    let counts = rangeCounts
                     ForEach([HistoryFilter.all, .today, .yesterday, .week, .month, .older], id: \.self) { item in
                         Label(item.title, systemImage: item.symbol)
-                            .badge(count(for: item))
+                            .badge(counts[item] ?? 0)
                             .tag(item)
                     }
                 }
@@ -185,7 +186,16 @@ struct HistoryView: View {
         }
     }
 
-    private func count(for filter: HistoryFilter) -> Int { history.visits.filter { filter.matches($0) }.count }
+    /// All range badges in one pass over the history instead of one pass per range.
+    private var rangeCounts: [HistoryFilter: Int] {
+        let ranges: [HistoryFilter] = [.today, .yesterday, .week, .month, .older]
+        var counts: [HistoryFilter: Int] = [.all: history.visits.count]
+        let now = Date()
+        for visit in history.visits {
+            for range in ranges where range.matches(visit, now: now) { counts[range, default: 0] += 1 }
+        }
+        return counts
+    }
 
     private func days(_ visits: [History.Visit]) -> [(day: Date, visits: [History.Visit])] {
         let calendar = Calendar.current
