@@ -16,15 +16,13 @@ VERSION="${VERSION:-$(cat "$ROOT/VERSION")}"
 BUILD_NUMBER="${BUILD_NUMBER:-1}"
 IDENTITY="${CODESIGN_IDENTITY:--}"
 
-[ -f "$ROOT/ui/dist/index.html" ] || { echo "ui/dist missing: run 'make ui' first" >&2; exit 1; }
-
 ARCH_FLAGS=()
 [ "${UNIVERSAL:-0}" = "1" ] && ARCH_FLAGS=(--arch arm64 --arch x86_64)
 (cd "$ROOT/core" && swift build -c release ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"})
 BIN="$(cd "$ROOT/core" && swift build -c release ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} --show-bin-path)/ArcClone"
 
 rm -rf "$OUT"
-mkdir -p "$OUT/Contents/MacOS" "$RES/ui"
+mkdir -p "$OUT/Contents/MacOS" "$RES"
 cp "$BIN" "$OUT/Contents/MacOS/ArcClone"
 EXE="$OUT/Contents/MacOS/ArcClone"
 # Drop every rpath except the OS Swift runtime: toolchain paths baked in by the linker are a
@@ -37,7 +35,6 @@ rm -rf "$ROOT/build/ArcClone.app.dSYM"
 dsymutil "$EXE" -o "$ROOT/build/ArcClone.app.dSYM" 2>/dev/null || echo "warning: dsymutil failed" >&2
 strip -rSTx "$EXE"
 cp -R "$ROOT/injections" "$RES/injections"
-cp -R "$ROOT/ui/dist" "$RES/ui/dist"
 find "$OUT" -name .DS_Store -delete
 
 ICONSET="$(mktemp -d)/AppIcon.iconset"

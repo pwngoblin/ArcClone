@@ -1,6 +1,4 @@
 .DS_Store
-node_modules/
-ui/dist/
 core/.build/
 core/.swiftpm/
 build/
