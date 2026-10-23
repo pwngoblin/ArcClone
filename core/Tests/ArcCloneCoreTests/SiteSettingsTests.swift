@@ -47,7 +47,7 @@ import Testing
         let keys = InMemoryKeyStore()
         let settings = SiteSettings(directory: dir, keys: keys)
         settings.update(url) { $0.zoom = 1.1 }
-        try await Task.sleep(for: .seconds(1.5))
+        await settings.flush()
         let raw = try Data(contentsOf: dir.appendingPathComponent("sites.sealed"))
         #expect(raw.range(of: Data("example.com".utf8)) == nil)
         let reloaded = SiteSettings(directory: dir, keys: keys)
