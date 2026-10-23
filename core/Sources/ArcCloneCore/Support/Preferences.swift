@@ -1,7 +1,7 @@
 import Foundation
 
 /// User settings stored in UserDefaults. Keys are shared with the SwiftUI settings window
-/// (`@AppStorage`) and `AgentService`, so changing one here changes both.
+/// (`@AppStorage`) and `AssistantConfiguration`, so changing one here changes both.
 public enum Preferences {
     public enum Key {
         public static let searchEngine = "SearchEngine"

@@ -89,8 +89,8 @@ struct AssistantSettingsView: View {
             TextField("Model:", text: $agentModel, prompt: Text("Bridge default"))
             LabeledContent("") {
                 VStack(alignment: .leading, spacing: 4) {
-                    Button("Restart Assistant", action: onApply)
-                    Text("The assistant runs locally through Ollama. Changes apply after a restart.")
+                    Button("Apply", action: onApply)
+                    Text("The assistant talks to Ollama on your Mac (or a host you trust). Remote hosts must use HTTPS.")
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }

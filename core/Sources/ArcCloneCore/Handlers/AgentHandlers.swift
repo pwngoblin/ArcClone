@@ -1,56 +1,61 @@
 import Foundation
 
-/// IPC routes linking the chrome's assistant panel to the agent bridge, enriched with page context
-/// gathered from the active tab's injections.
+/// IPC routes linking the chrome's assistant panel to the in-process `Assistant`, enriched with
+/// page context gathered from the active tab's injections.
 extension BrowserWindowController {
     func registerAgentHandlers() {
         let chromeOnly: Set<IPCSource.Kind> = [.chrome]
 
         router.on("agent.health", from: chromeOnly) { [weak self] _, _ in
             guard let self else { return .null }
-            return try await self.agent.client.call("bridge.health", [:], timeout: 15)
+            return await self.assistant.health()
         }
 
         router.on("agent.models", from: chromeOnly) { [weak self] _, p in
             guard let self else { return .null }
-            return try await self.agent.client.call("models.list", ["refresh": .bool(p["refresh"]?.bool ?? false)])
+            let models = try await self.assistant.models(refresh: p["refresh"]?.bool ?? false)
+            return ["models": try JSONValue.from(models)]
         }
 
         router.on("agent.restart", from: chromeOnly) { [weak self] _, _ in
-            self?.agent.restart()
+            self?.assistant.reconfigure(.fromPreferences())
             return .null
         }
 
         router.on("agent.cancel", from: chromeOnly) { [weak self] _, p in
             guard let self else { return .null }
-            return try await self.agent.client.call("agent.cancel", ["requestId": .string(try p.requiredString("requestId"))])
+            return ["cancelled": .bool(self.assistant.cancel(try p.requiredString("requestId")))]
         }
 
         // Free-form question, optionally grounded in the current page / video / selection.
         router.on("agent.ask", from: chromeOnly) { [weak self] _, p in
             guard let self else { return .null }
-            let prompt = try p.requiredString("prompt")
-            var messages = p["history"]?.array ?? []
-            messages.append(["role": "user", "content": .string(prompt)])
+            var messages = (try? p["history"]?.decode([ChatMessage].self)) ?? []
+            messages.append(ChatMessage(.user, try p.requiredString("prompt")))
             let context = await self.gatherContext(includePage: p["includePage"]?.bool ?? true,
                                                    includeSelection: p["includeSelection"]?.bool ?? true)
-            return try await self.startAgentTask("chat", requestID: p["requestId"]?.string, model: p["model"]?.string,
-                                                 extra: ["messages": .array(messages), "includeHistory": .bool(p["includeHistory"]?.bool ?? false)],
-                                                 context: context)
+            var request = self.makeRequest(.chat, p)
+            request.messages = messages
+            request.page = context.page
+            request.transcript = context.transcript
+            request.selection = context.selection
+            request.includeHistory = p["includeHistory"]?.bool ?? false
+            return try await self.startAssistant(request)
         }
 
         // Summarise whatever is in the active tab: a YouTube video via its transcript, else the page.
         router.on("agent.summarize", from: chromeOnly) { [weak self] _, p in
             guard let self, let tab = self.tabs.active else { throw IPCError.notFound("No active tab") }
-            let preferVideo = (p["source"]?.string ?? "auto") != "page"
-            if preferVideo, tab.youtubeVideoID != nil {
-                let transcript = try await tab.callInjection("youtube.transcript", ["lang": JSONValue(p["lang"]?.string)], timeout: 30)
-                return try await self.startAgentTask("summarize-video", requestID: p["requestId"]?.string, model: p["model"]?.string,
-                                                     extra: [:], context: ["transcript": transcript, "page": ["url": JSONValue(tab.url?.absoluteString), "title": .string(tab.title)]])
+            if (p["source"]?.string ?? "auto") != "page", tab.youtubeVideoID != nil {
+                var request = self.makeRequest(.summarizeVideo, p)
+                request.transcript = try await tab.callInjection("youtube.transcript", ["lang": JSONValue(p["lang"]?.string)], timeout: 30)
+                    .decode(Transcript.self)
+                request.page = PageContent(url: tab.url?.absoluteString, title: tab.title)
+                return try await self.startAssistant(request)
             }
-            let page = try await tab.callInjection("dom.extract", ["maxChars": 200000])
-            return try await self.startAgentTask("summarize", requestID: p["requestId"]?.string, model: p["model"]?.string,
-                                                 extra: [:], context: ["page": page])
+            var request = self.makeRequest(.summarize, p)
+            request.page = try await tab.callInjection("dom.extract", ["maxChars": 200000]).decode(PageContent.self)
+            return try await self.startAssistant(request)
         }
 
         router.on("agent.explainSelection", from: chromeOnly) { [weak self] _, p in
@@ -58,9 +63,10 @@ extension BrowserWindowController {
             guard let selection = p["text"]?.string ?? tab.lastSelection, !selection.isEmpty else {
                 throw IPCError.invalidParams("Nothing is selected")
             }
-            let page = (try? await tab.callInjection("dom.extract", ["maxChars": 20000])) ?? .null
-            return try await self.startAgentTask("explain-selection", requestID: p["requestId"]?.string, model: p["model"]?.string,
-                                                 extra: [:], context: ["page": page, "selection": .string(selection)])
+            var request = self.makeRequest(.explainSelection, p)
+            request.selection = selection
+            request.page = try? await tab.callInjection("dom.extract", ["maxChars": 20000]).decode(PageContent.self)
+            return try await self.startAssistant(request)
         }
 
         // Raw access for the UI's transcript viewer.
@@ -72,52 +78,45 @@ extension BrowserWindowController {
     }
 
     /// Collects page text, transcript and selection from the active tab. Failures degrade to less context.
-    func gatherContext(includePage: Bool, includeSelection: Bool) async -> [String: JSONValue] {
-        guard let tab = tabs.active else { return [:] }
-        var context: [String: JSONValue] = [:]
+    func gatherContext(includePage: Bool, includeSelection: Bool) async -> (page: PageContent?, transcript: Transcript?, selection: String?) {
+        guard let tab = tabs.active else { return (nil, nil, nil) }
+        var page: PageContent?
+        var transcript: Transcript?
         if includePage, tab.url?.scheme == "http" || tab.url?.scheme == "https" {
-            if tab.youtubeVideoID != nil, let transcript = try? await tab.callInjection("youtube.transcript", [:], timeout: 30) {
-                context["transcript"] = transcript
+            if tab.youtubeVideoID != nil {
+                transcript = try? await tab.callInjection("youtube.transcript", [:], timeout: 30).decode(Transcript.self)
             }
             do {
-                context["page"] = try await tab.callInjection("dom.extract", ["maxChars": 120000])
+                page = try await tab.callInjection("dom.extract", ["maxChars": 120000]).decode(PageContent.self)
             } catch {
                 Log.agent.info("Page extraction failed: \(String(describing: error), privacy: .public)")
-                context["page"] = ["url": JSONValue(tab.url?.absoluteString), "title": .string(tab.title), "text": ""]
+                page = PageContent(url: tab.url?.absoluteString, title: tab.title, text: "")
             }
         }
-        if includeSelection, let selection = tab.lastSelection { context["selection"] = .string(selection) }
-        return context
+        return (page, transcript, includeSelection ? tab.lastSelection : nil)
     }
 
-    func startAgentTask(_ task: String, requestID: String?, model: String?, extra: [String: JSONValue],
-                        context: [String: JSONValue]) async throws -> JSONValue {
-        // Track the id before the call: stream notifications can arrive before the reply resolves.
-        let id = requestID ?? UUID().uuidString
-        ownedRequests.insert(id)
-        var params: [String: JSONValue] = ["task": .string(task), "requestId": .string(id)]
-        if let model, !model.isEmpty { params["model"] = .string(model) }
-        if let tabID = tabs.activeID { params["tabId"] = .string(tabID.uuidString) }
-        params.merge(context) { _, new in new }
-        params.merge(extra) { _, new in new }
+    private func makeRequest(_ task: AssistantTask, _ p: JSONValue) -> AssistantRequest {
+        AssistantRequest(task: task, requestID: p["requestId"]?.string ?? UUID().uuidString, tabID: tabs.activeID,
+                         model: p["model"]?.string)
+    }
+
+    private func startAssistant(_ request: AssistantRequest) async throws -> JSONValue {
+        // Track the id before starting: stream events can arrive before `start` returns.
+        ownedRequests.insert(request.requestID)
         do {
-            return try await agent.client.call("agent.run", .object(params))
+            let started = try await assistant.start(request)
+            return ["requestId": .string(started.requestID), "model": .string(started.model), "task": .string(request.task.rawValue)]
         } catch {
-            ownedRequests.remove(id)
+            ownedRequests.remove(request.requestID)
             throw error
         }
     }
 
-    func handleAgentNotification(_ method: String, _ params: JSONValue) {
-        if method == "bridge.restarted" {
-            for id in ownedRequests {
-                chrome.events.send("agent.error", ["requestId": .string(id), "code": "bridge_restarted", "message": "The agent bridge restarted"])
-            }
-            ownedRequests.removeAll()
-            return
-        }
-        guard method.hasPrefix("agent."), let id = params["requestId"]?.string, ownedRequests.contains(id) else { return }
-        chrome.events.send(method, params)
-        if method == "agent.done" || method == "agent.error" { ownedRequests.remove(id) }
+    func handleAssistantEvent(_ event: AssistantEvent) {
+        guard ownedRequests.contains(event.requestID) else { return }
+        let (type, payload) = event.json
+        chrome.events.send(type, payload)
+        if event.isTerminal { ownedRequests.remove(event.requestID) }
     }
 }

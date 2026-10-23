@@ -142,30 +142,6 @@ private let repoRoot = URL(fileURLWithPath: #filePath)
     }
 }
 
-@Suite @MainActor struct AgentBridgeIntegrationTests {
-    /// Launches the real Node bridge through ManagedProcess and talks JSON-RPC to it.
-    @Test func healthRoundTripThroughRealBridge() async throws {
-        guard Executables.find("node") != nil else { return }
-        let client = AgentBridgeClient(paths: AppPaths(root: repoRoot), environment: ["OLLAMA_HOST": "http://127.0.0.1:1", "ARC_AGENT_LOG": "error"])
-        client.start()
-        defer { client.stop() }
-
-        for _ in 0..<100 where client.status != .ready { try await Task.sleep(for: .milliseconds(50)) }
-        #expect(client.status == .ready)
-
-        let health = try await client.call("bridge.health", [:], timeout: 10)
-        #expect(health["ollama"]?["reachable"]?.bool == false)
-        #expect(health["bridge"]?["pid"]?.int != nil)
-
-        do {
-            _ = try await client.call("no.such.method")
-            Issue.record("expected an error")
-        } catch let error as IPCError {
-            #expect(error.code == "unknown_method")
-        }
-    }
-}
-
 @Suite struct SecurityHardeningTests {
     @Test func packagedBuildsIgnoreResourceOverrides() {
         let bundle = URL(fileURLWithPath: "/Applications/ArcClone.app/Contents/Resources")
@@ -173,22 +149,6 @@ private let repoRoot = URL(fileURLWithPath: #filePath)
         #expect(paths.root.path == "/Applications/ArcClone.app/Contents/Resources/ArcClone")
         // Development builds still honour the override.
         #expect(AppPaths.resolve(environment: ["ARCCLONE_ROOT": repoRoot.path], packagedResources: nil).root == AppPaths(root: repoRoot).root)
-    }
-
-    @Test func packagedBuildsIgnoreExecutableOverrides() {
-        let planted = ["ARCCLONE_ENV": "/bin/sh", "PATH": "/tmp/planted"]
-        #expect(Executables.find("env", environment: planted, allowOverrides: true)?.path == "/bin/sh")
-        #expect(Executables.find("env", environment: planted, allowOverrides: false)?.path == "/usr/bin/env")
-    }
-
-    @Test func childProcessesGetMinimalEnvironment() {
-        let parent = ["HOME": "/Users/x", "NODE_OPTIONS": "--require /tmp/evil.js", "DYLD_INSERT_LIBRARIES": "/tmp/evil.dylib",
-                      "PATH": "/tmp/planted:/usr/bin", "OLLAMA_HOST": "http://evil.test"]
-        let env = ManagedProcess.childEnvironment(parent: parent, spec: ["ARC_AGENT_LOG": "error"])
-        #expect(env["HOME"] == "/Users/x")
-        #expect(env["NODE_OPTIONS"] == nil && env["DYLD_INSERT_LIBRARIES"] == nil && env["OLLAMA_HOST"] == nil)
-        #expect(env["PATH"] == "/usr/bin:/bin:/usr/sbin:/sbin")
-        #expect(env["ARC_AGENT_LOG"] == "error")
     }
 
     @Test func chromeCSPCoversDirectivesDefaultSrcMisses() {

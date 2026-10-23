@@ -11,7 +11,7 @@ extension BrowserWindowController {
             DispatchQueue.main.async { MainActor.assumeIsolated { self.chrome.events.markReady() } }
             return [
                 "state": self.stateSnapshot,
-                "agent": self.agent.client.status.json,
+                "agent": ["state": "ready"],
                 "selection": JSONValue(self.tabs.active?.lastSelection),
                 "platform": "macos",
                 "version": .string(AppInfo.version),
