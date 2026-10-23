@@ -33,6 +33,8 @@ enum SelfTest {
             let titled = await waitUntil(10) {
                 tab.title == "ArcClone Self Test" && tab.faviconURL != nil && window.model.tabs.contains { $0.title == "ArcClone Self Test" }
             }
+            check("history recorded", window.history?.visits.first?.url.host == "selftest.arcclone.test",
+                  JSONValue(window.history?.visits.first?.url.absoluteString))
             check("page.didChange event", titled, ["title": .string(tab.title), "favicon": JSONValue(tab.faviconURL?.absoluteString)])
 
             do {

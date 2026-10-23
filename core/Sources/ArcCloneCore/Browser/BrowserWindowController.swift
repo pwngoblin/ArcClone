@@ -9,6 +9,8 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     public let router = IPCRouter()
     public let tabs: TabStore
     let assistant: Assistant
+    /// nil for private windows: they never record history.
+    let history: History?
     let model: WindowModel
     var urlResolver: URLResolver { Preferences.urlResolver }
     let factory: WebViewFactory
@@ -24,8 +26,9 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     /// Private windows use their own non-persistent data store, are never saved, and never feed the assistant.
     public let isPrivate: Bool
 
-    public init(factory: WebViewFactory, assistant: Assistant, isPrivate: Bool = false) {
+    public init(factory: WebViewFactory, assistant: Assistant, history: History?, isPrivate: Bool = false) {
         self.isPrivate = isPrivate
+        self.history = isPrivate ? nil : history
         self.factory = factory
         self.assistant = assistant
         self.tabs = TabStore(factory: factory, router: router)

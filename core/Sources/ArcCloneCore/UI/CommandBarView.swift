@@ -44,12 +44,10 @@ final class CommandBarModel: Identifiable {
         let tabs = window.tabs.filter { $0.id != window.activeID || newTab }
             .filter { $0.title.lowercased().contains(needle) || ($0.url?.absoluteString.lowercased().contains(needle) ?? false) }
         out += tabs.prefix(4).map { .tab(id: $0.id, title: $0.title, url: $0.url) }
-        if !window.isPrivate, let history = window.controller?.assistant.context.recentHistory(limit: 100) {
-            var seen = Set(out.compactMap { if case .tab(_, _, let url) = $0 { url?.absoluteString } else { nil } })
-            for visit in history.reversed() where seen.count < 12 {
-                guard visit.title.lowercased().contains(needle) || visit.url.lowercased().contains(needle),
-                      let url = URL(string: visit.url), seen.insert(visit.url).inserted else { continue }
-                out.append(.history(title: visit.title.isEmpty ? visit.url : visit.title, url: url))
+        if let history = window.controller?.history {
+            let open = Set(out.compactMap { if case .tab(_, _, let url) = $0 { url } else { nil } })
+            for visit in history.search(q, limit: 12) where !open.contains(visit.url) {
+                out.append(.history(title: visit.title.isEmpty ? visit.url.absoluteString : visit.title, url: visit.url))
                 if out.count >= 9 { break }
             }
         }

@@ -10,6 +10,8 @@ public enum Preferences {
         public static let agentModel = "AgentModel"
         /// Comma-separated base64 SHA-256 SPKI pins for a remote (HTTPS) Ollama.
         public static let ollamaPins = "OllamaPinnedKeys"
+        /// Days of browsing history to keep; 0 keeps everything.
+        public static let historyRetentionDays = "HistoryRetentionDays"
     }
 
     public enum SearchEngine: String, CaseIterable, Identifiable, Sendable {

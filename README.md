@@ -32,6 +32,7 @@ Browsing works without Ollama. Only the assistant needs it.
 | ⌘[ / ⌘] | Back / forward |
 | ⌘F, ⌘G, ⇧⌘G | Find, next, previous |
 | ⌘P | Print |
+| ⌘Y | History |
 | ⌘, | Settings |
 
 Under **Settings** you can choose a search engine and homepage, make ArcClone your default browser, and set the Ollama host and model.
@@ -41,6 +42,7 @@ Under **Settings** you can choose a search engine and homepage, make ArcClone yo
 - Standard AppKit menus: Services, Spelling and Grammar, Substitutions, Speech, Dictation, Emoji & Symbols, and a searchable Help menu
 - A native SwiftUI sidebar with system vibrancy, drag-to-reorder with haptic feedback, and tab context menus
 - A centered command bar (⌘T / ⌘L) for URLs, searches, open tabs and history
+- Browsing history (⌘Y), encrypted on disk, searchable, grouped by day, with clearing by time range; private windows are never recorded
 - A toolbar-style Settings window built with SwiftUI
 - Can be set as the default browser, and opens `http`/`https` links and `.html` files
 - Handoff: continue the active tab in Safari on your iPhone or iPad
