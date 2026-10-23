@@ -11,6 +11,9 @@ public final class WebViewFactory {
     /// Private windows apply site settings but never record changes (that would reveal the site).
     public let savesSiteChanges: Bool
     public let adBlocker: AdBlocker?
+    /// WKWebExtensionController on macOS 15.4+ (typed loosely so the app still runs on macOS 14).
+    /// nil for private windows: extensions never run there.
+    public var extensionController: AnyObject?
     /// Web Inspector is a development tool: release builds don't let it attach to tabs or the chrome.
     #if DEBUG
     public var inspectable = true
@@ -42,6 +45,9 @@ public final class WebViewFactory {
         config.defaultWebpagePreferences.allowsContentJavaScript = true
         config.defaultWebpagePreferences.preferredContentMode = .desktop
 
+        if #available(macOS 15.4, *), let extensions = extensionController as? WKWebExtensionController {
+            config.webExtensionController = extensions
+        }
         let controller = WKUserContentController()
         registry.install(into: controller)
         bridge.attach(to: controller)

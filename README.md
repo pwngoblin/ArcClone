@@ -46,6 +46,7 @@ Under **Settings** you can choose a search engine and homepage, make ArcClone yo
 - A native SwiftUI sidebar with system vibrancy, drag-to-reorder with haptic feedback, and tab context menus
 - A centered command bar (⌘T / ⌘L) for URLs, searches, open tabs and history
 - Built-in ad and tracker blocking (WebKit content rules), optional EasyList + EasyPrivacy, YouTube ad skipping, and a per-site allow switch in the toolbar
+- Web extensions (macOS 15.4+): Chrome/Firefox/Safari WebExtensions from a folder or .zip, permissions approved at install, never in private windows
 - Browsing history (⌘Y), encrypted on disk, searchable, grouped by day, with clearing by time range; private windows are never recorded
 - A toolbar-style Settings window built with SwiftUI
 - Can be set as the default browser, and opens `http`/`https` links and `.html` files

@@ -51,6 +51,10 @@ public final class TabStore {
 
     public var onChange: (@MainActor () -> Void)?
     public var onActiveChange: (@MainActor (Tab?) -> Void)?
+    /// Tab lifecycle, for the web extension APIs.
+    public var onTabAdded: (@MainActor (Tab) -> Void)?
+    public var onTabRemoved: (@MainActor (Tab) -> Void)?
+    public var onActiveTabSwitched: (@MainActor (_ new: Tab?, _ previous: Tab?) -> Void)?
     public weak var tabDelegate: TabDelegate?
 
     private let factory: WebViewFactory
@@ -83,6 +87,7 @@ public final class TabStore {
             index = tabs.count
         }
         tabs.insert(tab, at: index)
+        onTabAdded?(tab)
         if activate || activeID == nil { setActive(tab.id) } else { onChange?() }
         return tab
     }
@@ -95,6 +100,7 @@ public final class TabStore {
             recentlyClosed.append(ClosedTab(url: url, pinned: tab.isPinned, index: index))
             if recentlyClosed.count > maxRecentlyClosed { recentlyClosed.removeFirst() }
         }
+        onTabRemoved?(tab)
         tab.tearDown()
         if activeID == id {
             // Arc-like: fall back to the most recently used remaining tab in this space.
@@ -219,7 +225,9 @@ public final class TabStore {
 
     private func setActive(_ id: UUID?) {
         let changed = activeID != id
+        let previous = active
         activeID = id
+        if changed { onActiveTabSwitched?(active, previous) }
         active?.markActivated()
         if changed { onActiveChange?(active) }
         onChange?()

@@ -67,9 +67,13 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         tabs.onActiveChange = { [weak self] tab in self?.showTab(tab) }
         tabs.onSplitChange = { [weak self] in self?.showTab(self?.tabs.active) }
         tabs.onSpaceChange = { [weak self] forward in self?.model.spaceForward = forward }
+        tabs.onTabAdded = { [weak self] tab in self?.extensionsTabOpened(tab) }
+        tabs.onTabRemoved = { [weak self] tab in self?.extensionsTabClosed(tab, windowIsClosing: false) }
+        tabs.onActiveTabSwitched = { [weak self] new, previous in self?.extensionsTabActivated(new, previous: previous) }
         contentController.onFocus = { [weak self] id in self?.tabs.activate(id) }
         registerPageHandlers()
         if !isPrivate { installSpaceSwipe() }
+        if let extensionController { registerWithExtensions(extensionController) }
     }
 
     /// Two-finger horizontal swipes over the sidebar switch spaces (left: next, right: previous).
@@ -231,10 +235,13 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
 
     public func windowDidBecomeKey(_ notification: Notification) {
         updateHandoff()
+        extensionsWindowFocused()
     }
 
     public func windowWillClose(_ notification: Notification) {
         onClose?(self) // owner persists the session while the tabs still exist
+        extensionsWindowClosed()
+        tabs.onTabRemoved = nil
         browsingActivity?.invalidate()
         onClose = nil
         onSessionChange = nil
@@ -252,6 +259,7 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
 extension BrowserWindowController: TabDelegate {
     public func tabDidChange(_ tab: Tab) {
         scheduleSnapshot()
+        extensionsTabChanged(tab)
     }
 
     public func tab(_ tab: Tab, requestsNewTabWith request: URLRequest, inBackground: Bool) {

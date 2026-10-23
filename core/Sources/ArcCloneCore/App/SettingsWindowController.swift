@@ -4,7 +4,7 @@ import SwiftUI
 /// Settings… (⌘,): a toolbar-style preferences window with SwiftUI panes, like the system apps.
 @MainActor
 final class SettingsWindowController: NSWindowController {
-    init(siteSettings: SiteSettings, adBlocker: AdBlocker, clearBrowsingData: @escaping @MainActor () -> Void,
+    init(siteSettings: SiteSettings, adBlocker: AdBlocker, extensions: AnyObject?, clearBrowsingData: @escaping @MainActor () -> Void,
          onAgentSettingsChanged: @escaping @MainActor () -> Void) {
         let tabs = NSTabViewController()
         tabs.tabStyle = .toolbar
@@ -13,6 +13,9 @@ final class SettingsWindowController: NSWindowController {
         tabs.addTabViewItem(Self.pane("Appearance", symbol: "paintpalette", AppearanceSettingsView()))
         tabs.addTabViewItem(Self.pane("Websites", symbol: "globe", WebsitesSettingsView(settings: siteSettings)))
         tabs.addTabViewItem(Self.pane("Privacy", symbol: "hand.raised", PrivacySettingsView(adBlocker: adBlocker, clearBrowsingData: clearBrowsingData)))
+        if #available(macOS 15.4, *), let manager = extensions as? ExtensionManager {
+            tabs.addTabViewItem(Self.pane("Extensions", symbol: "puzzlepiece.extension", ExtensionsSettingsView(manager: manager)))
+        }
         tabs.addTabViewItem(Self.pane("Assistant", symbol: "sparkles", AssistantSettingsView(onApply: onAgentSettingsChanged)))
 
         let window = NSWindow(contentViewController: tabs)
@@ -32,6 +35,12 @@ final class SettingsWindowController: NSWindowController {
         item.label = title
         item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
         return item
+    }
+
+    func select(pane label: String) {
+        guard let tabs = contentViewController as? NSTabViewController,
+              let index = tabs.tabViewItems.firstIndex(where: { $0.label == label }) else { return }
+        tabs.selectedTabViewItemIndex = index
     }
 
     func present() {
