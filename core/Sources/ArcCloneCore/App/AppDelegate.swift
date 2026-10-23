@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 import WebKit
 
 @MainActor
@@ -18,6 +19,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         paths = AppPaths.resolve()
         Log.app.info("Resources at \(self.paths.root.path, privacy: .public)")
         NSApp.mainMenu = MainMenu.build()
+        Task { await launch() }
+    }
+
+    private func launch() async {
+        // Packaged builds refuse to run modified code or resources (e.g. edited injection scripts).
+        if AppInfo.isPackaged, let problem = await CodeIntegrity.verify(bundleAt: Bundle.main.bundleURL) {
+            let alert = NSAlert()
+            alert.alertStyle = .critical
+            alert.messageText = "ArcClone has been modified and can't be opened"
+            alert.informativeText = "\(problem)\n\nDelete this copy and reinstall ArcClone from the official release."
+            alert.runModal()
+            NSApp.terminate(nil)
+            return
+        }
 
         do {
             registry = try ScriptRegistry(manifestURL: paths.injectionManifest)
@@ -40,7 +55,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
             return
         }
         let args = ProcessInfo.processInfo.arguments.dropFirst().filter { !$0.hasPrefix("-") }
-        if let session = sessionStore.load(), !session.tabs.isEmpty {
+        if let session = await sessionStore.load(), !session.tabs.isEmpty {
             controller.tabs.restore(session)
         }
         for arg in args {
@@ -53,9 +68,32 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         NSApp.activate()
     }
 
-    public func applicationWillTerminate(_ notification: Notification) {
-        saveSession()
+    /// The encrypted session save is async, so quitting waits for it.
+    public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         assistant?.cancelAll()
+        guard let primary = primaryWindow, let sessionStore else { return .terminateNow }
+        let session = primary.tabs.session
+        Task {
+            await sessionStore.save(session)
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
+    @objc public func clearBrowsingData(_ sender: Any?) {
+        let alert = NSAlert()
+        alert.messageText = "Clear all browsing data?"
+        alert.informativeText = "This removes cookies, caches, site storage, the saved session and the assistant's history. Open tabs stay open, and you'll be signed out of websites."
+        alert.addButton(withTitle: "Clear")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        Task {
+            await factory.dataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
+            await sessionStore.clear()
+            assistant.context.reset()
+            windows.forEach { $0.tabs.clearRecentlyClosed() }
+        }
     }
 
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -71,8 +109,39 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     }
 
     public func application(_ application: NSApplication, open urls: [URL]) {
-        let target = windows.first ?? makeWindow()
-        urls.forEach { target.tabs.create(url: $0) }
+        let target = primaryWindow ?? makeWindow()
+        for url in urls {
+            if url.isFileURL { target.tabs.openFile(url) } else { target.tabs.create(url: url) }
+        }
+        target.showWindow(nil)
+    }
+
+    /// The saved session belongs to the first regular (non-private) window.
+    private var primaryWindow: BrowserWindowController? { windows.first { !$0.isPrivate } }
+
+    func openInNewWindow(_ url: URL, isPrivate: Bool) {
+        let controller = makeWindow(isPrivate: isPrivate)
+        controller.tabs.create(url: url)
+        controller.showWindowCentered()
+    }
+
+    @objc public func newPrivateWindow(_ sender: Any?) {
+        let controller = makeWindow(isPrivate: true)
+        controller.tabs.create(url: nil)
+        controller.showWindowCentered()
+        controller.newTab(nil)
+    }
+
+    /// File > Open File…: the panel grants sandbox access to exactly the chosen files.
+    @objc public func openDocument(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.html, UTType("public.xhtml") ?? .html, .webArchive, .pdf, .plainText, .svg, .image]
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.message = "Choose files to open in ArcClone"
+        guard panel.runModal() == .OK else { return }
+        let target = (NSApp.keyWindow?.windowController as? BrowserWindowController) ?? primaryWindow ?? makeWindow()
+        panel.urls.forEach { target.tabs.openFile($0) }
         target.showWindow(nil)
     }
 
@@ -100,11 +169,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         NSWorkspace.shared.open(AppInfo.helpURL)
     }
 
-    private func makeWindow() -> BrowserWindowController {
-        let controller = BrowserWindowController(factory: factory, assistant: assistant, paths: paths)
+    private func makeWindow(isPrivate: Bool = false) -> BrowserWindowController {
+        // Each private window gets its own in-memory data store: no cookies or caches touch disk,
+        // and private windows can't see each other's sessions.
+        let factory = isPrivate ? WebViewFactory(registry: registry, dataStore: .nonPersistent()) : self.factory!
+        let controller = BrowserWindowController(factory: factory, assistant: assistant, isPrivate: isPrivate)
         controller.onClose = { [weak self] closed in
             guard let self else { return }
-            if self.windows.first === closed { self.sessionStore.save(closed.tabs.session) }
+            if self.primaryWindow === closed {
+                let session = closed.tabs.session
+                Task { await self.sessionStore.save(session) }
+            }
             self.windows.removeAll { $0 === closed }
         }
         controller.onSessionChange = { [weak self] in self?.scheduleSave() }
@@ -116,16 +191,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     private func scheduleSave() {
         guard !saveScheduled else { return }
         saveScheduled = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-            MainActor.assumeIsolated {
-                self?.saveScheduled = false
-                self?.saveSession()
-            }
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard let self else { return }
+            self.saveScheduled = false
+            guard let primary = self.primaryWindow, let sessionStore = self.sessionStore else { return }
+            await sessionStore.save(primary.tabs.session)
         }
-    }
-
-    private func saveSession() {
-        guard let primary = windows.first, let sessionStore else { return }
-        sessionStore.save(primary.tabs.session)
     }
 }

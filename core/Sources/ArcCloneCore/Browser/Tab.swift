@@ -30,6 +30,10 @@ public final class Tab: NSObject {
     private var observations: [NSKeyValueObservation] = []
     private var crashTimes: [Date] = []
     private var pendingURL: URL?
+    /// A local file this tab holds sandbox access to (from a security-scoped bookmark or Open panel).
+    private var securityScopedURL: URL?
+    /// The original http:// URL while its HTTPS-First upgrade is loading.
+    private var upgradedFrom: URL?
     private var isDiscarded = false
 
     public init(id: UUID = UUID(), factory: WebViewFactory, router: IPCRouter, url: URL?, pinned: Bool = false) {
@@ -40,7 +44,10 @@ public final class Tab: NSObject {
         self.bridge = ScriptMessageBridge(name: ScriptRegistry.messageHandlerName,
                                           contentWorld: factory.registry.contentWorld,
                                           router: router) { message in
-            .page(tabID: tabID, isMainFrame: message.frameInfo.isMainFrame, url: message.frameInfo.request.url)
+            // The origin comes from WebKit's view of the frame, not from anything the page says.
+            let origin = message.frameInfo.securityOrigin
+            return .page(tabID: tabID, isMainFrame: message.frameInfo.isMainFrame,
+                         url: IPCSource.originURL(protocol: origin.protocol, host: origin.host, port: origin.port))
         }
         self.webView = factory.makeWebView(bridge: bridge)
         self.url = url
@@ -53,6 +60,8 @@ public final class Tab: NSObject {
 
     /// Breaks the WKUserContentController -> bridge retain and stops the page.
     public func tearDown() {
+        securityScopedURL?.stopAccessingSecurityScopedResource()
+        securityScopedURL = nil
         observations.removeAll()
         bridge.detach(from: webView.configuration.userContentController)
         webView.stopLoading()
@@ -65,7 +74,8 @@ public final class Tab: NSObject {
 
     public func load(_ url: URL) {
         if url.isFileURL {
-            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+            // Least privilege: WebContent may read this file only, not its whole folder.
+            webView.loadFileURL(url, allowingReadAccessTo: url)
         } else {
             webView.load(URLRequest(url: url))
         }
@@ -98,7 +108,8 @@ public final class Tab: NSObject {
                     continuation.resume(throwing: IPCError("injection_failed", error.localizedDescription))
                 }
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
+            Task {
+                try? await Task.sleep(for: .seconds(timeout))
                 guard gate.open() else { return }
                 continuation.resume(throwing: IPCError("timeout", "\(name) timed out"))
             }
@@ -111,11 +122,24 @@ public final class Tab: NSObject {
 
     // MARK: Page events (page -> native), applied by the window's page handlers
 
-    func applyMetadata(_ payload: JSONValue) {
-        if let s = payload["favicon"]?.string, let u = URL(string: s) { faviconURL = u }
-        themeColor = payload["themeColor"]?.string
-        if let t = payload["title"]?.string, !t.isEmpty, t != title { title = t }
+    func applyMetadata(_ metadata: PagePayload.Metadata) {
+        if let favicon = metadata.favicon { faviconURL = favicon }
+        themeColor = metadata.themeColor
+        if let t = metadata.title, t != title { title = t }
         notify()
+    }
+
+    /// Keeps sandbox access to a user-chosen file for as long as the tab shows it.
+    func holdSecurityScope(_ url: URL) {
+        securityScopedURL?.stopAccessingSecurityScopedResource()
+        securityScopedURL = url.startAccessingSecurityScopedResource() ? url : nil
+    }
+
+    /// Read-only, app-scoped bookmark so the file can be reopened after relaunch.
+    var fileBookmark: Data? {
+        guard let url, url.isFileURL else { return nil }
+        return try? url.bookmarkData(options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
+                                     includingResourceValuesForKeys: nil, relativeTo: nil)
     }
 
     func applySelection(_ text: String?) {
@@ -183,6 +207,11 @@ public final class Tab: NSObject {
     private func showError(_ error: Error, for failingURL: URL?) {
         let nsError = error as NSError
         if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled { return }
+        if let original = upgradedFrom {
+            upgradedFrom = nil
+            offerHTTPFallback(to: original, error: nsError)
+            return
+        }
         if nsError.domain == "WebKitErrorDomain" && (nsError.code == 102 || nsError.code == 204) { return } // policy change / plug-in handled
         let target = failingURL ?? (nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL)
         webView.loadHTMLString(ErrorPage.html(title: "Can't open this page",
@@ -205,6 +234,20 @@ extension Tab: WKNavigationDelegate {
                           inBackground: !navigationAction.modifierFlags.contains(.shift))
             return (.cancel, preferences)
         }
+        if let url = navigationAction.request.url, navigationAction.targetFrame?.isMainFrame ?? true,
+           (navigationAction.request.httpMethod ?? "GET") == "GET", navigationAction.navigationType != .backForward,
+           url.scheme?.lowercased() == "http", let host = url.host?.lowercased() {
+            if let original = upgradedFrom, original.host?.lowercased() == host {
+                // The HTTPS endpoint itself redirects to HTTP: the site insists, so stop upgrading it.
+                Log.web.info("HTTPS-First: site redirects back to HTTP")
+                HTTPSFirst.allowedHTTPHosts.insert(host)
+                upgradedFrom = nil
+            } else if let secure = HTTPSFirst.upgrade(url) {
+                upgradedFrom = url
+                Task { [weak self] in self?.webView.load(URLRequest(url: secure)) }
+                return (.cancel, preferences)
+            }
+        }
         if let url = navigationAction.request.url, Self.opensExternally(url) {
             // mailto:, zoommtg:, etc. go to another app, but only after the user agrees,
             // and never on behalf of a subframe (ads, embeds).
@@ -212,6 +255,31 @@ extension Tab: WKNavigationDelegate {
             return (.cancel, preferences)
         }
         return (.allow, preferences)
+    }
+
+    /// The HTTPS-First upgrade failed: explain the risk and let the user continue over HTTP.
+    private func offerHTTPFallback(to url: URL, error: NSError) {
+        guard let host = url.host?.lowercased() else { return }
+        let alert = NSAlert()
+        alert.messageText = "“\(host)” doesn't support a secure connection"
+        alert.informativeText = "Anyone on your network could see or change what you send to and receive from this site over HTTP.\n\n\(error.localizedDescription)"
+        alert.addButton(withTitle: "Continue to HTTP")
+        alert.addButton(withTitle: "Cancel")
+        let finish: @MainActor (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard let self else { return }
+            if response == .alertFirstButtonReturn {
+                HTTPSFirst.allowedHTTPHosts.insert(host)
+                self.load(url)
+            } else {
+                self.webView.loadHTMLString(ErrorPage.html(title: "Secure connection unavailable", message: error.localizedDescription, url: url),
+                                            baseURL: nil)
+            }
+        }
+        if let window = webView.window, window.attachedSheet == nil {
+            alert.beginSheetModal(for: window) { response in MainActor.assumeIsolated { finish(response) } }
+        } else {
+            finish(alert.runModal())
+        }
     }
 
     nonisolated static func opensExternally(_ url: URL) -> Bool {
@@ -260,6 +328,10 @@ extension Tab: WKNavigationDelegate {
     public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         pendingURL = webView.url
         youtubeVideoID = nil
+    }
+
+    public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        upgradedFrom = nil
     }
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -372,7 +444,9 @@ enum ErrorPage {
                 .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
         }
         return """
-        <!doctype html><html><head><meta charset="utf-8"><title>\(esc(title))</title>
+        <!doctype html><html><head><meta charset="utf-8">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+        <title>\(esc(title))</title>
         <style>
           :root { color-scheme: light dark; }
           body { font: 14px -apple-system, system-ui; display: grid; place-items: center; height: 100vh; margin: 0; }

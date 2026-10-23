@@ -81,12 +81,28 @@ struct GeneralSettingsView: View {
 struct AssistantSettingsView: View {
     @AppStorage(Preferences.Key.ollamaHost) private var ollamaHost = ""
     @AppStorage(Preferences.Key.agentModel) private var agentModel = ""
+    @AppStorage(Preferences.Key.ollamaPins) private var pins = ""
+    @State private var pinStatus: String?
     let onApply: @MainActor () -> Void
 
     var body: some View {
         Form {
             TextField("Ollama host:", text: $ollamaHost, prompt: Text("http://127.0.0.1:11434"))
-            TextField("Model:", text: $agentModel, prompt: Text("Bridge default"))
+            TextField("Model:", text: $agentModel, prompt: Text("First installed"))
+            LabeledContent("Certificate pins:") {
+                VStack(alignment: .leading, spacing: 4) {
+                    TextField("", text: $pins, prompt: Text("Optional, for a remote HTTPS host"))
+                        .font(.system(.body, design: .monospaced))
+                    HStack {
+                        Button("Pin Current Certificate") { pinCurrentCertificate() }
+                            .disabled(!AssistantConfiguration.normalizedHost(ollamaHost).absoluteString.hasPrefix("https://"))
+                        if !pins.isEmpty { Button("Clear") { pins = ""; pinStatus = nil } }
+                    }
+                    Text(pinStatus ?? "Pinned SPKI SHA-256 hashes. ArcClone refuses the host if its certificate key changes.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             LabeledContent("") {
                 VStack(alignment: .leading, spacing: 4) {
                     Button("Apply", action: onApply)
@@ -98,5 +114,21 @@ struct AssistantSettingsView: View {
         }
         .formStyle(.columns)
         .padding(20)
+    }
+
+    /// Trust on first use, by explicit user action: records the key of the host's current,
+    /// system-validated certificate plus its issuer's key as a backup pin.
+    private func pinCurrentCertificate() {
+        let url = AssistantConfiguration.normalizedHost(ollamaHost)
+        pinStatus = "Checking \(url.host ?? "")…"
+        Task {
+            do {
+                let found = try await CertificatePinning.currentPins(for: url)
+                pins = found.prefix(2).joined(separator: ", ")
+                pinStatus = "Pinned \(min(found.count, 2)) key(s) for \(url.host ?? ""). Click Apply."
+            } catch {
+                pinStatus = "Couldn't read the certificate: \(error.localizedDescription)"
+            }
+        }
     }
 }

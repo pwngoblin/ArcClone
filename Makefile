@@ -1,15 +1,8 @@
 # ArcClone build entry points. Run `make` for a dev build, `make app` for a packaged .app,
 # `make dmg` for a distributable disk image.
-.PHONY: all ui core run test check test-core test-ui selftest app dmg clean
+.PHONY: all core run test check test-core selftest app dmg clean
 
-all: ui core
-
-ui/node_modules: ui/package.json
-	cd ui && npm install --no-fund --no-audit
-	@touch ui/node_modules
-
-ui: ui/node_modules
-	cd ui && npm run build
+all: core
 
 core:
 	cd core && swift build
@@ -20,23 +13,20 @@ run: all
 test: check selftest
 
 # Every automated test; CI runs this, so it lists whatever test suites the repo has.
-check: test-ui test-core
+check: test-core
 
 test-core:
 	cd core && swift test
-
-test-ui: ui/node_modules
-	cd ui && npm test
 
 # Boots the real app headlessly-ish, exercises IPC/injections/assistant, exits with status.
 selftest: all
 	ARCCLONE_ROOT=$(CURDIR) perl -e 'alarm 90; exec @ARGV' core/.build/debug/ArcClone --self-test
 
-app: ui
+app:
 	./scripts/bundle.sh
 
 dmg: app
 	./scripts/make-dmg.sh
 
 clean:
-	rm -rf core/.build ui/dist build
+	rm -rf core/.build build

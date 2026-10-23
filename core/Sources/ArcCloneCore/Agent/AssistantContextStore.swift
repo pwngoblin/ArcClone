@@ -54,6 +54,12 @@ public final class AssistantContextStore {
         tabs[tabID] = tab
     }
 
+    /// Clear Browsing Data: forget everything.
+    public func reset() {
+        tabs.removeAll()
+        history.removeAll()
+    }
+
     public func selection(for tabID: UUID?) -> String? { tabID.flatMap { tabs[$0]?.selection } }
 
     public func recentHistory(limit: Int = 15) -> [Visit] { Array(history.suffix(limit)) }

@@ -1,55 +1,61 @@
 import Foundation
 
 /// IPC routes that injected content scripts call (`window.__arc.emit/send`).
-/// Page sources are only allowed these routes; everything else is rejected by the router.
+/// Page sources are only allowed these routes; payloads are schema-validated (`PagePayload`) and
+/// unknown event types are dropped.
 extension BrowserWindowController {
     func registerPageHandlers() {
         let pageOnly: Set<IPCSource.Kind> = [.page]
 
-        router.on("page.didChange", from: pageOnly) { [weak self] ctx, p in
-            guard let self, case .page(let tabID, true, _) = ctx.source, let tab = self.tabs.tab(tabID) else { return .null }
-            tab.applyMetadata(p)
-            self.assistant.context.ingest(tabID: tabID, type: "page.didChange", payload: p)
+        router.on("page.didChange", from: pageOnly, as: PagePayload.DidChange.self) { [weak self] ctx, p in
+            guard let self, case .page(let tabID, true, let origin) = ctx.source, let tab = self.tabs.tab(tabID) else { return .null }
+            let metadata = try PagePayload.metadata(p, origin: origin)
+            tab.applyMetadata(metadata)
+            self.recordForAssistant(tabID, "page.didChange", metadata.json)
             return .null
         }
 
-        router.on("selection.changed", from: pageOnly) { [weak self] ctx, p in
-            guard let self, let tabID = ctx.source.tabID, let tab = self.tabs.tab(tabID) else { return .null }
-            let text = p["text"]?.string
-            tab.applySelection(text)
-            self.assistant.context.ingest(tabID: tabID, type: "selection.changed", payload: p)
-            if tabID == self.tabs.activeID {
-                self.chrome.events.send("page.selection", ["tabId": .string(tabID.uuidString), "text": JSONValue(text)])
-            }
+        router.on("selection.changed", from: pageOnly, as: PagePayload.Selection.self) { [weak self] ctx, p in
+            guard let self, case .page(let tabID, _, let origin) = ctx.source, let tab = self.tabs.tab(tabID) else { return .null }
+            let selection = try PagePayload.selection(p, origin: origin)
+            tab.applySelection(selection.text)
+            self.recordForAssistant(tabID, "selection.changed", ["text": .string(selection.text), "url": .string(selection.url.absoluteString)])
+            if tabID == self.tabs.activeID { self.model.selection = selection.text }
             return .null
         }
 
         router.on("selection.cleared", from: pageOnly) { [weak self] ctx, _ in
             guard let self, let tabID = ctx.source.tabID, let tab = self.tabs.tab(tabID) else { return .null }
             tab.applySelection(nil)
-            self.assistant.context.ingest(tabID: tabID, type: "selection.cleared", payload: .null)
-            if tabID == self.tabs.activeID {
-                self.chrome.events.send("page.selection", ["tabId": .string(tabID.uuidString), "text": .null])
-            }
+            self.recordForAssistant(tabID, "selection.cleared", .null)
+            if tabID == self.tabs.activeID { self.model.selection = nil }
             return .null
         }
 
-        router.on("youtube.videoChanged", from: pageOnly) { [weak self] ctx, p in
-            guard let self, case .page(let tabID, true, _) = ctx.source, let tab = self.tabs.tab(tabID) else { return .null }
-            tab.applyYouTubeVideo(p["videoId"]?.string)
-            self.assistant.context.ingest(tabID: tabID, type: "youtube.videoChanged", payload: p)
+        router.on("youtube.videoChanged", from: pageOnly, as: PagePayload.VideoChanged.self) { [weak self] ctx, p in
+            guard let self, case .page(let tabID, true, let origin) = ctx.source, let tab = self.tabs.tab(tabID) else { return .null }
+            let videoID = try PagePayload.videoID(p, origin: origin)
+            tab.applyYouTubeVideo(videoID)
+            self.recordForAssistant(tabID, "youtube.videoChanged", ["videoId": JSONValue(videoID)])
             return .null
         }
 
-        router.on("runtime.error", from: pageOnly) { ctx, p in
-            Log.scripts.error("Injection error \(p["source"]?.string ?? "?", privacy: .public):\(p["line"]?.int ?? 0): \(p["message"]?.string ?? "", privacy: .public) [\(ctx.source.tabID?.uuidString ?? "-", privacy: .public)]")
+        router.on("runtime.error", from: pageOnly, as: PagePayload.RuntimeError.self) { ctx, p in
+            // Only errors raised inside our own injection files are reported.
+            guard let source = p.source, source.hasPrefix("arc-injection://"), source.count < 200 else { return .null }
+            Log.scripts.error("Injection error \(source, privacy: .public):\(p.line ?? 0): \(PagePayload.bounded(p.message, PagePayload.maxMessage) ?? "", privacy: .private) [\(ctx.source.tabID?.uuidString ?? "-", privacy: .public)]")
             return .null
         }
 
-        // Any other page event is still useful assistant context.
-        router.onUnhandledEvent = { [weak self] ctx, type, payload in
-            guard let self, let tabID = ctx.source.tabID else { return }
-            self.assistant.context.ingest(tabID: tabID, type: type, payload: payload)
+        // Unknown page events are ignored rather than forwarded anywhere.
+        router.onUnhandledEvent = { _, type, _ in
+            Log.scripts.debug("Dropped unknown page event \(type.prefix(64), privacy: .public)")
         }
+    }
+
+    /// Private windows leave no trace in the assistant's context.
+    private func recordForAssistant(_ tabID: UUID, _ type: String, _ payload: JSONValue) {
+        guard !isPrivate else { return }
+        assistant.context.ingest(tabID: tabID, type: type, payload: payload)
     }
 }

@@ -1,5 +1,6 @@
 # Required check for every pull request into main (and for main itself after a merge).
 # Builds and tests everything, packages the app and runs the security baseline audit.
+# Pure Swift: no Node or web UI to set up.
 name: CI
 
 on:
@@ -22,12 +23,6 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
 
       - name: Toolchain
         run: |

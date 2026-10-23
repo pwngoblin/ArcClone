@@ -91,12 +91,6 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
-
       - name: Show toolchain
         run: |
           sw_vers
@@ -152,6 +146,14 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: ${{ env.CHANNEL == 'release' && 90 || 14 }}
+
+      - name: Upload symbols (not shipped in the DMG)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.DMG_NAME }}.dSYM
+          path: build/ArcClone.app.dSYM
+          if-no-files-found: warn
+          retention-days: 90
 
       - name: Summary
         run: |

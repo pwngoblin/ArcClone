@@ -26,11 +26,13 @@ enum SelfTest {
                 if !ok { failures.append(name) }
             }
 
-            check("chrome.ready", await waitUntil(10) { window.chrome.events.isReady })
+            check("window.ready", await waitUntil(10) { window.window?.isVisible == true })
 
             let tab = window.tabs.create(url: nil)
             tab.webView.loadHTMLString(fixture, baseURL: URL(string: "https://selftest.arcclone.test/article")!)
-            let titled = await waitUntil(10) { tab.title == "ArcClone Self Test" && tab.faviconURL != nil }
+            let titled = await waitUntil(10) {
+                tab.title == "ArcClone Self Test" && tab.faviconURL != nil && window.model.tabs.contains { $0.title == "ArcClone Self Test" }
+            }
             check("page.didChange event", titled, ["title": .string(tab.title), "favicon": JSONValue(tab.faviconURL?.absoluteString)])
 
             do {
@@ -62,6 +64,38 @@ enum SelfTest {
             let health = await assistant.health()
             check("assistant", health["ollama"]?["reachable"]?.bool != nil, health)
 
+            // The session must round-trip through the real Keychain key and never hit disk in plaintext.
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("arcclone-selftest-\(UUID().uuidString)")
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let store = SessionStore(directory: dir)
+            let sample = SessionStore.Session(tabs: [.init(url: URL(string: "https://selftest.arcclone.test/?token=s3cret")!, title: "T", pinned: false)],
+                                              activeIndex: 0)
+            await store.save(sample)
+            let onDisk = (try? Data(contentsOf: dir.appendingPathComponent("session.sealed"))) ?? Data()
+            let restored = await store.load()
+            check("session encrypted at rest", restored == sample && !onDisk.isEmpty && onDisk.range(of: Data("s3cret".utf8)) == nil,
+                  ["bytes": JSONValue(onDisk.count)])
+
+            // Optional live HTTPS-First check (needs network): ARCCLONE_SELFTEST_NETWORK=1
+            if ProcessInfo.processInfo.environment["ARCCLONE_SELFTEST_NETWORK"] != nil {
+                let web = window.tabs.create(url: URL(string: "http://example.com/"))
+                let upgraded = await waitUntil(20) { web.url?.scheme == "https" && !web.isLoading }
+                check("https-first upgrade", upgraded, JSONValue(web.url?.absoluteString))
+
+                // Pinning: the real key must pass, a wrong pin must be refused.
+                let site = URL(string: "https://example.com/")!
+                let pins = (try? await CertificatePinning.currentPins(for: site)) ?? []
+                func fetch(_ pins: Set<String>) async -> Bool {
+                    let session = URLSession(configuration: .ephemeral, delegate: PinningSessionDelegate(pins: pins), delegateQueue: nil)
+                    defer { session.finishTasksAndInvalidate() }
+                    return (try? await session.data(from: site)) != nil
+                }
+                let pinnedOK = !pins.isEmpty ? await fetch(Set(pins.prefix(1))) : false
+                let wrongRefused = !(await fetch([Data(repeating: 0, count: 32).base64EncodedString()]))
+                check("certificate pinning", pinnedOK && wrongRefused, ["pins": JSONValue(pins.count), "pinnedOK": .bool(pinnedOK), "wrongRefused": .bool(wrongRefused)])
+            }
+
             // Optional live check against YouTube (needs network): ARCCLONE_SELFTEST_YOUTUBE=<videoId>
             if let videoID = ProcessInfo.processInfo.environment["ARCCLONE_SELFTEST_YOUTUBE"] {
                 let yt = window.tabs.create(url: URL(string: "https://www.youtube.com/watch?v=\(videoID)"))
@@ -78,11 +112,25 @@ enum SelfTest {
 
             if let dir = ProcessInfo.processInfo.environment["ARCCLONE_SELFTEST_SNAPSHOT_DIR"] {
                 try? await Task.sleep(for: .milliseconds(600)) // let the sidebar render the new tab
-                for (name, view) in [("sidebar", window.chrome.webView), ("page", tab.webView)] {
-                    if let image = try? await view.takeSnapshot(configuration: nil),
-                       let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
-                       let png = rep.representation(using: .png, properties: [:]) {
+                func save(_ rep: NSBitmapImageRep?, _ name: String) {
+                    if let png = rep?.representation(using: .png, properties: [:]) {
                         try? png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).png"))
+                    }
+                }
+                if let content = window.window?.contentView, let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
+                    content.cacheDisplay(in: content.bounds, to: rep)
+                    save(rep, "window")
+                }
+                if let image = try? await tab.webView.takeSnapshot(configuration: nil), let tiff = image.tiffRepresentation {
+                    save(NSBitmapImageRep(data: tiff), "page")
+                }
+                if ProcessInfo.processInfo.environment["ARCCLONE_SELFTEST_COMMANDBAR"] != nil {
+                    window.model.presentCommandBar(newTab: true)
+                    window.model.commandBar?.query = "self"
+                    try? await Task.sleep(for: .milliseconds(700))
+                    if let content = window.window?.contentView, let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
+                        content.cacheDisplay(in: content.bounds, to: rep)
+                        save(rep, "commandbar")
                     }
                 }
             }

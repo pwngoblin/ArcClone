@@ -13,6 +13,8 @@ public final class TabStore {
     public private(set) var activeID: UUID?
     public private(set) var recentlyClosed: [ClosedTab] = []
 
+    public func clearRecentlyClosed() { recentlyClosed.removeAll() }
+
     public var onChange: (@MainActor () -> Void)?
     public var onActiveChange: (@MainActor (Tab?) -> Void)?
     public weak var tabDelegate: TabDelegate?
@@ -131,53 +133,38 @@ public final class TabStore {
     public var session: SessionStore.Session {
         SessionStore.Session(
             tabs: tabs.compactMap { tab in
-                guard let url = tab.url, url.scheme == "http" || url.scheme == "https" || url.isFileURL else { return nil }
+                guard let url = tab.url else { return nil }
+                if url.isFileURL {
+                    guard let bookmark = tab.fileBookmark else { return nil }
+                    return .init(url: url, title: tab.title, pinned: tab.isPinned, bookmark: bookmark)
+                }
+                guard url.scheme == "http" || url.scheme == "https" else { return nil }
                 return .init(url: url, title: tab.title, pinned: tab.isPinned)
             },
             activeIndex: tabs.firstIndex { $0.id == activeID })
     }
 
+    /// Opens a local file the user chose (Open panel, Finder, or a restored bookmark).
+    @discardableResult
+    public func openFile(_ url: URL, activate: Bool = true, pinned: Bool = false) -> Tab {
+        let tab = create(url: nil, activate: activate, pinned: pinned, nextToActive: false)
+        tab.holdSecurityScope(url)
+        tab.load(url)
+        return tab
+    }
+
     public func restore(_ session: SessionStore.Session) {
         for entry in session.tabs {
-            let tab = create(url: entry.url, activate: false, pinned: entry.pinned, nextToActive: false)
-            _ = tab
+            if entry.url.isFileURL {
+                guard let bookmark = entry.bookmark else { continue }
+                var stale = false
+                guard let file = try? URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope], bookmarkDataIsStale: &stale) else { continue }
+                openFile(file, activate: false, pinned: entry.pinned)
+            } else {
+                create(url: entry.url, activate: false, pinned: entry.pinned, nextToActive: false)
+            }
         }
         if let i = session.activeIndex, tabs.indices.contains(i) { setActive(tabs[i].id) }
         else if let first = tabs.first { setActive(first.id) }
-    }
-}
-
-/// Persists window sessions as JSON in Application Support.
-public struct SessionStore: Sendable {
-    public struct Session: Codable, Sendable, Equatable {
-        public struct Entry: Codable, Sendable, Equatable {
-            public var url: URL
-            public var title: String
-            public var pinned: Bool
-        }
-
-        public var tabs: [Entry]
-        public var activeIndex: Int?
-    }
-
-    public let fileURL: URL
-
-    public init(directory: URL) {
-        fileURL = directory.appendingPathComponent("session.json")
-    }
-
-    public func load() -> Session? {
-        guard let data = try? Data(contentsOf: fileURL) else { return nil }
-        return try? JSONDecoder().decode(Session.self, from: data)
-    }
-
-    public func save(_ session: Session) {
-        do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(session).write(to: fileURL, options: .atomic)
-        } catch {
-            Log.app.error("Session save failed: \(error.localizedDescription, privacy: .public)")
-        }
     }
 }

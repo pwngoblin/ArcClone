@@ -10,15 +10,26 @@ public final class Assistant {
     public private(set) var configuration: AssistantConfiguration
     public let context = AssistantContextStore()
     private var ollama: OllamaClient
-    private let session: URLSession
+    private let injectedSession: URLSession?
+    private var session: URLSession
     private var running: [String: Task<Void, Never>] = [:]
     private var modelCache: (at: Date, models: [OllamaModel])?
     private var listeners: [UUID: Listener] = [:]
 
-    public init(configuration: AssistantConfiguration, session: URLSession = .shared) {
+    /// `session` is for tests; by default each configuration gets its own pinning, ephemeral session.
+    public init(configuration: AssistantConfiguration, session: URLSession? = nil) {
         self.configuration = configuration
-        self.session = session
-        self.ollama = Self.client(for: configuration, session: session)
+        self.injectedSession = session
+        self.session = session ?? Self.makeSession(for: configuration)
+        self.ollama = Self.client(for: configuration, session: self.session)
+    }
+
+    /// Ephemeral (no cookies, cache or credentials on disk), TLS 1.2+, and pinned when pins are set.
+    private static func makeSession(for configuration: AssistantConfiguration) -> URLSession {
+        let config = URLSessionConfiguration.ephemeral
+        config.tlsMinimumSupportedProtocolVersion = .TLSv12
+        config.httpCookieAcceptPolicy = .never
+        return URLSession(configuration: config, delegate: PinningSessionDelegate(pins: configuration.pinnedKeys), delegateQueue: nil)
     }
 
     private static func client(for configuration: AssistantConfiguration, session: URLSession) -> OllamaClient {
@@ -30,6 +41,10 @@ public final class Assistant {
     public func reconfigure(_ configuration: AssistantConfiguration) {
         cancelAll()
         self.configuration = configuration
+        if injectedSession == nil {
+            session.finishTasksAndInvalidate()
+            session = Self.makeSession(for: configuration)
+        }
         ollama = Self.client(for: configuration, session: session)
         modelCache = nil
     }
@@ -48,6 +63,7 @@ public final class Assistant {
     // MARK: Models
 
     public func models(refresh: Bool = false) async throws -> [OllamaModel] {
+        if let error = configuration.transportError { throw error }
         if !refresh, let cache = modelCache, Date().timeIntervalSince(cache.at) < 30 { return cache.models }
         let models = try await ollama.listModels()
         modelCache = (Date(), models)
@@ -70,9 +86,8 @@ public final class Assistant {
     public func health() async -> JSONValue {
         var ollamaStatus: [String: JSONValue] = ["baseUrl": .string(configuration.baseURL.absoluteString)]
         do {
-            async let version = ollama.version()
-            async let models = models(refresh: true)
-            let (v, m) = try await (version, models)
+            let m = try await models(refresh: true)
+            let v = try await ollama.version()
             ollamaStatus["reachable"] = true
             ollamaStatus["version"] = .string(v)
             ollamaStatus["modelCount"] = JSONValue(m.count)
@@ -108,7 +123,7 @@ public final class Assistant {
                 self.emit(.done(requestID: id, content: content, stats: stats, model: model, task: request.task))
             } catch {
                 let failure = Task.isCancelled ? IPCError.cancelled : (error as? IPCError) ?? .internal(error.localizedDescription)
-                if failure != .cancelled { Log.agent.error("Task \(request.task.rawValue, privacy: .public) failed: \(failure.message, privacy: .public)") }
+                if failure != .cancelled { Log.agent.error("Task \(request.task.rawValue, privacy: .public) failed: \(failure.message, privacy: .private)") }
                 self.emit(.failed(requestID: id, error: failure))
             }
             self.running[id] = nil

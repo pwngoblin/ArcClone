@@ -58,6 +58,8 @@ enum MainMenu {
         let m = NSMenu(title: "File")
         m.addItem(item("New Tab", #selector(BrowserWindowController.newTab(_:)), "t"))
         m.addItem(item("New Window", #selector(AppDelegate.newWindow(_:)), "n"))
+        m.addItem(item("New Private Window", #selector(AppDelegate.newPrivateWindow(_:)), "n", [.command, .shift]))
+        m.addItem(item("Open File…", #selector(AppDelegate.openDocument(_:)), "o"))
         m.addItem(item("Open Location…", #selector(BrowserWindowController.focusAddressBar(_:)), "l"))
         m.addItem(.separator())
         m.addItem(item("Close Tab", #selector(BrowserWindowController.closeTab(_:)), "w"))
@@ -139,6 +141,8 @@ enum MainMenu {
         let m = NSMenu(title: "History")
         m.addItem(item("Back", #selector(BrowserWindowController.goBack(_:)), "["))
         m.addItem(item("Forward", #selector(BrowserWindowController.goForward(_:)), "]"))
+        m.addItem(.separator())
+        m.addItem(item("Clear Browsing Data…", #selector(AppDelegate.clearBrowsingData(_:)), "\u{8}", [.command, .shift]))
         return m
     }
 
@@ -157,7 +161,6 @@ enum MainMenu {
     private static func developMenu() -> NSMenu {
         let m = NSMenu(title: "Develop")
         m.addItem(item("Reload Injections", #selector(BrowserWindowController.reloadInjections(_:)), "i", [.command, .option, .shift]))
-        m.addItem(item("Reload Sidebar UI", #selector(BrowserWindowController.reloadChromeUI(_:)), "r", [.command, .option, .shift]))
         m.addItem(item("Reload Assistant Settings", #selector(BrowserWindowController.reloadAssistant(_:))))
         return m
     }
