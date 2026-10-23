@@ -123,17 +123,27 @@ public final class SiteSettings {
     private func scheduleSave() {
         guard let file else { return }
         saveTask?.cancel()
-        let snapshot = sites
-        saveTask = Task {
+        saveTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(1))
-            guard !Task.isCancelled else { return }
-            await Task.detached(priority: .utility) {
-                do {
-                    if snapshot.isEmpty { file.delete() } else { try await file.write(JSONEncoder().encode(snapshot)) }
-                } catch {
-                    Log.app.error("Site settings save failed: \(String(describing: error), privacy: .public)")
-                }
-            }.value
+            guard !Task.isCancelled, let self else { return }
+            await Self.write(self.sites, to: file)
         }
+    }
+
+    /// Writes pending changes now (quit, tests) instead of after the debounce.
+    public func flush() async {
+        saveTask?.cancel()
+        guard let file else { return }
+        await Self.write(sites, to: file)
+    }
+
+    private static func write(_ snapshot: [String: Site], to file: SealedFile) async {
+        await Task.detached(priority: .utility) {
+            do {
+                if snapshot.isEmpty { file.delete() } else { try await file.write(JSONEncoder().encode(snapshot)) }
+            } catch {
+                Log.app.error("Site settings save failed: \(String(describing: error), privacy: .public)")
+            }
+        }.value
     }
 }

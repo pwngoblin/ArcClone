@@ -111,3 +111,32 @@ import Testing
         #expect(menu.items.filter { $0.title == "Alpha" }.count == 1)
     }
 }
+
+@Suite struct HistoryFilterTests {
+    let calendar = Calendar.current
+    let now = Calendar.current.date(bySettingHour: 15, minute: 0, second: 0, of: Date())!
+
+    func visit(_ host: String, daysAgo: Int) -> History.Visit {
+        .init(id: UUID(), url: URL(string: "https://\(host)/p")!, title: host, visitedAt: calendar.date(byAdding: .day, value: -daysAgo, to: now)!)
+    }
+
+    @Test func timeRangesSplitVisitsCorrectly() {
+        let today = visit("a.example", daysAgo: 0), yesterday = visit("b.example", daysAgo: 1)
+        let fiveDays = visit("c.example", daysAgo: 5), twentyDays = visit("d.example", daysAgo: 20), ancient = visit("e.example", daysAgo: 60)
+        let all = [today, yesterday, fiveDays, twentyDays, ancient]
+        func hosts(_ f: HistoryFilter) -> [String] { all.filter { f.matches($0, now: now) }.map(\.title) }
+        #expect(hosts(.today) == ["a.example"])
+        #expect(hosts(.yesterday) == ["b.example"])
+        #expect(hosts(.week) == ["a.example", "b.example", "c.example"])
+        #expect(hosts(.month) == ["a.example", "b.example", "c.example", "d.example"])
+        #expect(hosts(.older) == ["e.example"])
+        #expect(hosts(.all).count == 5)
+    }
+
+    @Test func mostVisitedGroupsWWWAndSortsByCount() {
+        let visits = [visit("www.news.example", daysAgo: 0), visit("news.example", daysAgo: 1), visit("blog.example", daysAgo: 2)]
+        let top = HistoryFilter.topSites(visits)
+        #expect(top.first?.host == "news.example" && top.first?.count == 2)
+        #expect(HistoryFilter.site("news.example").matches(visits[0], now: now))
+    }
+}

@@ -1,16 +1,19 @@
 import AppKit
 import SwiftUI
 
-/// History (⌘Y): visits grouped by day, searchable; ⏎ or double-click opens, ⌫ deletes.
+/// History (⌘Y): a sidebar of time ranges and most-visited sites, and a searchable list of visits
+/// grouped by day. ⏎ / double-click opens, ⌫ deletes, ⌘A selects all.
 @MainActor
 final class HistoryWindowController: NSWindowController {
     init(history: History, open: @escaping @MainActor (URL, Bool) -> Void) {
-        let host = NSHostingController(rootView: HistoryView(history: history, open: open))
+        let host = NSHostingController(rootView: HistoryView(history: history, open: open).appAccent())
+        host.sceneBridgingOptions = [.toolbars, .title]
         let window = NSWindow(contentViewController: host)
         window.title = "History"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-        window.setContentSize(NSSize(width: 760, height: 620))
-        window.minSize = NSSize(width: 520, height: 360)
+        window.toolbarStyle = .unified
+        window.setContentSize(NSSize(width: 920, height: 640))
+        window.minSize = NSSize(width: 640, height: 400)
         window.setFrameAutosaveName("ArcCloneHistory")
         super.init(window: window)
     }
@@ -25,78 +28,121 @@ final class HistoryWindowController: NSWindowController {
     }
 }
 
+/// What the history list is filtered to.
+enum HistoryFilter: Hashable {
+    case all, today, yesterday, week, month, older
+    case site(String)
+
+    var title: String {
+        switch self {
+        case .all: return "All History"
+        case .today: return "Today"
+        case .yesterday: return "Yesterday"
+        case .week: return "Last 7 Days"
+        case .month: return "Last 30 Days"
+        case .older: return "Older"
+        case .site(let host): return host
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .all: return "clock"
+        case .today: return "sun.max"
+        case .yesterday: return "moon"
+        case .week: return "calendar"
+        case .month: return "calendar.badge.clock"
+        case .older: return "archivebox"
+        case .site: return "globe"
+        }
+    }
+
+    func matches(_ visit: History.Visit, now: Date = Date(), calendar: Calendar = .current) -> Bool {
+        let today = calendar.startOfDay(for: now)
+        let day = { (offset: Int) in calendar.date(byAdding: .day, value: offset, to: today)! }
+        switch self {
+        case .all: return true
+        case .today: return visit.visitedAt >= today
+        case .yesterday: return visit.visitedAt >= day(-1) && visit.visitedAt < today
+        case .week: return visit.visitedAt >= day(-6)
+        case .month: return visit.visitedAt >= day(-29)
+        case .older: return visit.visitedAt < day(-29)
+        case .site(let host): return HistoryFilter.host(of: visit.url) == host
+        }
+    }
+
+    static func host(of url: URL) -> String {
+        let host = url.host?.lowercased() ?? url.absoluteString
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+
+    /// Hosts by visit count, most visited first.
+    static func topSites(_ visits: [History.Visit], limit: Int = 12) -> [(host: String, count: Int)] {
+        Dictionary(grouping: visits, by: { host(of: $0.url) })
+            .map { (host: $0.key, count: $0.value.count) }
+            .sorted { $0.count != $1.count ? $0.count > $1.count : $0.host < $1.host }
+            .prefix(limit).map { $0 }
+    }
+}
+
 struct HistoryView: View {
     @Bindable var history: History
     let open: @MainActor (URL, Bool) -> Void
+    @State private var filter: HistoryFilter? = .all
     @State private var query = ""
     @State private var selection = Set<UUID>()
     @State private var confirmClearAll = false
 
-    private struct Day: Identifiable {
-        let id: Date
-        let visits: [History.Visit]
-    }
-
-    private var days: [Day] {
-        let visits = query.isEmpty ? history.visits : history.search(query, limit: 2_000)
-        let calendar = Calendar.current
-        return Dictionary(grouping: visits) { calendar.startOfDay(for: $0.visitedAt) }
-            .map { Day(id: $0.key, visits: $0.value) }
-            .sorted { $0.id > $1.id }
+    private var filtered: [History.Visit] {
+        let base = (filter ?? .all)
+        let needle = query.lowercased().trimmingCharacters(in: .whitespaces)
+        return history.visits.filter { visit in
+            base.matches(visit) && (needle.isEmpty || visit.title.lowercased().contains(needle) || visit.url.absoluteString.lowercased().contains(needle))
+        }
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("Search History", text: $query).textFieldStyle(.plain)
-                    if !query.isEmpty {
-                        Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain).foregroundStyle(.tertiary)
+        NavigationSplitView {
+            List(selection: $filter) {
+                Section {
+                    ForEach([HistoryFilter.all, .today, .yesterday, .week, .month, .older], id: \.self) { item in
+                        Label(item.title, systemImage: item.symbol)
+                            .badge(count(for: item))
+                            .tag(item)
                     }
                 }
-                .padding(.horizontal, 10).frame(height: 30)
-                .background(.quaternary.opacity(0.7), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                Menu("Clear History") {
-                    Button("The Last Hour") { history.clear(since: Date().addingTimeInterval(-3600)) }
-                    Button("Today") { history.clear(since: Calendar.current.startOfDay(for: Date())) }
-                    Button("Today and Yesterday") {
-                        history.clear(since: Calendar.current.date(byAdding: .day, value: -1, to: Calendar.current.startOfDay(for: Date())))
-                    }
-                    Divider()
-                    Button("All History…") { confirmClearAll = true }
-                }
-                .fixedSize()
-            }
-            .padding(.horizontal, 14).padding(.top, 38).padding(.bottom, 10)
-
-            if days.isEmpty {
-                ContentUnavailableView(query.isEmpty ? "No History" : "No Results",
-                                       systemImage: query.isEmpty ? "clock" : "magnifyingglass",
-                                       description: Text(query.isEmpty ? "Pages you visit in regular windows appear here. Private windows are never recorded." : "Nothing in your history matches “\(query)”."))
-                    .frame(maxHeight: .infinity)
-            } else {
-                List(selection: $selection) {
-                    ForEach(days) { day in
-                        Section(dayTitle(day.id)) {
-                            ForEach(day.visits) { HistoryRow(visit: $0).tag($0.id) }
+                let sites = HistoryFilter.topSites(history.visits)
+                if !sites.isEmpty {
+                    Section("Most Visited") {
+                        ForEach(sites, id: \.host) { site in
+                            Label { Text(site.host).lineLimit(1) } icon: { FaviconView(url: URL(string: "https://\(site.host)/favicon.ico"), size: 16) }
+                                .badge(site.count)
+                                .tag(HistoryFilter.site(site.host))
                         }
                     }
                 }
-                .listStyle(.inset)
-                .contextMenu(forSelectionType: UUID.self) { ids in
-                    Button("Open") { openSelected(ids, newTab: false) }
-                    Button("Open in New Tab") { openSelected(ids, newTab: true) }
-                    Button("Copy Link") { copy(ids) }
-                    Divider()
-                    Button("Delete") { history.remove(ids) }
-                } primaryAction: { ids in
-                    openSelected(ids, newTab: false)
-                }
-                .onDeleteCommand { history.remove(selection); selection.removeAll() }
             }
+            .navigationSplitViewColumnWidth(min: 190, ideal: 220)
+        } detail: {
+            detail
+                .navigationTitle((filter ?? .all).title)
+                .navigationSubtitle("\(filtered.count) \(filtered.count == 1 ? "page" : "pages")")
+                .searchable(text: $query, placement: .toolbar, prompt: "Search History")
+                .toolbar {
+                    ToolbarItem {
+                        Menu {
+                            Button("The Last Hour") { history.clear(since: Date().addingTimeInterval(-3600)) }
+                            Button("Today") { history.clear(since: Calendar.current.startOfDay(for: Date())) }
+                            Button("Today and Yesterday") {
+                                history.clear(since: Calendar.current.date(byAdding: .day, value: -1, to: Calendar.current.startOfDay(for: Date())))
+                            }
+                            Divider()
+                            Button("All History…") { confirmClearAll = true }
+                        } label: { Label("Clear History", systemImage: "trash") }
+                        .help("Clear History")
+                    }
+                }
         }
-        .frame(minWidth: 520, minHeight: 360)
         .confirmationDialog("Clear all history?", isPresented: $confirmClearAll) {
             Button("Clear All History", role: .destructive) { history.clear() }
         } message: {
@@ -104,15 +150,57 @@ struct HistoryView: View {
         }
     }
 
-    private func visits(_ ids: Set<UUID>) -> [History.Visit] { history.visits.filter { ids.contains($0.id) } }
+    @ViewBuilder private var detail: some View {
+        let visits = filtered
+        if visits.isEmpty {
+            ContentUnavailableView {
+                Label(query.isEmpty ? "No History" : "No Results", systemImage: query.isEmpty ? "clock" : "magnifyingglass")
+            } description: {
+                Text(query.isEmpty ? "Pages you visit in regular windows appear here. Private windows are never recorded."
+                                   : "Nothing in \((filter ?? .all).title.lowercased()) matches “\(query)”.")
+            }
+        } else {
+            List(selection: $selection) {
+                ForEach(days(visits), id: \.day) { group in
+                    Section {
+                        ForEach(group.visits) { visit in
+                            HistoryRow(visit: visit, open: open, delete: { history.remove([visit.id]) }).tag(visit.id)
+                        }
+                    } header: {
+                        Text(dayTitle(group.day)).font(.system(size: 13, weight: .semibold)).foregroundStyle(.primary)
+                    }
+                }
+            }
+            .listStyle(.inset(alternatesRowBackgrounds: false))
+            .contextMenu(forSelectionType: UUID.self) { ids in
+                Button { openSelected(ids, newTab: false) } label: { Label("Open", systemImage: "arrow.up.right.square") }
+                Button { openSelected(ids, newTab: true) } label: { Label("Open in New Tab", systemImage: "plus.square.on.square") }
+                Button { copy(ids) } label: { Label("Copy Link", systemImage: "link") }
+                Divider()
+                Button(role: .destructive) { history.remove(ids) } label: { Label("Delete", systemImage: "trash") }
+            } primaryAction: { ids in
+                openSelected(ids, newTab: false)
+            }
+            .onDeleteCommand { history.remove(selection); selection.removeAll() }
+        }
+    }
+
+    private func count(for filter: HistoryFilter) -> Int { history.visits.filter { filter.matches($0) }.count }
+
+    private func days(_ visits: [History.Visit]) -> [(day: Date, visits: [History.Visit])] {
+        let calendar = Calendar.current
+        return Dictionary(grouping: visits) { calendar.startOfDay(for: $0.visitedAt) }
+            .sorted { $0.key > $1.key }
+            .map { ($0.key, $0.value.sorted { $0.visitedAt > $1.visitedAt }) }
+    }
 
     private func openSelected(_ ids: Set<UUID>, newTab: Bool) {
-        let chosen = visits(ids)
+        let chosen = history.visits.filter { ids.contains($0.id) }
         for (index, visit) in chosen.enumerated() { open(visit.url, newTab || index > 0) }
     }
 
     private func copy(_ ids: Set<UUID>) {
-        Clipboard.copy(visits(ids).map(\.url.absoluteString).joined(separator: "\n"), sensitive: false)
+        Clipboard.copy(history.visits.filter { ids.contains($0.id) }.map(\.url.absoluteString).joined(separator: "\n"), sensitive: false)
     }
 
     private func dayTitle(_ day: Date) -> String {
@@ -125,15 +213,36 @@ struct HistoryView: View {
 
 private struct HistoryRow: View {
     let visit: History.Visit
+    let open: @MainActor (URL, Bool) -> Void
+    let delete: () -> Void
+    @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 10) {
-            FaviconView(url: visit.url.faviconGuess, size: 16)
-            Text(visit.title.isEmpty ? visit.url.absoluteString : visit.title).lineLimit(1)
-            Text(visit.url.host ?? "").lineLimit(1).foregroundStyle(.secondary)
-            Spacer(minLength: 8)
-            Text(visit.visitedAt, format: .dateTime.hour().minute()).foregroundStyle(.secondary).monospacedDigit()
+        HStack(spacing: 12) {
+            FaviconView(url: visit.url.faviconGuess, size: 20)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(visit.title.isEmpty ? (visit.url.host ?? visit.url.absoluteString) : visit.title)
+                    .font(.system(size: 13, weight: .medium)).lineLimit(1)
+                Text(location).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            }
+            Spacer(minLength: 12)
+            if hovering {
+                Button { open(visit.url, true) } label: { Image(systemName: "arrow.up.right.square") }
+                    .buttonStyle(.borderless).help("Open in New Tab")
+                Button(action: delete) { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.borderless).foregroundStyle(.secondary).help("Delete from History")
+            }
+            Text(visit.visitedAt, format: .dateTime.hour().minute())
+                .font(.system(size: 12)).foregroundStyle(.secondary).monospacedDigit().frame(minWidth: 52, alignment: .trailing)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+    }
+
+    private var location: String {
+        let host = HistoryFilter.host(of: visit.url)
+        let path = visit.url.path == "/" ? "" : visit.url.path
+        return host + path
     }
 }
