@@ -26,6 +26,8 @@ struct SidebarView: View {
                 .padding(.vertical, 8)
         }
         .animation(.smooth(duration: 0.25), value: window.panel)
+        .background(SidebarBackground())
+        .appAccent()
         .overlay(alignment: .bottom) {
             if let toast = window.toast {
                 Text(toast.message)
@@ -106,15 +108,15 @@ private struct TabListView: View {
     @Bindable var window: WindowModel
 
     var body: some View {
-        List(selection: Binding(get: { window.activeID }, set: { if let id = $0 { window.activate(id) } })) {
+        List {
             if !window.pinnedTabs.isEmpty {
                 Section("Pinned") {
-                    ForEach(window.pinnedTabs) { tab in TabRow(tab: tab, window: window).tag(tab.id) }
+                    ForEach(window.pinnedTabs) { tab in TabRow(tab: tab, window: window).listRowBackground(ActiveRowBackground(active: tab.id == window.activeID)) }
                         .onMove { window.move(in: window.pinnedTabs, from: $0, to: $1) }
                 }
             }
             Section(window.pinnedTabs.isEmpty ? "" : "Today") {
-                ForEach(window.regularTabs) { tab in TabRow(tab: tab, window: window).tag(tab.id) }
+                ForEach(window.regularTabs) { tab in TabRow(tab: tab, window: window).listRowBackground(ActiveRowBackground(active: tab.id == window.activeID)) }
                     .onMove { window.move(in: window.regularTabs, from: $0, to: $1) }
                 Button { window.newTab() } label: {
                     Label("New Tab", systemImage: "plus").foregroundStyle(.secondary)
@@ -150,8 +152,22 @@ private struct TabRow: View {
         }
         .frame(height: 26)
         .contentShape(Rectangle())
+        .onTapGesture { window.activate(tab.id) }
         .onHover { hovering = $0 }
         .contextMenu { TabContextMenu(tab: tab, window: window) }
+    }
+}
+
+/// The active tab's highlight, in the user's accent color (Settings → Appearance).
+private struct ActiveRowBackground: View {
+    let active: Bool
+    @AppStorage(AppearanceStyle.Key.accent) private var accent = AppearanceStyle.defaultAccent
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .fill(active ? Color(hex: accent).opacity(0.22) : .clear)
+            .padding(.horizontal, 6)
+            .animation(.smooth(duration: 0.15), value: active)
     }
 }
 

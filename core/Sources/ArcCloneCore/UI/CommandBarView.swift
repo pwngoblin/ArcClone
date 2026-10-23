@@ -101,6 +101,7 @@ struct CommandBarOverlay: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: window.commandBar?.id)
+        .appAccent()
     }
 }
 
