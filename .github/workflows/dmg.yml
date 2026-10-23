@@ -137,6 +137,14 @@ jobs:
           compression-level: 0
           retention-days: ${{ env.CHANNEL == 'release' && 90 || 14 }}
 
+      - name: Upload symbols (not shipped in the DMG)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.DMG_NAME }}.dSYM
+          path: build/ArcClone.app.dSYM
+          if-no-files-found: warn
+          retention-days: 90
+
       - name: Summary
         run: |
           signed="ad-hoc (unsigned)"

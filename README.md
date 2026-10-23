@@ -45,7 +45,21 @@ Under **Settings** you can choose a search engine and homepage, make ArcClone yo
 - Handoff: continue the active tab in Safari on your iPhone or iPad
 - Native printing, find-in-page, and pinch-to-zoom
 - Window size and sidebar width are saved, and your tabs are restored on relaunch
-- Universal binary (arm64 + x86_64), App Sandbox and hardened runtime ([entitlements](scripts/ArcClone.entitlements))
+- Universal binary (arm64 + x86_64), App Sandbox and hardened runtime (see [Security](#security))
+
+## Security
+
+| Threat | Defenses |
+|---|---|
+| **Insecure data storage** | The tab session is encrypted with AES-GCM using a 256-bit key held in the Keychain (`…AfterFirstUnlockThisDeviceOnly`). Files are written with file protection, mode 0600 and excluded from backups. URLs and paths in logs are private. *History → Clear Browsing Data* wipes cookies, caches, site storage, the session and the assistant's context. No secrets are kept in `UserDefaults`. |
+| **Insecure network communications** | HTTPS-First upgrades page navigations, and falls back to HTTP only after the user confirms. The app's own connections are TLS 1.2+ under App Transport Security. Ollama may use plain HTTP only on loopback; remote hosts need HTTPS and can be pinned by SPKI SHA-256 (*Settings → Assistant → Pin Current Certificate*). Pins are checked only after full system trust evaluation and are never bypassable. Websites use WebKit's TLS validation with no overrides. |
+| **Sandbox and entitlement abuse** | App Sandbox with a minimal allowlist and no temporary exceptions or `cs.*` relaxations ([entitlements](scripts/ArcClone.entitlements)). No helper processes are launched. Downloads are quarantined. Opening other apps through URL schemes always asks first. |
+| **Dylib injection and code execution** | Hardened runtime with library validation, no JIT and no DYLD environment variables. The binary keeps only the `/usr/lib/swift` rpath and loads only system libraries. Packaged builds ignore developer environment overrides and verify their own signature and sealed resources at launch, refusing to run if modified. |
+| **Reverse engineering** | Release binaries are stripped; the dSYM stays out of the bundle. No credentials or keys ship in the app. There is no `get-task-allow`, so debuggers can't attach, and Web Inspector is off in release builds. |
+
+[`scripts/verify-app.sh`](scripts/verify-app.sh) audits every bundle (it runs in `make app` and in CI): signature and sealed resources, hardened runtime, an exact entitlement allowlist, load commands and rpaths, Info.plist ATS rules, stripped symbols, and a scan for embedded secrets.
+
+**Signing note:** ad-hoc builds (no Developer ID) store the encryption key per build, so the saved session doesn't survive an update. Builds signed with Developer ID keep it across updates.
 
 ## Architecture
 
