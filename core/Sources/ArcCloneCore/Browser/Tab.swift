@@ -36,12 +36,14 @@ public final class Tab: NSObject {
     private var upgradedFrom: URL?
     private var isDiscarded = false
     let siteSettings: SiteSettings?
+    let adBlocker: AdBlocker?
 
     public init(id: UUID = UUID(), factory: WebViewFactory, router: IPCRouter, url: URL?, pinned: Bool = false) {
         self.id = id
         self.isPinned = pinned
         self.contentWorld = factory.registry.contentWorld
         self.siteSettings = factory.siteSettings
+        self.adBlocker = factory.adBlocker
         let tabID = id
         self.bridge = ScriptMessageBridge(name: ScriptRegistry.messageHandlerName,
                                           contentWorld: factory.registry.contentWorld,
@@ -62,6 +64,7 @@ public final class Tab: NSObject {
 
     /// Breaks the WKUserContentController -> bridge retain and stops the page.
     public func tearDown() {
+        adBlocker?.forget(webView.configuration.userContentController)
         securityScopedURL?.stopAccessingSecurityScopedResource()
         securityScopedURL = nil
         observations.removeAll()
@@ -150,6 +153,10 @@ public final class Tab: NSObject {
         guard let siteSettings else { return }
         let mode = siteSettings.darkMode(for: webView.url)
         Task { _ = try? await callInjection("darkMode.apply", ["mode": .string(mode.rawValue)], timeout: 5) }
+        if let host = webView.url?.host?.lowercased(), host == "youtube.com" || host.hasSuffix(".youtube.com") {
+            let enabled = (adBlocker?.isEnabled ?? false) && !siteSettings.adsAllowed(for: webView.url)
+            Task { _ = try? await callInjection("adblock.configure", ["enabled": .bool(enabled)], timeout: 5) }
+        }
     }
 
     /// Re-applies everything after the user changes this site's settings.
@@ -283,9 +290,11 @@ extension Tab: WKNavigationDelegate {
             if navigationAction.targetFrame?.isMainFrame ?? true { confirmExternalOpen(url) }
             return (.cancel, preferences)
         }
-        // Per-site JavaScript. Only page scripts are affected; our isolated-world injections still run.
-        if navigationAction.targetFrame?.isMainFrame ?? true, let siteSettings {
-            preferences.allowsContentJavaScript = siteSettings.allowsJavaScript(for: navigationAction.request.url)
+        // Per-site JavaScript and ad blocking, decided before the page starts loading.
+        if navigationAction.targetFrame?.isMainFrame ?? true {
+            let target = navigationAction.request.url
+            if let siteSettings { preferences.allowsContentJavaScript = siteSettings.allowsJavaScript(for: target) }
+            adBlocker?.configure(webView.configuration.userContentController, adsAllowed: siteSettings?.adsAllowed(for: target) ?? false)
         }
         return (.allow, preferences)
     }

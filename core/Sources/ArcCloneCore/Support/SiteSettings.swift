@@ -37,6 +37,8 @@ public final class SiteSettings {
         public var javaScript: Bool?
         public var camera: Permission?
         public var microphone: Permission?
+        /// true: ads and trackers are allowed on this site.
+        public var adsAllowed: Bool?
 
         var isEmpty: Bool { self == Site() }
     }
@@ -99,6 +101,10 @@ public final class SiteSettings {
 
     public func allowsJavaScript(for url: URL?) -> Bool {
         site(for: url).javaScript ?? true
+    }
+
+    public func adsAllowed(for url: URL?) -> Bool {
+        site(for: url).adsAllowed ?? false
     }
 
     public func permission(_ kind: KeyPath<Site, Permission?>, for url: URL?) -> Permission {

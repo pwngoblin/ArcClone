@@ -11,6 +11,7 @@ final class WindowToolbar: NSObject, NSToolbarDelegate {
     static let siteSettings = NSToolbarItem.Identifier("ArcClone.siteSettings")
     static let darkMode = NSToolbarItem.Identifier("ArcClone.darkMode")
     static let split = NSToolbarItem.Identifier("ArcClone.split")
+    static let adBlock = NSToolbarItem.Identifier("ArcClone.adBlock")
 
     let toolbar: NSToolbar
 
@@ -23,7 +24,7 @@ final class WindowToolbar: NSObject, NSToolbarDelegate {
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.toggleSidebar, .flexibleSpace, Self.back, Self.forward, Self.reload, .sidebarTrackingSeparator, .flexibleSpace, Self.split, Self.darkMode, Self.siteSettings, Self.newTab]
+        [.toggleSidebar, .flexibleSpace, Self.back, Self.forward, Self.reload, .sidebarTrackingSeparator, .flexibleSpace, Self.split, Self.adBlock, Self.darkMode, Self.siteSettings, Self.newTab]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -44,6 +45,7 @@ final class WindowToolbar: NSObject, NSToolbarDelegate {
             item.menu = BrowserWindowController.splitMenu()
             item.showsIndicator = true
             return item
+        case Self.adBlock: return button(id, "Block Ads on This Site", "shield.lefthalf.filled", #selector(BrowserWindowController.toggleSiteAdBlocking(_:)))
         case Self.darkMode: return button(id, "Dark Mode for This Site", "moon", #selector(BrowserWindowController.toggleSiteDarkMode(_:)))
         case Self.siteSettings: return button(id, "Site Settings", "slider.horizontal.3", #selector(BrowserWindowController.showSiteSettings(_:)))
         default: return nil
