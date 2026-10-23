@@ -2,7 +2,16 @@ import AppKit
 
 /// Menu / keyboard actions. NSWindowController sits in the responder chain after its window,
 /// so these are reached from MainMenu items with a nil target.
-extension BrowserWindowController: NSMenuItemValidation {
+extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation {
+    public func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
+        switch item.action {
+        case #selector(goBack(_:)): return tabs.active?.webView.canGoBack ?? false
+        case #selector(goForward(_:)): return tabs.active?.webView.canGoForward ?? false
+        case #selector(reloadPage(_:)): return tabs.active != nil
+        default: return true
+        }
+    }
+
     @objc public func newTab(_ sender: Any?) {
         model.presentCommandBar(newTab: true)
     }

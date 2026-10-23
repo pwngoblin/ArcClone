@@ -32,6 +32,7 @@ Never commit directly to `main`, `testing` or `release`, and never merge `releas
 When one change builds on another, open PR B with PR A's branch as its base and write "Stacked on #A".
 
 - Merge **bottom-up**: A into `main` first. GitHub then deletes A's branch and retargets B to `main` automatically.
+- After a retarget, CI starts on its own. If a PR ever shows *blocked* with no checks, press **Update branch** on the PR (or `gh pr update-branch <n>`) to start them.
 - Never merge B into A's branch after A has merged: B's changes would land on a dead branch and never reach `main` (this happened with #10; #13 re-landed it).
 
 ## Releases

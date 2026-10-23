@@ -28,7 +28,12 @@ public final class WindowModel {
     var canReopenClosed = false
     var selection: String?
     var toast: Toast?
-    var showsAssistant = false
+    enum SidebarPanel { case tabs, assistant, history }
+    var panel: SidebarPanel = .tabs
+    var showsAssistant: Bool {
+        get { panel == .assistant }
+        set { panel = newValue ? .assistant : .tabs }
+    }
     var commandBar: CommandBarModel?
     let isPrivate: Bool
     let assistant: AssistantChat
