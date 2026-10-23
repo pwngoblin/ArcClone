@@ -7,12 +7,11 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     public let router = IPCRouter()
     public let tabs: TabStore
     public let chrome: ChromeHost
-    let agent: AgentService
+    let assistant: Assistant
     var urlResolver: URLResolver { Preferences.urlResolver }
     let factory: WebViewFactory
     var ownedRequests: Set<String> = []
-    private var agentListener: UUID?
-    private var statusListener: UUID?
+    private var assistantListener: UUID?
     private var snapshotScheduled = false
     private var browsingActivity: NSUserActivity?
     private let splitController = NSSplitViewController()
@@ -20,9 +19,9 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     var onClose: (@MainActor (BrowserWindowController) -> Void)?
     var onSessionChange: (@MainActor () -> Void)?
 
-    public init(factory: WebViewFactory, agent: AgentService, paths: AppPaths) {
+    public init(factory: WebViewFactory, assistant: Assistant, paths: AppPaths) {
         self.factory = factory
-        self.agent = agent
+        self.assistant = assistant
         self.tabs = TabStore(factory: factory, router: router)
         self.chrome = ChromeHost(uiRoot: paths.uiDist, router: router, inspectable: factory.inspectable)
 
@@ -47,11 +46,8 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         registerChromeHandlers()
         registerPageHandlers()
         registerAgentHandlers()
-        agentListener = agent.client.addListener { [weak self] method, params in
-            self?.handleAgentNotification(method, params)
-        }
-        statusListener = agent.client.addStatusListener { [weak self] status in
-            self?.chrome.events.send("agent.bridgeState", status.json)
+        assistantListener = assistant.addListener { [weak self] event in
+            self?.handleAssistantEvent(event)
         }
     }
 
@@ -180,10 +176,9 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         browsingActivity?.invalidate()
         onClose = nil
         onSessionChange = nil
-        if let agentListener { agent.client.removeListener(agentListener) }
-        if let statusListener { agent.client.removeListener(statusListener) }
-        for id in ownedRequests { Task { _ = try? await agent.client.call("agent.cancel", ["requestId": .string(id)]) } }
-        tabs.tabs.forEach { agent.ingest(tabID: $0.id, type: "tab.closed", payload: .null) }
+        if let assistantListener { assistant.removeListener(assistantListener) }
+        ownedRequests.forEach { assistant.cancel($0) }
+        tabs.tabs.forEach { assistant.context.ingest(tabID: $0.id, type: "tab.closed", payload: .null) }
         tabs.closeAll()
         chrome.tearDown()
     }

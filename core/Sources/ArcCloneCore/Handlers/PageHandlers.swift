@@ -9,7 +9,7 @@ extension BrowserWindowController {
         router.on("page.didChange", from: pageOnly) { [weak self] ctx, p in
             guard let self, case .page(let tabID, true, _) = ctx.source, let tab = self.tabs.tab(tabID) else { return .null }
             tab.applyMetadata(p)
-            self.agent.ingest(tabID: tabID, type: "page.didChange", payload: p)
+            self.assistant.context.ingest(tabID: tabID, type: "page.didChange", payload: p)
             return .null
         }
 
@@ -17,7 +17,7 @@ extension BrowserWindowController {
             guard let self, let tabID = ctx.source.tabID, let tab = self.tabs.tab(tabID) else { return .null }
             let text = p["text"]?.string
             tab.applySelection(text)
-            self.agent.ingest(tabID: tabID, type: "selection.changed", payload: p)
+            self.assistant.context.ingest(tabID: tabID, type: "selection.changed", payload: p)
             if tabID == self.tabs.activeID {
                 self.chrome.events.send("page.selection", ["tabId": .string(tabID.uuidString), "text": JSONValue(text)])
             }
@@ -27,7 +27,7 @@ extension BrowserWindowController {
         router.on("selection.cleared", from: pageOnly) { [weak self] ctx, _ in
             guard let self, let tabID = ctx.source.tabID, let tab = self.tabs.tab(tabID) else { return .null }
             tab.applySelection(nil)
-            self.agent.ingest(tabID: tabID, type: "selection.cleared", payload: .null)
+            self.assistant.context.ingest(tabID: tabID, type: "selection.cleared", payload: .null)
             if tabID == self.tabs.activeID {
                 self.chrome.events.send("page.selection", ["tabId": .string(tabID.uuidString), "text": .null])
             }
@@ -37,7 +37,7 @@ extension BrowserWindowController {
         router.on("youtube.videoChanged", from: pageOnly) { [weak self] ctx, p in
             guard let self, case .page(let tabID, true, _) = ctx.source, let tab = self.tabs.tab(tabID) else { return .null }
             tab.applyYouTubeVideo(p["videoId"]?.string)
-            self.agent.ingest(tabID: tabID, type: "youtube.videoChanged", payload: p)
+            self.assistant.context.ingest(tabID: tabID, type: "youtube.videoChanged", payload: p)
             return .null
         }
 
@@ -46,10 +46,10 @@ extension BrowserWindowController {
             return .null
         }
 
-        // Any other page event is still useful agent context.
+        // Any other page event is still useful assistant context.
         router.onUnhandledEvent = { [weak self] ctx, type, payload in
             guard let self, let tabID = ctx.source.tabID else { return }
-            self.agent.ingest(tabID: tabID, type: type, payload: payload)
+            self.assistant.context.ingest(tabID: tabID, type: type, payload: payload)
         }
     }
 }

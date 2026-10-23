@@ -181,7 +181,7 @@ class AssistantState {
   onError(p) {
     const m = this.#find(p.requestId);
     if (!m) return;
-    m.status = p.code === -32003 ? "cancelled" : "error";
+    m.status = p.code === "cancelled" ? "cancelled" : "error";
     m.error = p.message;
   }
 }
