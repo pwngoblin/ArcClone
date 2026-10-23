@@ -9,6 +9,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     private var factory: WebViewFactory!
     private var assistant: Assistant!
     private var sessionStore: SessionStore!
+    private(set) var history: History!
+    private var historyWindow: HistoryWindowController?
+    private let historyMenuDelegate = HistoryMenuDelegate()
     private var windows: [BrowserWindowController] = []
     private var settingsWindow: SettingsWindowController?
     private var saveScheduled = false
@@ -47,6 +50,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         factory = WebViewFactory(registry: registry)
         assistant = Assistant(configuration: .fromPreferences())
         sessionStore = SessionStore(directory: paths.applicationSupport)
+        // The self-test must not leave its fixture pages in the user's real history.
+        let isSelfTest = ProcessInfo.processInfo.arguments.contains("--self-test")
+        history = History(directory: isSelfTest ? nil : paths.applicationSupport)
+        await history.load()
+        historyMenuDelegate.history = history
+        NSApp.mainMenu?.item(withTitle: "History")?.submenu?.delegate = historyMenuDelegate
 
         let controller = makeWindow()
         if ProcessInfo.processInfo.arguments.contains("--self-test") {
@@ -75,6 +84,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         let session = primary.tabs.session
         Task {
             await sessionStore.save(session)
+            await history?.flush()
             NSApp.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
@@ -83,7 +93,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     @objc public func clearBrowsingData(_ sender: Any?) {
         let alert = NSAlert()
         alert.messageText = "Clear all browsing data?"
-        alert.informativeText = "This removes cookies, caches, site storage, the saved session and the assistant's history. Open tabs stay open, and you'll be signed out of websites."
+        alert.informativeText = "This removes your browsing history, cookies, caches, site storage, the saved session and the assistant's context. Open tabs stay open, and you'll be signed out of websites."
         alert.addButton(withTitle: "Clear")
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
@@ -91,6 +101,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         Task {
             await factory.dataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
             await sessionStore.clear()
+            history.clear()
+            await history.flush()
             assistant.context.reset()
             windows.forEach { $0.tabs.clearRecentlyClosed() }
         }
@@ -165,6 +177,25 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         }
     }
 
+    @objc public func showHistory(_ sender: Any?) {
+        if historyWindow == nil {
+            historyWindow = HistoryWindowController(history: history) { [weak self] url, newTab in self?.openFromHistory(url, newTab: newTab) }
+        }
+        historyWindow?.present()
+    }
+
+    /// History opens pages in the frontmost regular window (never a private one).
+    func openFromHistory(_ url: URL, newTab: Bool) {
+        let target = primaryWindow ?? makeWindow()
+        target.open(url, newTab: newTab || target.tabs.active == nil)
+        target.showWindow(nil)
+    }
+
+    @objc func openHistoryItem(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        openFromHistory(url, newTab: true)
+    }
+
     @objc public func showHelp(_ sender: Any?) {
         NSWorkspace.shared.open(AppInfo.helpURL)
     }
@@ -173,7 +204,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         // Each private window gets its own in-memory data store: no cookies or caches touch disk,
         // and private windows can't see each other's sessions.
         let factory = isPrivate ? WebViewFactory(registry: registry, dataStore: .nonPersistent()) : self.factory!
-        let controller = BrowserWindowController(factory: factory, assistant: assistant, isPrivate: isPrivate)
+        let controller = BrowserWindowController(factory: factory, assistant: assistant, history: isPrivate ? nil : history, isPrivate: isPrivate)
         controller.onClose = { [weak self] closed in
             guard let self else { return }
             if self.primaryWindow === closed {
@@ -197,6 +228,29 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
             self.saveScheduled = false
             guard let primary = self.primaryWindow, let sessionStore = self.sessionStore else { return }
             await sessionStore.save(primary.tabs.session)
+        }
+    }
+}
+
+/// Fills the History menu with recently visited pages each time it opens.
+@MainActor
+final class HistoryMenuDelegate: NSObject, NSMenuDelegate {
+    weak var history: History?
+    private static let tag = 4_200
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.items.filter { $0.tag == Self.tag }.forEach(menu.removeItem)
+        guard let recent = history?.recent(12), !recent.isEmpty else { return }
+        let header = NSMenuItem.sectionHeader(title: "Recently Visited")
+        header.tag = Self.tag
+        menu.addItem(header)
+        for visit in recent {
+            let title = visit.title.isEmpty ? (visit.url.host ?? visit.url.absoluteString) : visit.title
+            let item = NSMenuItem(title: String(title.prefix(60)), action: #selector(AppDelegate.openHistoryItem(_:)), keyEquivalent: "")
+            item.representedObject = visit.url
+            item.toolTip = visit.url.absoluteString
+            item.tag = Self.tag
+            menu.addItem(item)
         }
     }
 }

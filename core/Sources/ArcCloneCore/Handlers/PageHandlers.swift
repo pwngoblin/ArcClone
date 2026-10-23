@@ -11,6 +11,7 @@ extension BrowserWindowController {
             guard let self, case .page(let tabID, true, let origin) = ctx.source, let tab = self.tabs.tab(tabID) else { return .null }
             let metadata = try PagePayload.metadata(p, origin: origin)
             tab.applyMetadata(metadata)
+            self.history?.record(url: metadata.url, title: metadata.title)
             self.recordForAssistant(tabID, "page.didChange", metadata.json)
             return .null
         }
