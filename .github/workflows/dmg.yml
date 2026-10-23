@@ -35,8 +35,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check where this PR comes from
+        # Branch names come from the PR author: pass them as environment variables (data), never
+        # interpolate them into the script, or a branch name like  x";curl${IFS}…|sh;"  runs code.
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
         run: |
-          base="${{ github.base_ref }}"; head="${{ github.head_ref }}"
+          base="$BASE_REF"; head="$HEAD_REF"
           case "$base:$head" in
             testing:main|release:main|release:hotfix/*) echo "$head -> $base is allowed" ;;
             *) echo "::error::$head -> $base is not allowed. Merge features into main first, then open main -> $base (hotfix/* may target release)."; exit 1 ;;
@@ -57,16 +62,20 @@ jobs:
       dmg: ${{ steps.version.outputs.dmg }}
       prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false # the build never pushes; only the publish job needs the token
 
       - name: Compute version
         id: version
+        env:
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           version="$(tr -d '[:space:]' < VERSION)"
           if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error file=VERSION::VERSION must be MAJOR.MINOR.PATCH, got '$version'"; exit 1
           fi
-          sha="$(echo "${{ github.event.pull_request.head.sha || github.sha }}" | cut -c1-7)"
+          sha="$(echo "$COMMIT_SHA" | cut -c1-7)"
           case "$CHANNEL" in
             release) tag="v$version"; prerelease=false
                      if [ "${{ github.event_name }}" = push ]; then dmg="ArcClone-$version.dmg"
@@ -137,7 +146,7 @@ jobs:
           xcrun stapler staple "build/$DMG_NAME"
           (cd build && shasum -a 256 "$DMG_NAME" > "$DMG_NAME.sha256")
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ env.DMG_NAME }}
           path: |
@@ -148,7 +157,7 @@ jobs:
           retention-days: ${{ env.CHANNEL == 'release' && 90 || 14 }}
 
       - name: Upload symbols (not shipped in the DMG)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ env.DMG_NAME }}.dSYM
           path: build/ArcClone.app.dSYM
@@ -190,9 +199,9 @@ jobs:
       VERSION: ${{ needs.build.outputs.version }}
       DMG: ${{ needs.build.outputs.dmg }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: ${{ needs.build.outputs.dmg }}
           path: dist
