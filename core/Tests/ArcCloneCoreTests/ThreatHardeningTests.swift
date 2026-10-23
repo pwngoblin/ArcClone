@@ -1,3 +1,4 @@
+import AppKit
 import CryptoKit
 import Foundation
 import Testing
@@ -156,5 +157,17 @@ private func temporaryDirectory() throws -> URL {
     @Test func onlyWellFormedPinsAreAccepted() {
         let good = Data(repeating: 7, count: 32).base64EncodedString()
         #expect(AssistantConfiguration.parsePins("\(good), not-base64, \(Data(count: 16).base64EncodedString())") == [good])
+    }
+}
+
+@Suite @MainActor struct ClipboardTests {
+    @Test func sensitiveCopiesAreConcealedAndTransient() {
+        let board = NSPasteboard(name: NSPasteboard.Name("arcclone-test-\(UUID().uuidString)"))
+        defer { board.releaseGlobally() }
+        Clipboard.copy("https://private.example/", sensitive: true, to: board)
+        #expect(board.string(forType: .string) == "https://private.example/")
+        #expect(board.types?.contains(Clipboard.concealed) == true && board.types?.contains(Clipboard.transient) == true)
+        Clipboard.copy("https://public.example/", sensitive: false, to: board)
+        #expect(board.types?.contains(Clipboard.concealed) == false)
     }
 }

@@ -126,8 +126,7 @@ public final class WindowModel {
 
     func copyLink(_ id: UUID) {
         guard let url = controller?.tabs.tab(id)?.url else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+        Clipboard.copy(url.absoluteString, sensitive: isPrivate)
         showToast("Link copied")
     }
 
