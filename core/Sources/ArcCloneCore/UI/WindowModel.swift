@@ -70,6 +70,8 @@ public final class WindowModel {
         set { panel = newValue ? .assistant : .tabs }
     }
     var commandBar: CommandBarModel?
+    /// Where the downloads button sits (sidebar hosting-view coordinates), for the download animation.
+    @ObservationIgnored var downloadsButtonFrame: CGRect = .zero
     let isPrivate: Bool
     let assistant: AssistantChat
 

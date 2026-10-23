@@ -5,6 +5,7 @@ public protocol TabDelegate: AnyObject {
     func tabDidChange(_ tab: Tab)
     func tab(_ tab: Tab, requestsNewTabWith request: URLRequest, inBackground: Bool)
     func tabRequestsClose(_ tab: Tab)
+    func tabDidStartDownload(_ tab: Tab)
 }
 
 /// One browsing tab: owns its WKWebView, its IPC bridge, crash recovery and downloads.
@@ -371,11 +372,13 @@ extension Tab: WKNavigationDelegate {
     }
 
     public func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
-        download.delegate = DownloadManager.shared
+        DownloadManager.shared.track(download)
+        delegate?.tabDidStartDownload(self)
     }
 
     public func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
-        download.delegate = DownloadManager.shared
+        DownloadManager.shared.track(download)
+        delegate?.tabDidStartDownload(self)
     }
 
     public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {

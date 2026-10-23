@@ -20,6 +20,7 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     private let contentController = TabContentViewController()
     private var overlayHost: NSHostingView<CommandBarOverlay>?
     private let windowToolbar = WindowToolbar()
+    private weak var sidebarHost: NSView?
     private var commandBarObservation: Task<Void, Never>?
     var onClose: (@MainActor (BrowserWindowController) -> Void)?
     var onSessionChange: (@MainActor () -> Void)?
@@ -78,6 +79,7 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         effect.blendingMode = .behindWindow
         effect.state = .followsWindowActiveState
         let sidebar = NSHostingView(rootView: SidebarView(window: model))
+        sidebarHost = sidebar
         sidebar.translatesAutoresizingMaskIntoConstraints = false
         effect.addSubview(sidebar)
         NSLayoutConstraint.activate([
@@ -226,6 +228,56 @@ extension BrowserWindowController: TabDelegate {
 
     public func tabRequestsClose(_ tab: Tab) {
         tabs.close(tab.id)
+    }
+
+    public func tabDidStartDownload(_ tab: Tab) {
+        animateDownloadFlight()
+    }
+
+    /// A file icon arcs from the page into the sidebar's downloads button, shrinking as it lands.
+    func animateDownloadFlight() {
+        guard let root = window?.contentView, let host = sidebarHost, !isSidebarCollapsed,
+              model.downloadsButtonFrame != .zero, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        root.wantsLayer = true
+        let frame = model.downloadsButtonFrame
+        let end = host.convert(NSPoint(x: frame.midX, y: frame.midY), to: root)
+        let content = contentController.view
+        let start = content.convert(NSPoint(x: content.bounds.midX, y: content.bounds.midY), to: root)
+
+        let size: CGFloat = 44
+        let icon = CALayer()
+        icon.bounds = CGRect(x: 0, y: 0, width: size, height: size)
+        icon.position = end
+        let symbol = NSImage(systemSymbolName: "arrow.down.doc.fill", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 34, weight: .semibold).applying(.init(paletteColors: [
+                NSColor(hex: UserDefaults.standard.string(forKey: AppearanceStyle.Key.accent) ?? AppearanceStyle.defaultAccent)])))
+        icon.contents = symbol
+        icon.contentsGravity = .resizeAspect
+        icon.shadowOpacity = 0.25
+        icon.shadowRadius = 8
+        icon.shadowOffset = CGSize(width: 0, height: -3)
+        root.layer?.addSublayer(icon)
+
+        let path = CGMutablePath()
+        path.move(to: start)
+        path.addQuadCurve(to: end, control: CGPoint(x: (start.x + end.x) / 2, y: max(start.y, end.y) + 160))
+        let move = CAKeyframeAnimation(keyPath: "position")
+        move.path = path
+        move.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        let shrink = CABasicAnimation(keyPath: "transform.scale")
+        shrink.fromValue = 1.6
+        shrink.toValue = 0.35
+        let fade = CAKeyframeAnimation(keyPath: "opacity")
+        fade.values = [0, 1, 1, 0]
+        fade.keyTimes = [0, 0.12, 0.85, 1]
+        let group = CAAnimationGroup()
+        group.animations = [move, shrink, fade]
+        group.duration = 0.75
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { icon.removeFromSuperlayer() }
+        icon.opacity = 0
+        icon.add(group, forKey: "flight")
+        CATransaction.commit()
     }
 }
 
