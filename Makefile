@@ -1,5 +1,6 @@
-# ArcClone build entry points. Run `make` for a dev build, `make app` for a packaged .app.
-.PHONY: all ui core run test test-core test-bridge test-ui selftest app clean
+# ArcClone build entry points. Run `make` for a dev build, `make app` for a packaged .app,
+# `make dmg` for a distributable disk image.
+.PHONY: all ui core run test test-core test-bridge test-ui selftest app dmg clean
 
 all: ui core
 
@@ -33,6 +34,9 @@ selftest: all
 
 app: ui
 	./scripts/bundle.sh
+
+dmg: app
+	./scripts/make-dmg.sh
 
 clean:
 	rm -rf core/.build ui/dist build
