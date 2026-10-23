@@ -12,7 +12,7 @@ public final class ChromeHost: NSObject, WKNavigationDelegate {
     private let bridge: ScriptMessageBridge
     private let schemeHandler: UISchemeHandler
 
-    public init(uiRoot: URL, router: IPCRouter, inspectable: Bool = true) {
+    public init(uiRoot: URL, router: IPCRouter, inspectable: Bool) {
         schemeHandler = UISchemeHandler(root: uiRoot)
         bridge = ScriptMessageBridge(name: Self.messageHandlerName, contentWorld: .page, router: router) { message in
             // Accept only messages from our own UI origin, never from anything navigated into this view.
