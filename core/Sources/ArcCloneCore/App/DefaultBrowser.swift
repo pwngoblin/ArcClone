@@ -5,7 +5,7 @@ import AppKit
 @MainActor
 enum DefaultBrowser {
     static var isAvailable: Bool {
-        Bundle.main.bundleURL.pathExtension == "app" && Bundle.main.bundleIdentifier != nil
+        AppInfo.isPackaged && Bundle.main.bundleIdentifier != nil
     }
 
     static var isDefault: Bool {

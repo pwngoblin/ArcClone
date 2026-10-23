@@ -57,5 +57,10 @@ public enum AppInfo {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
     }
 
+    /// Running from a .app bundle. Packaged builds ignore developer overrides (environment
+    /// variables, PATH, repository lookup) so nothing outside the signed bundle can change
+    /// which scripts the app injects or which executables it runs.
+    public static var isPackaged: Bool { Bundle.main.bundleURL.pathExtension == "app" }
+
     public static let helpURL = URL(string: "https://github.com/pwngoblin/ArcClone#readme")!
 }

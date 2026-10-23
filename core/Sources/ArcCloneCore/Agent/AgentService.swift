@@ -11,6 +11,10 @@ public final class AgentService {
 
     private static func environmentFromPreferences() -> [String: String] {
         var env: [String: String] = [:]
+        // Development builds pass bridge settings through from the shell (`OLLAMA_HOST=… make run`).
+        if !AppInfo.isPackaged {
+            env = ProcessInfo.processInfo.environment.filter { $0.key.hasPrefix("ARC_AGENT_") || $0.key == "OLLAMA_HOST" }
+        }
         let defaults = UserDefaults.standard
         if let host = defaults.string(forKey: Preferences.Key.ollamaHost), !host.isEmpty { env["OLLAMA_HOST"] = host }
         if let model = defaults.string(forKey: Preferences.Key.agentModel), !model.isEmpty { env["ARC_AGENT_MODEL"] = model }

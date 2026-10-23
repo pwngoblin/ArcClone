@@ -95,11 +95,22 @@ public final class ManagedProcess {
         try stdinHandle.write(contentsOf: data)
     }
 
+    /// Children get a minimal environment, never the app's own: variables such as NODE_OPTIONS
+    /// or DYLD_INSERT_LIBRARIES would let whoever launched the app inject code into them
+    /// (the hardened runtime strips DYLD_* for the app itself, but not for unhardened children).
+    nonisolated static let inheritedKeys: Set<String> = ["HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "TZ"]
+
+    nonisolated static func childEnvironment(parent: [String: String], spec: [String: String]) -> [String: String] {
+        var env = parent.filter { inheritedKeys.contains($0.key) }
+        env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+        return env.merging(spec) { _, new in new }
+    }
+
     private func launch() {
         let p = Process()
         p.executableURL = spec.executable
         p.arguments = spec.arguments
-        p.environment = ProcessInfo.processInfo.environment.merging(spec.environment) { _, new in new }
+        p.environment = Self.childEnvironment(parent: ProcessInfo.processInfo.environment, spec: spec.environment)
         if let wd = spec.workingDirectory { p.currentDirectoryURL = wd }
 
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
@@ -194,11 +205,16 @@ public final class ManagedProcess {
 
 public enum Executables {
     /// GUI apps don't inherit the login shell's PATH, so look in the usual places.
-    public static func find(_ name: String, environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
-        if let override = environment["ARCCLONE_\(name.uppercased())"], FileManager.default.isExecutableFile(atPath: override) {
-            return URL(fileURLWithPath: override)
+    /// The `ARCCLONE_<NAME>` override and `$PATH` are honoured only in development builds.
+    public static func find(_ name: String, environment: [String: String] = ProcessInfo.processInfo.environment,
+                            allowOverrides: Bool = !AppInfo.isPackaged) -> URL? {
+        var dirs: [String] = []
+        if allowOverrides {
+            if let override = environment["ARCCLONE_\(name.uppercased())"], FileManager.default.isExecutableFile(atPath: override) {
+                return URL(fileURLWithPath: override)
+            }
+            dirs = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
         }
-        var dirs = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
         dirs += ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", NSHomeDirectory() + "/.volta/bin", NSHomeDirectory() + "/.local/bin"]
         let nvm = NSHomeDirectory() + "/.nvm/versions/node"
         if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvm) {
