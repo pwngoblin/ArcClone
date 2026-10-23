@@ -6,6 +6,8 @@ public struct OllamaClient: Sendable {
     public let baseURL: URL
     public let keepAlive: String
     public let streamTimeout: TimeInterval
+    /// A runaway or hostile model stream can't grow memory without bound.
+    static let maxReplyBytes = 1_000_000
     private let session: URLSession
 
     public init(baseURL: URL, keepAlive: String = "10m", streamTimeout: TimeInterval = 300, session: URLSession = .shared) {
@@ -54,6 +56,7 @@ public struct OllamaClient: Sendable {
                 let event = try JSONValue.parse(line)
                 if let error = event["error"]?.string { throw IPCError.ollamaError("Ollama: \(error)") }
                 if let piece = event["message"]?["content"]?.string, !piece.isEmpty {
+                    guard content.utf8.count < Self.maxReplyBytes else { throw IPCError.ollamaError("The reply was too long and was stopped") }
                     content += piece
                     await onDelta(piece)
                 }

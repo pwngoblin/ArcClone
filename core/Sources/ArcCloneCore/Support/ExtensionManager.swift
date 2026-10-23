@@ -36,14 +36,34 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     @ObservationIgnored var focusedWindow: () -> BrowserWindowController? = { nil }
     @ObservationIgnored var openTab: (URL?, Bool) -> Tab? = { _, _ in nil }
 
-    override init() {
+    /// The installed list decides what code runs in every page, so it is sealed (encrypted and
+    /// authenticated with the Keychain key) instead of kept in UserDefaults, where any process able
+    /// to write ArcClone's preferences could add an "extension".
+    @ObservationIgnored private let file: SealedFile?
+
+    init(directory: URL?, keys: KeyStore = KeychainKeyStore()) {
+        file = directory.map {
+            SealedFile(url: $0.appendingPathComponent("extensions.sealed"), keyName: "extensions", purpose: "dev.arcclone.extensions.v1", keys: keys)
+        }
         super.init()
         controller.delegate = self
-        installed = (UserDefaults.standard.data(forKey: Self.storageKey)).flatMap { try? JSONDecoder().decode([InstalledExtension].self, from: $0) } ?? []
     }
 
-    /// Loads every enabled extension at launch.
+    /// Reads the sealed list (migrating the old UserDefaults copy once) and loads enabled extensions.
     func loadAll() async {
+        do {
+            if let data = try await file?.read() { installed = try JSONDecoder().decode([InstalledExtension].self, from: data) }
+        } catch {
+            // Tampered or unreadable: load nothing rather than trust it.
+            Log.app.error("Installed extensions list failed authentication; ignoring it")
+            lastError = "The list of installed extensions couldn't be verified, so no extensions were loaded. Add them again."
+            installed = []
+        }
+        if let legacy = UserDefaults.standard.data(forKey: Self.storageKey) {
+            if installed.isEmpty, let old = try? JSONDecoder().decode([InstalledExtension].self, from: legacy) { installed = old }
+            UserDefaults.standard.removeObject(forKey: Self.storageKey)
+            save()
+        }
         for record in installed where record.enabled { await load(record) }
     }
 
@@ -139,7 +159,10 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     }
 
     private func save() {
-        UserDefaults.standard.set(try? JSONEncoder().encode(installed), forKey: Self.storageKey)
+        guard let file, let data = try? JSONEncoder().encode(installed) else { return }
+        Task.detached(priority: .utility) {
+            do { try await file.write(data) } catch { Log.app.error("Saving installed extensions failed") }
+        }
     }
 
     private func confirmInstall(_ webExtension: WKWebExtension, window: NSWindow?) -> Bool {

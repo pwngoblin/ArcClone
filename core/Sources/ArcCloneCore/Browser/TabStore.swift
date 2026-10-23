@@ -101,6 +101,7 @@ public final class TabStore {
             if recentlyClosed.count > maxRecentlyClosed { recentlyClosed.removeFirst() }
         }
         onTabRemoved?(tab)
+        router.forget(tab: tab.id)
         tab.tearDown()
         if activeID == id {
             // Arc-like: fall back to the most recently used remaining tab in this space.

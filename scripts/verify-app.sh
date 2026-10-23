@@ -72,6 +72,11 @@ PY
 
 # --- Reverse engineering: symbols and secrets -------------------------------------------------
 if nm -ap "$BIN" 2>/dev/null | grep -q " OSO "; then fail "debug map (N_OSO) left in binary: run strip"; else pass "debug symbols stripped"; fi
+if strings -a "$BIN" | grep -Eq "/Users/[^/]+/|/home/[^/]+/"; then
+  fail "a build machine path (home folder / username) is embedded in the binary"
+else
+  pass "no build machine paths embedded"
+fi
 SECRET_RE='AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{36}|xox[baprs]-[A-Za-z0-9-]{10,}'
 if { strings -a "$BIN"; find "$APP/Contents/Resources" -type f -print0 | xargs -0 cat; } 2>/dev/null | grep -Eq "$SECRET_RE"; then
   fail "something that looks like a secret is embedded in the app"

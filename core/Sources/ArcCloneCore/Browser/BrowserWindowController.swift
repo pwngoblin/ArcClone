@@ -55,6 +55,9 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         window.minSize = NSSize(width: 640, height: 420)
         window.tabbingMode = .disallowed
         window.setFrameAutosaveName("ArcCloneBrowserWindow")
+        // macOS window restoration would save titles (page titles) unencrypted under Saved
+        // Application State; ArcClone restores its own sessions, encrypted, instead.
+        window.isRestorable = false
         if isPrivate {
             // Keep private windows out of screenshots, screen recording and screen sharing by other
             // apps, as far as macOS honors the request.

@@ -63,8 +63,22 @@
   let lastURL = location.href;
   let lastTitle = document.title;
 
+  // A page can rewrite its title thousands of times a second; report at most every 500 ms
+  // (the latest state wins).
+  let pending = null;
+  let lastReport = 0;
   function report(reason) {
-    arc.emit("page.didChange", { reason, ...collect() });
+    const wait = 500 - (Date.now() - lastReport);
+    if (wait <= 0) {
+      lastReport = Date.now();
+      arc.emit("page.didChange", { reason, ...collect() });
+    } else if (!pending) {
+      pending = setTimeout(() => {
+        pending = null;
+        lastReport = Date.now();
+        arc.emit("page.didChange", { reason, ...collect() });
+      }, wait);
+    }
   }
 
   report("load");

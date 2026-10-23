@@ -22,7 +22,8 @@ public final class WebViewFactory {
     #endif
 
     /// Presents as Safari so sites don't serve degraded "unknown browser" pages.
-    public var applicationNameForUserAgent = "Version/18.0 Safari/605.1.15 ArcClone/0.1"
+    /// Exactly Safari's: an extra "ArcClone" token would make every user easy to fingerprint.
+    public var applicationNameForUserAgent = "Version/18.0 Safari/605.1.15"
 
     public init(registry: ScriptRegistry, dataStore: WKWebsiteDataStore = .default(),
                 siteSettings: SiteSettings? = nil, savesSiteChanges: Bool = true, adBlocker: AdBlocker? = nil) {
@@ -38,7 +39,8 @@ public final class WebViewFactory {
         config.websiteDataStore = dataStore
         config.applicationNameForUserAgent = applicationNameForUserAgent
         config.allowsAirPlayForMediaPlayback = true
-        config.mediaTypesRequiringUserActionForPlayback = []
+        // Like Safari: media with sound waits for a click (abuse, battery); muted autoplay still works.
+        config.mediaTypesRequiringUserActionForPlayback = [.audio]
         config.preferences.isElementFullscreenEnabled = true
         config.preferences.javaScriptCanOpenWindowsAutomatically = false
         config.preferences.isFraudulentWebsiteWarningEnabled = true
