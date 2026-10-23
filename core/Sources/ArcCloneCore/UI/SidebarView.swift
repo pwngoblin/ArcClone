@@ -1,34 +1,31 @@
 import SwiftUI
 
-/// Height of the title row: tall enough that the navigation buttons sit level with the traffic
-/// lights of the unified toolbar-style title bar instead of colliding with them.
-let titleRowHeight: CGFloat = 52
-/// Room the traffic lights take on the left of the title row.
-let trafficLightsWidth: CGFloat = 78
-
 /// The vertical tab sidebar, in SwiftUI.
 struct SidebarView: View {
     @Bindable var window: WindowModel
 
     var body: some View {
         VStack(spacing: 0) {
-            NavRow(window: window)
-                .frame(height: titleRowHeight)
             AddressPill(window: window)
                 .padding(.horizontal, 10)
+                .padding(.top, 6)
                 .padding(.bottom, 8)
-            if window.showsAssistant {
-                AssistantPanelView(chat: window.assistant, window: window)
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-            } else {
+            switch window.panel {
+            case .tabs:
                 TabListView(window: window)
                     .transition(.move(edge: .leading).combined(with: .opacity))
+            case .assistant:
+                AssistantPanelView(chat: window.assistant, window: window)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            case .history:
+                HistoryPanelView(window: window)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
             }
             SidebarFooter(window: window)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 8)
         }
-        .animation(.smooth(duration: 0.25), value: window.showsAssistant)
+        .animation(.smooth(duration: 0.25), value: window.panel)
         .overlay(alignment: .bottom) {
             if let toast = window.toast {
                 Text(toast.message)
@@ -42,23 +39,6 @@ struct SidebarView: View {
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: window.toast)
-    }
-}
-
-private struct NavRow: View {
-    let window: WindowModel
-
-    var body: some View {
-        HStack(spacing: 2) {
-            Spacer().frame(width: trafficLightsWidth)
-            NavButton(symbol: "sidebar.left", help: "Hide Sidebar (⌘S)") { window.toggleSidebar() }
-            Spacer()
-            NavButton(symbol: "chevron.left", help: "Back (⌘[)", enabled: window.canGoBack) { window.goBack() }
-            NavButton(symbol: "chevron.right", help: "Forward (⌘])", enabled: window.canGoForward) { window.goForward() }
-            NavButton(symbol: window.activeTab?.isLoading == true ? "xmark" : "arrow.clockwise",
-                      help: "Reload (⌘R)", enabled: window.activeTab != nil) { window.reloadOrStop() }
-        }
-        .padding(.trailing, 8)
     }
 }
 
@@ -214,6 +194,10 @@ private struct SidebarFooter: View {
             .buttonStyle(.plain)
             .foregroundStyle(window.showsAssistant ? .primary : .secondary)
             .help("Assistant (⌘E)")
+            if window.controller?.history != nil {
+                NavButton(symbol: "clock", help: "History") { window.panel = window.panel == .history ? .tabs : .history }
+                    .foregroundStyle(window.panel == .history ? .primary : .secondary)
+            }
             if window.canReopenClosed {
                 NavButton(symbol: "arrow.uturn.backward", help: "Reopen Closed Tab (⇧⌘T)") { window.reopenClosed() }
             }
