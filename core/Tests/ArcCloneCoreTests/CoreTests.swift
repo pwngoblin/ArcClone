@@ -165,3 +165,45 @@ private let repoRoot = URL(fileURLWithPath: #filePath)
         }
     }
 }
+
+@Suite struct SecurityHardeningTests {
+    @Test func packagedBuildsIgnoreResourceOverrides() {
+        let bundle = URL(fileURLWithPath: "/Applications/ArcClone.app/Contents/Resources")
+        let paths = AppPaths.resolve(environment: ["ARCCLONE_ROOT": repoRoot.path], packagedResources: bundle)
+        #expect(paths.root.path == "/Applications/ArcClone.app/Contents/Resources/ArcClone")
+        // Development builds still honour the override.
+        #expect(AppPaths.resolve(environment: ["ARCCLONE_ROOT": repoRoot.path], packagedResources: nil).root == AppPaths(root: repoRoot).root)
+    }
+
+    @Test func packagedBuildsIgnoreExecutableOverrides() {
+        let planted = ["ARCCLONE_ENV": "/bin/sh", "PATH": "/tmp/planted"]
+        #expect(Executables.find("env", environment: planted, allowOverrides: true)?.path == "/bin/sh")
+        #expect(Executables.find("env", environment: planted, allowOverrides: false)?.path == "/usr/bin/env")
+    }
+
+    @Test func childProcessesGetMinimalEnvironment() {
+        let parent = ["HOME": "/Users/x", "NODE_OPTIONS": "--require /tmp/evil.js", "DYLD_INSERT_LIBRARIES": "/tmp/evil.dylib",
+                      "PATH": "/tmp/planted:/usr/bin", "OLLAMA_HOST": "http://evil.test"]
+        let env = ManagedProcess.childEnvironment(parent: parent, spec: ["ARC_AGENT_LOG": "error"])
+        #expect(env["HOME"] == "/Users/x")
+        #expect(env["NODE_OPTIONS"] == nil && env["DYLD_INSERT_LIBRARIES"] == nil && env["OLLAMA_HOST"] == nil)
+        #expect(env["PATH"] == "/usr/bin:/bin:/usr/sbin:/sbin")
+        #expect(env["ARC_AGENT_LOG"] == "error")
+    }
+
+    @Test func chromeCSPCoversDirectivesDefaultSrcMisses() {
+        let csp = UISchemeHandler.contentSecurityPolicy
+        for directive in ["base-uri 'none'", "form-action 'none'", "frame-src 'none'", "object-src 'none'", "script-src 'self' arc-ui:"] {
+            #expect(csp.contains(directive), "missing \(directive)")
+        }
+        #expect(!csp.contains("unsafe-eval"))
+    }
+
+    @Test func onlyNonWebSchemesOpenExternally() {
+        #expect(Tab.opensExternally(URL(string: "zoommtg://zoom.us/join")!))
+        #expect(Tab.opensExternally(URL(string: "smb://server/share")!))
+        #expect(Tab.opensExternally(URL(string: "mailto:a@b.c")!))
+        #expect(!Tab.opensExternally(URL(string: "https://example.com")!))
+        #expect(!Tab.opensExternally(URL(string: "about:blank")!))
+    }
+}
