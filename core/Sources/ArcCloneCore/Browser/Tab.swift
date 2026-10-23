@@ -30,6 +30,8 @@ public final class Tab: NSObject {
     private var observations: [NSKeyValueObservation] = []
     private var crashTimes: [Date] = []
     private var pendingURL: URL?
+    /// A local file this tab holds sandbox access to (from a security-scoped bookmark or Open panel).
+    private var securityScopedURL: URL?
     /// The original http:// URL while its HTTPS-First upgrade is loading.
     private var upgradedFrom: URL?
     private var isDiscarded = false
@@ -42,7 +44,10 @@ public final class Tab: NSObject {
         self.bridge = ScriptMessageBridge(name: ScriptRegistry.messageHandlerName,
                                           contentWorld: factory.registry.contentWorld,
                                           router: router) { message in
-            .page(tabID: tabID, isMainFrame: message.frameInfo.isMainFrame, url: message.frameInfo.request.url)
+            // The origin comes from WebKit's view of the frame, not from anything the page says.
+            let origin = message.frameInfo.securityOrigin
+            return .page(tabID: tabID, isMainFrame: message.frameInfo.isMainFrame,
+                         url: IPCSource.originURL(protocol: origin.protocol, host: origin.host, port: origin.port))
         }
         self.webView = factory.makeWebView(bridge: bridge)
         self.url = url
@@ -55,6 +60,8 @@ public final class Tab: NSObject {
 
     /// Breaks the WKUserContentController -> bridge retain and stops the page.
     public func tearDown() {
+        securityScopedURL?.stopAccessingSecurityScopedResource()
+        securityScopedURL = nil
         observations.removeAll()
         bridge.detach(from: webView.configuration.userContentController)
         webView.stopLoading()
@@ -67,7 +74,8 @@ public final class Tab: NSObject {
 
     public func load(_ url: URL) {
         if url.isFileURL {
-            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+            // Least privilege: WebContent may read this file only, not its whole folder.
+            webView.loadFileURL(url, allowingReadAccessTo: url)
         } else {
             webView.load(URLRequest(url: url))
         }
@@ -100,7 +108,8 @@ public final class Tab: NSObject {
                     continuation.resume(throwing: IPCError("injection_failed", error.localizedDescription))
                 }
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
+            Task {
+                try? await Task.sleep(for: .seconds(timeout))
                 guard gate.open() else { return }
                 continuation.resume(throwing: IPCError("timeout", "\(name) timed out"))
             }
@@ -113,11 +122,24 @@ public final class Tab: NSObject {
 
     // MARK: Page events (page -> native), applied by the window's page handlers
 
-    func applyMetadata(_ payload: JSONValue) {
-        if let s = payload["favicon"]?.string, let u = URL(string: s) { faviconURL = u }
-        themeColor = payload["themeColor"]?.string
-        if let t = payload["title"]?.string, !t.isEmpty, t != title { title = t }
+    func applyMetadata(_ metadata: PagePayload.Metadata) {
+        if let favicon = metadata.favicon { faviconURL = favicon }
+        themeColor = metadata.themeColor
+        if let t = metadata.title, t != title { title = t }
         notify()
+    }
+
+    /// Keeps sandbox access to a user-chosen file for as long as the tab shows it.
+    func holdSecurityScope(_ url: URL) {
+        securityScopedURL?.stopAccessingSecurityScopedResource()
+        securityScopedURL = url.startAccessingSecurityScopedResource() ? url : nil
+    }
+
+    /// Read-only, app-scoped bookmark so the file can be reopened after relaunch.
+    var fileBookmark: Data? {
+        guard let url, url.isFileURL else { return nil }
+        return try? url.bookmarkData(options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
+                                     includingResourceValuesForKeys: nil, relativeTo: nil)
     }
 
     func applySelection(_ text: String?) {
@@ -422,7 +444,9 @@ enum ErrorPage {
                 .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
         }
         return """
-        <!doctype html><html><head><meta charset="utf-8"><title>\(esc(title))</title>
+        <!doctype html><html><head><meta charset="utf-8">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+        <title>\(esc(title))</title>
         <style>
           :root { color-scheme: light dark; }
           body { font: 14px -apple-system, system-ui; display: grid; place-items: center; height: 100vh; margin: 0; }
