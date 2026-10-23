@@ -62,6 +62,38 @@ enum SelfTest {
             let health = await assistant.health()
             check("assistant", health["ollama"]?["reachable"]?.bool != nil, health)
 
+            // The session must round-trip through the real Keychain key and never hit disk in plaintext.
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("arcclone-selftest-\(UUID().uuidString)")
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let store = SessionStore(directory: dir)
+            let sample = SessionStore.Session(tabs: [.init(url: URL(string: "https://selftest.arcclone.test/?token=s3cret")!, title: "T", pinned: false)],
+                                              activeIndex: 0)
+            await store.save(sample)
+            let onDisk = (try? Data(contentsOf: dir.appendingPathComponent("session.sealed"))) ?? Data()
+            let restored = await store.load()
+            check("session encrypted at rest", restored == sample && !onDisk.isEmpty && onDisk.range(of: Data("s3cret".utf8)) == nil,
+                  ["bytes": JSONValue(onDisk.count)])
+
+            // Optional live HTTPS-First check (needs network): ARCCLONE_SELFTEST_NETWORK=1
+            if ProcessInfo.processInfo.environment["ARCCLONE_SELFTEST_NETWORK"] != nil {
+                let web = window.tabs.create(url: URL(string: "http://example.com/"))
+                let upgraded = await waitUntil(20) { web.url?.scheme == "https" && !web.isLoading }
+                check("https-first upgrade", upgraded, JSONValue(web.url?.absoluteString))
+
+                // Pinning: the real key must pass, a wrong pin must be refused.
+                let site = URL(string: "https://example.com/")!
+                let pins = (try? await CertificatePinning.currentPins(for: site)) ?? []
+                func fetch(_ pins: Set<String>) async -> Bool {
+                    let session = URLSession(configuration: .ephemeral, delegate: PinningSessionDelegate(pins: pins), delegateQueue: nil)
+                    defer { session.finishTasksAndInvalidate() }
+                    return (try? await session.data(from: site)) != nil
+                }
+                let pinnedOK = !pins.isEmpty ? await fetch(Set(pins.prefix(1))) : false
+                let wrongRefused = !(await fetch([Data(repeating: 0, count: 32).base64EncodedString()]))
+                check("certificate pinning", pinnedOK && wrongRefused, ["pins": JSONValue(pins.count), "pinnedOK": .bool(pinnedOK), "wrongRefused": .bool(wrongRefused)])
+            }
+
             // Optional live check against YouTube (needs network): ARCCLONE_SELFTEST_YOUTUBE=<videoId>
             if let videoID = ProcessInfo.processInfo.environment["ARCCLONE_SELFTEST_YOUTUBE"] {
                 let yt = window.tabs.create(url: URL(string: "https://www.youtube.com/watch?v=\(videoID)"))

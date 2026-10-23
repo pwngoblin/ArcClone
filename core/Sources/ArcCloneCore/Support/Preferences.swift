@@ -8,6 +8,8 @@ public enum Preferences {
         public static let homepage = "Homepage"
         public static let ollamaHost = "OllamaHost"
         public static let agentModel = "AgentModel"
+        /// Comma-separated base64 SHA-256 SPKI pins for a remote (HTTPS) Ollama.
+        public static let ollamaPins = "OllamaPinnedKeys"
     }
 
     public enum SearchEngine: String, CaseIterable, Identifiable, Sendable {

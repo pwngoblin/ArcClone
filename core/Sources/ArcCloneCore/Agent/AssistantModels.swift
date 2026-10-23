@@ -11,6 +11,8 @@ public struct AssistantConfiguration: Sendable, Equatable {
     public var chunkChars = 12_000
     public var requestTimeout: TimeInterval = 300
     public var keepAlive = "10m"
+    /// SPKI SHA-256 pins (base64) the Ollama server must present; empty means system trust only.
+    public var pinnedKeys: Set<String> = []
 
     public init(host: String? = nil, defaultModel: String? = nil) {
         self.baseURL = Self.normalizedHost(host)
@@ -27,7 +29,9 @@ public struct AssistantConfiguration: Sendable, Equatable {
             if host?.isEmpty ?? true { host = environment["OLLAMA_HOST"] }
             if model?.isEmpty ?? true { model = environment["ARC_AGENT_MODEL"] }
         }
-        return Self(host: host, defaultModel: model)
+        var configuration = Self(host: host, defaultModel: model)
+        configuration.pinnedKeys = parsePins(defaults.string(forKey: Preferences.Key.ollamaPins))
+        return configuration
     }
 
     /// Accepts the forms people put in OLLAMA_HOST: "", "0.0.0.0:11434", "myhost", "https://ollama.example".
@@ -39,10 +43,24 @@ public struct AssistantConfiguration: Sendable, Equatable {
         guard var parts = URLComponents(string: host), parts.host?.isEmpty == false else { return fallback }
         if parts.host == "0.0.0.0" { parts.host = "127.0.0.1" }
         if parts.port == nil, parts.scheme == "http" { parts.port = 11434 }
+        // Never keep credentials from a pasted URL; they would end up in UserDefaults and logs.
+        parts.user = nil
+        parts.password = nil
         parts.path = ""
         parts.query = nil
         parts.fragment = nil
         return parts.url ?? fallback
+    }
+
+    public static func parsePins(_ raw: String?) -> Set<String> {
+        Set((raw ?? "").split(whereSeparator: { $0 == "," || $0.isWhitespace }).map(String.init)
+            .filter { Data(base64Encoded: $0)?.count == 32 })
+    }
+
+    /// Page content is sent to Ollama, so plain HTTP is only allowed to this Mac (loopback).
+    public var transportError: IPCError? {
+        guard baseURL.scheme == "http", let host = baseURL.host, !HTTPSFirst.isLoopback(host) else { return nil }
+        return .ollamaUnavailable("Ollama at \(host) must use HTTPS: page content would cross the network unencrypted.")
     }
 }
 

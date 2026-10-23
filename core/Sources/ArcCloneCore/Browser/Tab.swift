@@ -30,6 +30,8 @@ public final class Tab: NSObject {
     private var observations: [NSKeyValueObservation] = []
     private var crashTimes: [Date] = []
     private var pendingURL: URL?
+    /// The original http:// URL while its HTTPS-First upgrade is loading.
+    private var upgradedFrom: URL?
     private var isDiscarded = false
 
     public init(id: UUID = UUID(), factory: WebViewFactory, router: IPCRouter, url: URL?, pinned: Bool = false) {
@@ -183,6 +185,11 @@ public final class Tab: NSObject {
     private func showError(_ error: Error, for failingURL: URL?) {
         let nsError = error as NSError
         if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled { return }
+        if let original = upgradedFrom {
+            upgradedFrom = nil
+            offerHTTPFallback(to: original, error: nsError)
+            return
+        }
         if nsError.domain == "WebKitErrorDomain" && (nsError.code == 102 || nsError.code == 204) { return } // policy change / plug-in handled
         let target = failingURL ?? (nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL)
         webView.loadHTMLString(ErrorPage.html(title: "Can't open this page",
@@ -205,6 +212,20 @@ extension Tab: WKNavigationDelegate {
                           inBackground: !navigationAction.modifierFlags.contains(.shift))
             return (.cancel, preferences)
         }
+        if let url = navigationAction.request.url, navigationAction.targetFrame?.isMainFrame ?? true,
+           (navigationAction.request.httpMethod ?? "GET") == "GET", navigationAction.navigationType != .backForward,
+           url.scheme?.lowercased() == "http", let host = url.host?.lowercased() {
+            if let original = upgradedFrom, original.host?.lowercased() == host {
+                // The HTTPS endpoint itself redirects to HTTP: the site insists, so stop upgrading it.
+                Log.web.info("HTTPS-First: site redirects back to HTTP")
+                HTTPSFirst.allowedHTTPHosts.insert(host)
+                upgradedFrom = nil
+            } else if let secure = HTTPSFirst.upgrade(url) {
+                upgradedFrom = url
+                Task { [weak self] in self?.webView.load(URLRequest(url: secure)) }
+                return (.cancel, preferences)
+            }
+        }
         if let url = navigationAction.request.url, Self.opensExternally(url) {
             // mailto:, zoommtg:, etc. go to another app, but only after the user agrees,
             // and never on behalf of a subframe (ads, embeds).
@@ -212,6 +233,31 @@ extension Tab: WKNavigationDelegate {
             return (.cancel, preferences)
         }
         return (.allow, preferences)
+    }
+
+    /// The HTTPS-First upgrade failed: explain the risk and let the user continue over HTTP.
+    private func offerHTTPFallback(to url: URL, error: NSError) {
+        guard let host = url.host?.lowercased() else { return }
+        let alert = NSAlert()
+        alert.messageText = "“\(host)” doesn't support a secure connection"
+        alert.informativeText = "Anyone on your network could see or change what you send to and receive from this site over HTTP.\n\n\(error.localizedDescription)"
+        alert.addButton(withTitle: "Continue to HTTP")
+        alert.addButton(withTitle: "Cancel")
+        let finish: @MainActor (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard let self else { return }
+            if response == .alertFirstButtonReturn {
+                HTTPSFirst.allowedHTTPHosts.insert(host)
+                self.load(url)
+            } else {
+                self.webView.loadHTMLString(ErrorPage.html(title: "Secure connection unavailable", message: error.localizedDescription, url: url),
+                                            baseURL: nil)
+            }
+        }
+        if let window = webView.window, window.attachedSheet == nil {
+            alert.beginSheetModal(for: window) { response in MainActor.assumeIsolated { finish(response) } }
+        } else {
+            finish(alert.runModal())
+        }
     }
 
     nonisolated static func opensExternally(_ url: URL) -> Bool {
@@ -260,6 +306,10 @@ extension Tab: WKNavigationDelegate {
     public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         pendingURL = webView.url
         youtubeVideoID = nil
+    }
+
+    public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        upgradedFrom = nil
     }
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
