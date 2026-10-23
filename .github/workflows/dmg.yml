@@ -1,0 +1,118 @@
+# Builds a distributable ArcClone.dmg for every pull request into `release` or `testing`.
+# The DMG is attached to the workflow run as an artifact (see the run's Summary page).
+#
+# Optional signing + notarization (otherwise the app is ad-hoc signed). Repository secrets:
+#   MACOS_CERTIFICATE_P12        base64 of a "Developer ID Application" .p12
+#   MACOS_CERTIFICATE_PASSWORD   password of that .p12
+#   MACOS_SIGNING_IDENTITY       e.g. "Developer ID Application: Jane Doe (TEAMID1234)"
+#   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD   notarytool credentials (app-specific password)
+name: Build DMG
+
+on:
+  pull_request:
+    branches: [release, testing]
+  workflow_dispatch:
+
+concurrency:
+  group: dmg-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  dmg:
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      CHANNEL: ${{ github.base_ref || 'manual' }}
+      MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Test
+        run: make test-bridge test-ui test-core
+
+      - name: Compute version
+        run: |
+          version="$(cat VERSION)"
+          sha="$(echo "${{ github.event.pull_request.head.sha || github.sha }}" | cut -c1-7)"
+          {
+            echo "VERSION=$version"
+            echo "BUILD_NUMBER=${{ github.run_number }}"
+            echo "DMG_NAME=ArcClone-$version-$CHANNEL.${{ github.run_number }}-$sha.dmg"
+          } >> "$GITHUB_ENV"
+
+      - name: Import signing certificate
+        if: env.MACOS_CERTIFICATE_P12 != ''
+        env:
+          P12_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          echo "$MACOS_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/cert.p12" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+          echo "CODESIGN_IDENTITY=$SIGNING_IDENTITY" >> "$GITHUB_ENV"
+
+      - name: Build app
+        run: UNIVERSAL=1 make app
+
+      - name: Build DMG
+        run: ./scripts/make-dmg.sh "build/$DMG_NAME"
+
+      - name: Notarize
+        if: env.MACOS_CERTIFICATE_P12 != '' && env.APPLE_ID != ''
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          xcrun notarytool submit "build/$DMG_NAME" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple "build/$DMG_NAME"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.DMG_NAME }}
+          path: build/${{ env.DMG_NAME }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: ${{ env.CHANNEL == 'release' && 90 || 14 }}
+
+      - name: Summary
+        run: |
+          signed="ad-hoc (unsigned)"
+          [ -n "$MACOS_CERTIFICATE_P12" ] && signed="Developer ID"
+          [ -n "$MACOS_CERTIFICATE_P12" ] && [ -n "$APPLE_ID" ] && signed="Developer ID, notarized"
+          {
+            echo "### 📦 $DMG_NAME"
+            echo "- Channel: \`$CHANNEL\` · Version: \`$VERSION\` (build $BUILD_NUMBER)"
+            echo "- Architectures: $(lipo -archs build/ArcClone.app/Contents/MacOS/ArcClone)"
+            echo "- Signing: $signed"
+            echo "- Size: $(du -h "build/$DMG_NAME" | cut -f1)"
+            echo
+            echo "Download it from **Artifacts** below."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Clean up keychain
+        if: always() && env.MACOS_CERTIFICATE_P12 != ''
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
