@@ -1,3 +1,4 @@
+import Security
 import AppKit
 import CryptoKit
 import Foundation
@@ -169,5 +170,20 @@ private func temporaryDirectory() throws -> URL {
         #expect(board.types?.contains(Clipboard.concealed) == true && board.types?.contains(Clipboard.transient) == true)
         Clipboard.copy("https://public.example/", sensitive: false, to: board)
         #expect(board.types?.contains(Clipboard.concealed) == false)
+    }
+}
+
+@Suite struct SiteSecurityTests {
+    @Test func readsSubjectAndValidityFromACertificate() throws {
+        var anchors: CFArray?
+        guard SecTrustCopyAnchorCertificates(&anchors) == errSecSuccess,
+              let root = (anchors as? [SecCertificate])?.first else { return }
+        var trust: SecTrust?
+        #expect(SecTrustCreateWithCertificates(root, SecPolicyCreateBasicX509(), &trust) == errSecSuccess)
+        let created = try #require(trust)
+        let certificate = try #require(SiteSecurity.certificate(from: created))
+        #expect(!certificate.subject.isEmpty)
+        let from = try #require(certificate.validFrom), until = try #require(certificate.validUntil)
+        #expect(from < until)
     }
 }
