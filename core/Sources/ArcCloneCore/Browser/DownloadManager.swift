@@ -144,7 +144,7 @@ public final class DownloadManager: NSObject, WKDownloadDelegate {
         change(&items[index])
     }
 
-    static func uniqueURL(in directory: URL, name: String) -> URL {
+    nonisolated static func uniqueURL(in directory: URL, name: String) -> URL {
         var candidate = directory.appendingPathComponent(name)
         let base = (name as NSString).deletingPathExtension
         let ext = (name as NSString).pathExtension
