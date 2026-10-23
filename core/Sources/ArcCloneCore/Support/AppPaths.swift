@@ -2,11 +2,11 @@ import Foundation
 
 /// Locates the non-Swift components (injections, built UI, agent bridge) at runtime.
 ///
-/// Resolution order:
+/// Packaged builds only ever use `<App>.app/Contents/Resources/ArcClone` (see scripts/bundle.sh),
+/// which code signing seals. Development builds try, in order:
 ///   1. `ARCCLONE_ROOT` environment variable (repo root or bundle resource root)
-///   2. `<App>.app/Contents/Resources/ArcClone` (packaged build, see scripts/bundle.sh)
-///   3. Walking up from this source file / the executable to find the repository (dev builds)
-///   4. Current working directory and its parent
+///   2. Walking up from this source file / the executable to find the repository
+///   3. Current working directory and its parent
 public struct AppPaths: Sendable {
     public let root: URL
 
@@ -32,13 +32,16 @@ public struct AppPaths: Sendable {
     }
 
     public static func resolve(environment: [String: String] = ProcessInfo.processInfo.environment,
-                               sourceFile: String = #filePath) -> AppPaths {
+                               sourceFile: String = #filePath,
+                               packagedResources: URL? = AppInfo.isPackaged ? Bundle.main.resourceURL : nil) -> AppPaths {
+        if let packagedResources {
+            let root = packagedResources.appendingPathComponent("ArcClone", isDirectory: true)
+            if !isRoot(root) { Log.app.error("Bundle resources missing at \(root.path, privacy: .public)") }
+            return AppPaths(root: root)
+        }
         var candidates: [URL] = []
         if let env = environment["ARCCLONE_ROOT"], !env.isEmpty {
             candidates.append(URL(fileURLWithPath: (env as NSString).expandingTildeInPath))
-        }
-        if let res = Bundle.main.resourceURL {
-            candidates.append(res.appendingPathComponent("ArcClone", isDirectory: true))
         }
         candidates.append(contentsOf: ancestors(of: URL(fileURLWithPath: sourceFile)))
         candidates.append(contentsOf: ancestors(of: Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])))

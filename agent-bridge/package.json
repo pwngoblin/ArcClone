@@ -1,0 +1,14 @@
+{
+  "name": "arcclone-agent-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local agent bridge: JSON-RPC over stdio between ArcClone core and Ollama.",
+  "type": "module",
+  "main": "src/main.js",
+  "bin": { "arcclone-agent-bridge": "src/main.js" },
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/main.js",
+    "test": "node --test test/*.test.js"
+  }
+}

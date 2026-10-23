@@ -8,12 +8,13 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     public let tabs: TabStore
     public let chrome: ChromeHost
     let agent: AgentService
-    let urlResolver = URLResolver()
+    var urlResolver: URLResolver { Preferences.urlResolver }
     let factory: WebViewFactory
     var ownedRequests: Set<String> = []
     private var agentListener: UUID?
     private var statusListener: UUID?
     private var snapshotScheduled = false
+    private var browsingActivity: NSUserActivity?
     private let splitController = NSSplitViewController()
     private let contentController = TabContentViewController()
     var onClose: (@MainActor (BrowserWindowController) -> Void)?
@@ -128,6 +129,7 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
                 self.snapshotScheduled = false
                 self.chrome.events.send("tabs.state", self.stateSnapshot)
                 self.window?.title = self.tabs.active?.title ?? "ArcClone"
+                self.updateHandoff()
                 self.onSessionChange?()
             }
         }
@@ -151,10 +153,31 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         window?.makeFirstResponder(tabs.active?.webView)
     }
 
+    // MARK: Handoff
+
+    /// Advertises the active tab so it can be continued in Safari on another device.
+    private func updateHandoff() {
+        guard window?.isKeyWindow == true else { return }
+        guard let tab = tabs.active, let url = tab.url, url.scheme == "http" || url.scheme == "https" else {
+            browsingActivity?.resignCurrent()
+            return
+        }
+        let activity = browsingActivity ?? NSUserActivity(activityType: NSUserActivityTypeBrowsingWeb)
+        browsingActivity = activity
+        activity.webpageURL = url
+        activity.title = tab.title
+        activity.becomeCurrent()
+    }
+
     // MARK: NSWindowDelegate
+
+    public func windowDidBecomeKey(_ notification: Notification) {
+        updateHandoff()
+    }
 
     public func windowWillClose(_ notification: Notification) {
         onClose?(self) // owner persists the session while the tabs still exist
+        browsingActivity?.invalidate()
         onClose = nil
         onSessionChange = nil
         if let agentListener { agent.client.removeListener(agentListener) }

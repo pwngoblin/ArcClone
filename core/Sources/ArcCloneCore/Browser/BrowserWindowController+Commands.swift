@@ -66,6 +66,13 @@ extension BrowserWindowController: NSMenuItemValidation {
         chrome.events.send("chrome.toast", ["message": "Link copied"])
     }
 
+    @objc public func printPage(_ sender: Any?) {
+        guard let web = tabs.active?.webView, let window else { return }
+        let operation = web.printOperation(with: .shared)
+        operation.view?.frame = web.bounds // WebKit prints blank pages without a frame
+        operation.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
+    }
+
     @objc public func zoomIn(_ sender: Any?) { adjustZoom(by: 0.1) }
     @objc public func zoomOut(_ sender: Any?) { adjustZoom(by: -0.1) }
     @objc public func actualSize(_ sender: Any?) { tabs.active?.webView.pageZoom = 1 }
@@ -95,7 +102,7 @@ extension BrowserWindowController: NSMenuItemValidation {
         case #selector(goBack(_:)): return tabs.active?.webView.canGoBack ?? false
         case #selector(goForward(_:)): return tabs.active?.webView.canGoForward ?? false
         case #selector(reopenClosedTab(_:)): return !tabs.recentlyClosed.isEmpty
-        case #selector(reloadPage(_:)), #selector(hardReloadPage(_:)), #selector(copyPageURL(_:)),
+        case #selector(reloadPage(_:)), #selector(hardReloadPage(_:)), #selector(copyPageURL(_:)), #selector(printPage(_:)),
              #selector(zoomIn(_:)), #selector(zoomOut(_:)), #selector(actualSize(_:)), #selector(summarizePage(_:)):
             return tabs.active != nil
         case #selector(togglePinTab(_:)):

@@ -2,13 +2,14 @@ import AppKit
 import WebKit
 
 @MainActor
-public final class AppDelegate: NSObject, NSApplicationDelegate {
+public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     public private(set) var paths: AppPaths!
     private var registry: ScriptRegistry!
     private var factory: WebViewFactory!
     private var agent: AgentService!
     private var sessionStore: SessionStore!
     private var windows: [BrowserWindowController] = []
+    private var settingsWindow: SettingsWindowController?
     private var saveScheduled = false
 
     public override init() { super.init() }
@@ -44,10 +45,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             controller.tabs.restore(session)
         }
         for arg in args {
-            if let url = URLResolver().resolve(arg) { controller.tabs.create(url: url) }
+            if let url = Preferences.urlResolver.resolve(arg) { controller.tabs.create(url: url) }
         }
         if controller.tabs.tabs.isEmpty {
-            controller.tabs.create(url: URL(string: "https://www.youtube.com"))
+            controller.tabs.create(url: Preferences.homepage)
         }
         controller.showWindowCentered()
         NSApp.activate()
@@ -65,6 +66,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     public func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 
+    public func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        guard item.action == #selector(makeDefaultBrowser(_:)) else { return true }
+        return DefaultBrowser.isAvailable && !DefaultBrowser.isDefault
+    }
+
     public func application(_ application: NSApplication, open urls: [URL]) {
         let target = windows.first ?? makeWindow()
         urls.forEach { target.tabs.create(url: $0) }
@@ -76,6 +82,23 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.tabs.create(url: nil)
         controller.showWindowCentered()
         controller.newTab(nil)
+    }
+
+    @objc public func showSettings(_ sender: Any?) {
+        if settingsWindow == nil {
+            settingsWindow = SettingsWindowController { [weak self] in self?.agent.restart() }
+        }
+        settingsWindow?.present()
+    }
+
+    @objc public func makeDefaultBrowser(_ sender: Any?) {
+        DefaultBrowser.makeDefault { error in
+            if let error { NSApp.presentError(error) }
+        }
+    }
+
+    @objc public func showHelp(_ sender: Any?) {
+        NSWorkspace.shared.open(AppInfo.helpURL)
     }
 
     private func makeWindow() -> BrowserWindowController {

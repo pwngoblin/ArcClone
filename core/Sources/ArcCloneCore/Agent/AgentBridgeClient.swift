@@ -56,6 +56,11 @@ public final class AgentBridgeClient {
 
     public func start() { process?.start() }
 
+    /// Takes effect on the next start.
+    public func setEnvironment(_ environment: [String: String]) {
+        process?.spec.environment = environment
+    }
+
     public func stop() {
         failAll(IPCError.unavailable("Agent bridge stopped"))
         process?.stop()
