@@ -1,21 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- App Sandbox + hardened runtime. Keep this list minimal: every key widens what the app can do. -->
+<!-- App Sandbox + hardened runtime. Keep this list minimal: every key widens what the app can do.
+     No temporary exceptions; the app launches no helper executables. -->
 <plist version="1.0">
 <dict>
   <key>com.apple.security.app-sandbox</key><true/>
-  <!-- Outbound only: websites and the local Ollama server. No listening sockets. -->
+  <!-- Outbound only: websites and Ollama. No listening sockets. -->
   <key>com.apple.security.network.client</key><true/>
   <!-- Downloads land in ~/Downloads; local .html files are opened only when the user picks them. -->
   <key>com.apple.security.files.downloads.read-write</key><true/>
   <key>com.apple.security.files.user-selected.read-only</key><true/>
   <key>com.apple.security.print</key><true/>
-  <!-- The assistant runs the user's Node.js (agent-bridge/). These read-only exceptions let the
-       sandbox find and execute it; Node inherits this sandbox. Remove once the bridge is Swift. -->
-  <key>com.apple.security.temporary-exception.files.absolute-path.read-only</key>
-  <array><string>/opt/homebrew/</string><string>/usr/local/</string></array>
-  <key>com.apple.security.temporary-exception.files.home-relative-path.read-only</key>
-  <array><string>/.nvm/versions/node/</string><string>/.volta/</string><string>/.local/bin/</string></array>
   <!-- WebRTC and media capture on websites (getUserMedia): sandbox and hardened-runtime keys. -->
   <key>com.apple.security.device.camera</key><true/>
   <key>com.apple.security.device.microphone</key><true/>
