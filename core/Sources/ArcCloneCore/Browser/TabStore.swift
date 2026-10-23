@@ -15,6 +15,12 @@ public final class TabStore {
 
     public func clearRecentlyClosed() { recentlyClosed.removeAll() }
 
+    /// Tabs currently shown together in split view.
+    public private(set) var split: SplitGroup? {
+        didSet { if split != oldValue { onSplitChange?(); onChange?() } }
+    }
+    public var onSplitChange: (@MainActor () -> Void)?
+
     public var onChange: (@MainActor () -> Void)?
     public var onActiveChange: (@MainActor (Tab?) -> Void)?
     public weak var tabDelegate: TabDelegate?
@@ -53,6 +59,7 @@ public final class TabStore {
 
     public func close(_ id: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        if let split, split.tabIDs.contains(id) { self.split = split.removing(id) }
         let tab = tabs.remove(at: index)
         if let url = tab.url, url.scheme != "about" {
             recentlyClosed.append(ClosedTab(url: url, pinned: tab.isPinned, index: index))
@@ -145,6 +152,37 @@ public final class TabStore {
             },
             activeIndex: tabs.firstIndex { $0.id == activeID })
     }
+
+    // MARK: Split view
+
+    /// Splits the active tab with the tabs after it (wrapping around), opening blank tabs when
+    /// there aren't enough. Returns the new group.
+    @discardableResult
+    public func makeSplit(_ layout: SplitLayout, with requested: [UUID] = []) -> SplitGroup? {
+        guard let active else { return nil }
+        var ids = [active.id] + requested.filter { $0 != active.id && tab($0) != nil }
+        let others = tabs.filter { !$0.isPinned && !ids.contains($0.id) }
+        let start = others.firstIndex { tab in tabs.firstIndex(of: tab)! > tabs.firstIndex(of: active)! } ?? 0
+        for tab in (others[start...] + others[..<start]) where ids.count < layout.paneCount { ids.append(tab.id) }
+        while ids.count < layout.paneCount {
+            ids.append(create(url: nil, activate: false, nextToActive: false).id)
+        }
+        split = SplitGroup(layout: layout, tabIDs: Array(ids.prefix(layout.paneCount)))
+        return split
+    }
+
+    public func addToSplit(_ id: UUID) {
+        guard let grown = split?.adding(id) else { return }
+        split = grown
+        activate(id)
+    }
+
+    public func removeFromSplit(_ id: UUID) {
+        guard let split, split.tabIDs.contains(id) else { return }
+        self.split = split.removing(id)
+    }
+
+    public func exitSplit() { split = nil }
 
     /// Opens a local file the user chose (Open panel, Finder, or a restored bookmark).
     @discardableResult

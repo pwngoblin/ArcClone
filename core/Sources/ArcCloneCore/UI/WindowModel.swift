@@ -14,7 +14,11 @@ public final class WindowModel {
         var progress: Double
         var isPinned: Bool
         var isYouTubeVideo: Bool
+        var inSplit: Bool
     }
+
+    var hasSplit = false
+    var splitCanGrow = false
 
     struct Toast: Equatable {
         let id = UUID()
@@ -54,8 +58,10 @@ public final class WindowModel {
         let items = store.tabs.map { tab in
             TabItem(id: tab.id, title: tab.title.isEmpty ? (tab.url?.host ?? "New Tab") : tab.title, url: tab.url,
                     favicon: tab.faviconURL, isLoading: tab.isLoading, progress: tab.progress, isPinned: tab.isPinned,
-                    isYouTubeVideo: tab.youtubeVideoID != nil)
+                    isYouTubeVideo: tab.youtubeVideoID != nil, inSplit: store.split?.tabIDs.contains(tab.id) ?? false)
         }
+        hasSplit = store.split != nil
+        splitCanGrow = store.split?.layout.grown != nil
         if items != tabs { tabs = items }
         if activeID != store.activeID { activeID = store.activeID }
         canGoBack = store.active?.webView.canGoBack ?? false
@@ -116,6 +122,16 @@ public final class WindowModel {
         store.move(moving.id, to: anchorIndex + newIndex)
         Haptics.perform(.alignment)
     }
+
+    // MARK: Split view
+
+    /// Splits the active tab side by side with `id`.
+    func splitWithActive(_ id: UUID) {
+        controller?.tabs.makeSplit(.twoColumns, with: [id])
+    }
+
+    func addToSplit(_ id: UUID) { controller?.tabs.addToSplit(id) }
+    func removeFromSplit(_ id: UUID) { controller?.tabs.removeFromSplit(id) }
 
     func duplicate(_ id: UUID) {
         guard let store = controller?.tabs, let url = store.tab(id)?.url else { return }

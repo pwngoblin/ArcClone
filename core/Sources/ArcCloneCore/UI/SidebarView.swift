@@ -145,6 +145,9 @@ private struct TabRow: View {
             .frame(width: 18)
             Text(tab.title).lineLimit(1).truncationMode(.tail)
             Spacer(minLength: 0)
+            if tab.inSplit {
+                Image(systemName: "rectangle.split.2x1").font(.system(size: 10)).foregroundStyle(.tint).help("In Split View")
+            }
             if hovering && !tab.isPinned {
                 Button { window.close(tab.id) } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .bold)) }
                     .buttonStyle(.plain).foregroundStyle(.secondary).help("Close Tab (⌘W)")
@@ -187,6 +190,13 @@ struct TabContextMenu: View {
         Button("Pause Media") { window.pauseMedia(tab.id) }
         Divider()
         Button("Open in New Window") { window.openInNewWindow(tab.id) }.disabled(tab.url == nil)
+        Divider()
+        if tab.inSplit {
+            Button("Remove from Split View") { window.removeFromSplit(tab.id) }
+        } else {
+            if tab.id != window.activeID { Button("Split with Current Tab") { window.splitWithActive(tab.id) } }
+            if window.hasSplit && window.splitCanGrow { Button("Add to Split View") { window.addToSplit(tab.id) } }
+        }
         Divider()
         Button("Close Tab") { window.close(tab.id) }
         Button("Close Other Tabs") { window.closeOthers(tab.id) }
