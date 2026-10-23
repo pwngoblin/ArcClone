@@ -24,6 +24,8 @@ public final class Tab: NSObject {
     public private(set) var lastSelection: String?
     public private(set) var youtubeVideoID: String?
     public var isPinned = false
+    /// The space this tab belongs to (TabStore assigns it).
+    public var spaceID = UUID()
     public private(set) var lastActivated = Date()
 
     private let bridge: ScriptMessageBridge

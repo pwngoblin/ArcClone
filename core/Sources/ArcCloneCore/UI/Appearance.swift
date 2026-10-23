@@ -58,7 +58,10 @@ extension View {
 
 /// Tint and grain drawn over the sidebar's system vibrancy.
 struct SidebarBackground: View {
-    @AppStorage(AppearanceStyle.Key.sidebarTint) private var tint = AppearanceStyle.defaultAccent
+    /// A space's own color, used instead of the Appearance setting when present.
+    var spaceColor: String? = nil
+    @AppStorage(AppearanceStyle.Key.sidebarTint) private var storedTint = AppearanceStyle.defaultAccent
+    private var tint: String { spaceColor ?? storedTint }
     @AppStorage(AppearanceStyle.Key.tintStrength) private var strength = 0.12
     @AppStorage(AppearanceStyle.Key.grain) private var grain = 0.0
 
