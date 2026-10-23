@@ -11,6 +11,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     private var sessionStore: SessionStore!
     private(set) var history: History!
     private(set) var siteSettings: SiteSettings!
+    private(set) var adBlocker: AdBlocker!
     private var historyWindow: HistoryWindowController?
     private let historyMenuDelegate = HistoryMenuDelegate()
     private var windows: [BrowserWindowController] = []
@@ -51,7 +52,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         }
         siteSettings = SiteSettings(directory: ProcessInfo.processInfo.arguments.contains("--self-test") ? nil : paths.applicationSupport)
         await siteSettings.load()
-        factory = WebViewFactory(registry: registry, siteSettings: siteSettings)
+        adBlocker = AdBlocker()
+        await adBlocker.prepare()
+        factory = WebViewFactory(registry: registry, siteSettings: siteSettings, adBlocker: adBlocker)
         assistant = Assistant(configuration: .fromPreferences())
         sessionStore = SessionStore(directory: paths.applicationSupport)
         // The self-test must not leave its fixture pages in the user's real history.
@@ -175,7 +178,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
 
     @objc public func showSettings(_ sender: Any?) {
         if settingsWindow == nil {
-            settingsWindow = SettingsWindowController(siteSettings: siteSettings,
+            settingsWindow = SettingsWindowController(siteSettings: siteSettings, adBlocker: adBlocker,
                                                       clearBrowsingData: { [weak self] in self?.clearBrowsingData(nil) },
                                                       onAgentSettingsChanged: { [weak self] in self?.assistant.reconfigure(.fromPreferences()) })
         }
@@ -215,7 +218,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         // Each private window gets its own in-memory data store: no cookies or caches touch disk,
         // and private windows can't see each other's sessions.
         let factory = isPrivate
-            ? WebViewFactory(registry: registry, dataStore: .nonPersistent(), siteSettings: siteSettings, savesSiteChanges: false)
+            ? WebViewFactory(registry: registry, dataStore: .nonPersistent(), siteSettings: siteSettings, savesSiteChanges: false, adBlocker: adBlocker)
             : self.factory!
         let controller = BrowserWindowController(factory: factory, assistant: assistant, history: isPrivate ? nil : history, isPrivate: isPrivate)
         controller.onClose = { [weak self] closed in

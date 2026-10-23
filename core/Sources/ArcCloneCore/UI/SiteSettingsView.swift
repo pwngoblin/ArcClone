@@ -44,6 +44,15 @@ struct SiteSettingsView: View {
                     .labelsHidden().pickerStyle(.segmented).frame(width: 260)
                 }
                 GridRow {
+                    Text("Ads & trackers").foregroundStyle(.secondary)
+                    Toggle("Block", isOn: Binding(get: { !settings.adsAllowed(for: url) }, set: { block in
+                        guard !isPrivate else { return }
+                        settings.update(url) { $0.adsAllowed = block ? nil : true }
+                        controller?.tabs.active?.reload()
+                    }))
+                    .disabled(isPrivate)
+                }
+                GridRow {
                     Text("JavaScript").foregroundStyle(.secondary)
                     Toggle("Allow", isOn: Binding(get: { settings.allowsJavaScript(for: url) }, set: { allow in
                         guard !isPrivate else { return }

@@ -19,6 +19,9 @@ public enum Preferences {
         public static let newTabsNextToCurrent = "OpenNewTabsNextToCurrent"
         public static let clearHistoryOnQuit = "ClearHistoryOnQuit"
         public static let clearWebsiteDataOnQuit = "ClearWebsiteDataOnQuit"
+        public static let adBlock = "BlockAdsAndTrackers"
+        public static let easyList = "UseEasyList"
+        public static let easyListUpdated = "EasyListUpdated"
     }
 
     public enum SearchEngine: String, CaseIterable, Identifiable, Sendable {

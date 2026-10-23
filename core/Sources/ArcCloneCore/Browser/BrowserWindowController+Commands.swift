@@ -10,6 +10,11 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
             let mode = factory.siteSettings?.darkMode(for: tabs.active?.webView.url) ?? .standard
             item.image = NSImage(systemSymbolName: mode == .standard || mode == .light ? "moon" : "moon.fill", accessibilityDescription: item.label)
             return SiteSettings.key(for: tabs.active?.webView.url) != nil
+        case #selector(toggleSiteAdBlocking(_:)):
+            let blocking = (factory.adBlocker?.isEnabled ?? false) && !(factory.siteSettings?.adsAllowed(for: tabs.active?.webView.url) ?? false)
+            item.image = NSImage(systemSymbolName: blocking ? "shield.lefthalf.filled" : "shield.slash", accessibilityDescription: item.label)
+            item.toolTip = blocking ? "Blocking ads on this site. Click to allow." : "Ads allowed on this site. Click to block."
+            return factory.adBlocker?.isEnabled == true && SiteSettings.key(for: tabs.active?.webView.url) != nil
         case #selector(showSiteSettings(_:)):
             return SiteSettings.key(for: tabs.active?.webView.url) != nil
         case #selector(goBack(_:)): return tabs.active?.webView.canGoBack ?? false
@@ -146,6 +151,19 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
         } else if let view = window?.contentView {
             popover.show(relativeTo: NSRect(x: view.bounds.maxX - 60, y: view.bounds.maxY - 10, width: 1, height: 1), of: view, preferredEdge: .minY)
         }
+    }
+
+    /// Allow or block ads on the current site, then reload so the change takes effect.
+    @objc public func toggleSiteAdBlocking(_ sender: Any?) {
+        guard let tab = tabs.active, let settings = factory.siteSettings, factory.savesSiteChanges else {
+            model.showToast("Site changes aren't saved in private windows")
+            return
+        }
+        let allow = !settings.adsAllowed(for: tab.webView.url)
+        settings.update(tab.webView.url) { $0.adsAllowed = allow ? true : nil }
+        tab.reload()
+        model.showToast(allow ? "Ads allowed on this site" : "Blocking ads on this site")
+        Haptics.perform(.generic)
     }
 
     @objc public func toggleSiteDarkMode(_ sender: Any?) {

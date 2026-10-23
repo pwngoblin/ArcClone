@@ -4,7 +4,7 @@ import SwiftUI
 /// Settings… (⌘,): a toolbar-style preferences window with SwiftUI panes, like the system apps.
 @MainActor
 final class SettingsWindowController: NSWindowController {
-    init(siteSettings: SiteSettings, clearBrowsingData: @escaping @MainActor () -> Void,
+    init(siteSettings: SiteSettings, adBlocker: AdBlocker, clearBrowsingData: @escaping @MainActor () -> Void,
          onAgentSettingsChanged: @escaping @MainActor () -> Void) {
         let tabs = NSTabViewController()
         tabs.tabStyle = .toolbar
@@ -12,7 +12,7 @@ final class SettingsWindowController: NSWindowController {
         tabs.addTabViewItem(Self.pane("Tabs", symbol: "square.on.square", TabsSettingsView()))
         tabs.addTabViewItem(Self.pane("Appearance", symbol: "paintpalette", AppearanceSettingsView()))
         tabs.addTabViewItem(Self.pane("Websites", symbol: "globe", WebsitesSettingsView(settings: siteSettings)))
-        tabs.addTabViewItem(Self.pane("Privacy", symbol: "hand.raised", PrivacySettingsView(clearBrowsingData: clearBrowsingData)))
+        tabs.addTabViewItem(Self.pane("Privacy", symbol: "hand.raised", PrivacySettingsView(adBlocker: adBlocker, clearBrowsingData: clearBrowsingData)))
         tabs.addTabViewItem(Self.pane("Assistant", symbol: "sparkles", AssistantSettingsView(onApply: onAgentSettingsChanged)))
 
         let window = NSWindow(contentViewController: tabs)
@@ -234,7 +234,10 @@ struct WebsitesSettingsView: View {
 }
 
 struct PrivacySettingsView: View {
+    @Bindable var adBlocker: AdBlocker
     let clearBrowsingData: @MainActor () -> Void
+    @AppStorage(Preferences.Key.adBlock) private var blockAds = true
+    @AppStorage(Preferences.Key.easyList) private var easyList = false
     @AppStorage(Preferences.Key.httpsFirst) private var httpsFirst = true
     @AppStorage(Preferences.Key.historyRetentionDays) private var retention = History.defaultRetentionDays
     @AppStorage(Preferences.Key.clearHistoryOnQuit) private var clearHistoryOnQuit = false
@@ -242,6 +245,22 @@ struct PrivacySettingsView: View {
 
     var body: some View {
         Form {
+            Toggle("Block ads and trackers", isOn: $blockAds)
+                .onChange(of: blockAds) { _, _ in adBlocker.settingsChanged() }
+            Toggle("Use EasyList and EasyPrivacy (downloaded weekly)", isOn: $easyList)
+                .disabled(!blockAds)
+                .onChange(of: easyList) { _, on in
+                    if on { Task { await adBlocker.updateFilterLists() } } else { adBlocker.settingsChanged() }
+                }
+            LabeledContent("") {
+                HStack {
+                    Text(adBlocker.status).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    if easyList && blockAds {
+                        Button("Update Now") { Task { await adBlocker.updateFilterLists() } }
+                            .controlSize(.small).disabled(adBlocker.isUpdating)
+                    }
+                }
+            }
             Toggle("Upgrade connections to HTTPS (HTTPS-First)", isOn: $httpsFirst)
             Picker("Keep history:", selection: $retention) {
                 Text("One day").tag(1)
