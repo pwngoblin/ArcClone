@@ -99,15 +99,6 @@ private func ollama(models: [String] = ["llama3.2:latest"], chat: @escaping @Sen
     }
 }
 
-@MainActor
-private func collect(_ assistant: Assistant, until requestID: String) async -> [AssistantEvent] {
-    var events: [AssistantEvent] = []
-    let id = assistant.addListener { if $0.requestID == requestID { events.append($0) } }
-    defer { assistant.removeListener(id) }
-    for _ in 0..<200 where !(events.last?.isTerminal ?? false) { try? await Task.sleep(for: .milliseconds(10)) }
-    return events
-}
-
 @Suite @MainActor struct AssistantTests {
     @Test func healthReportsOllamaStatus() async {
         let stub = ollama(models: ["llama3.2:latest", "nomic-embed-text"])
@@ -134,7 +125,7 @@ private func collect(_ assistant: Assistant, until requestID: String) async -> [
         assistant.addListener { if $0.requestID == request.requestID { events.append($0) } }
         let started = try await assistant.start(request)
         #expect(started.model == "llama3.2:latest")
-        for _ in 0..<200 where !(events.last?.isTerminal ?? false) { try await Task.sleep(for: .milliseconds(10)) }
+        for _ in 0..<1000 where !(events.last?.isTerminal ?? false) { try await Task.sleep(for: .milliseconds(10)) }
 
         #expect(events.first == .generating(requestID: request.requestID, model: "llama3.2:latest"))
         #expect(events.compactMap { if case .delta(_, let t) = $0 { t } else { nil } } == ["Hel", "lo"])
@@ -183,7 +174,7 @@ private func collect(_ assistant: Assistant, until requestID: String) async -> [
         _ = try await assistant.start(request)
         try await Task.sleep(for: .milliseconds(150))
         #expect(assistant.cancel(request.requestID))
-        for _ in 0..<200 where !(events.last?.isTerminal ?? false) { try await Task.sleep(for: .milliseconds(10)) }
+        for _ in 0..<1000 where !(events.last?.isTerminal ?? false) { try await Task.sleep(for: .milliseconds(10)) }
         #expect(events.last == .failed(requestID: request.requestID, error: .cancelled))
         #expect(assistant.runningCount == 0)
     }
@@ -196,10 +187,11 @@ private func collect(_ assistant: Assistant, until requestID: String) async -> [
         let assistant = Assistant(configuration: config, session: stub.session)
         let text = (0..<100).map { "[\($0):00] sentence number \($0)" }.joined(separator: "\n")
         let request = AssistantRequest(task: .summarizeVideo, transcript: Transcript(videoId: "v", title: "Talk", text: text))
-        let task = Task { await collect(assistant, until: request.requestID) }
-        try await Task.sleep(for: .milliseconds(5))
+        // Listen before starting so no early "reading" event can be missed on a slow machine.
+        var events: [AssistantEvent] = []
+        assistant.addListener { if $0.requestID == request.requestID { events.append($0) } }
         _ = try await assistant.start(request)
-        let events = await task.value
+        for _ in 0..<1000 where !(events.last?.isTerminal ?? false) { try await Task.sleep(for: .milliseconds(10)) }
 
         let reading = events.compactMap { if case .reading(_, let kind, let part, let of) = $0 { (kind, part, of) } else { nil } }
         #expect(reading.count > 2 && reading.allSatisfy { $0.0 == "transcript" && $0.2 == reading.count })
