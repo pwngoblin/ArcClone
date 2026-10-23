@@ -8,6 +8,15 @@ public actor SessionStore {
             public var url: URL
             public var title: String
             public var pinned: Bool
+            /// Security-scoped bookmark for file:// tabs; without it the sandbox can't reopen them.
+            public var bookmark: Data?
+
+            public init(url: URL, title: String, pinned: Bool, bookmark: Data? = nil) {
+                self.url = url
+                self.title = title
+                self.pinned = pinned
+                self.bookmark = bookmark
+            }
         }
 
         public var tabs: [Entry]
