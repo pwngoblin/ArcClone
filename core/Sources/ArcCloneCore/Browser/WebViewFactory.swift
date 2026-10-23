@@ -6,7 +6,12 @@ import WebKit
 public final class WebViewFactory {
     public let registry: ScriptRegistry
     public let dataStore: WKWebsiteDataStore
+    /// Web Inspector is a development tool: release builds don't let it attach to tabs or the chrome.
+    #if DEBUG
     public var inspectable = true
+    #else
+    public var inspectable = false
+    #endif
 
     /// Presents as Safari so sites don't serve degraded "unknown browser" pages.
     public var applicationNameForUserAgent = "Version/18.0 Safari/605.1.15 ArcClone/0.1"

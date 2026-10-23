@@ -205,14 +205,38 @@ extension Tab: WKNavigationDelegate {
                           inBackground: !navigationAction.modifierFlags.contains(.shift))
             return (.cancel, preferences)
         }
-        if let scheme = navigationAction.request.url?.scheme?.lowercased(),
-           !["http", "https", "file", "about", "data", "blob", "javascript"].contains(scheme),
-           let url = navigationAction.request.url, navigationAction.targetFrame?.isMainFrame ?? true {
-            // mailto:, zoommtg:, etc. go to the system handler.
-            NSWorkspace.shared.open(url)
+        if let url = navigationAction.request.url, Self.opensExternally(url) {
+            // mailto:, zoommtg:, etc. go to another app, but only after the user agrees,
+            // and never on behalf of a subframe (ads, embeds).
+            if navigationAction.targetFrame?.isMainFrame ?? true { confirmExternalOpen(url) }
             return (.cancel, preferences)
         }
         return (.allow, preferences)
+    }
+
+    nonisolated static func opensExternally(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        return !["http", "https", "file", "about", "data", "blob", "javascript"].contains(scheme)
+    }
+
+    /// Like Safari: "Do you want to allow this page to open “Zoom”?" as a sheet on the tab's window.
+    private func confirmExternalOpen(_ url: URL) {
+        guard let app = NSWorkspace.shared.urlForApplication(toOpen: url) else {
+            Log.web.info("No handler for \(url.scheme ?? "?", privacy: .public): link")
+            return
+        }
+        // One prompt at a time, so a page can't stack up dialogs.
+        guard let window = webView.window, window.attachedSheet == nil else { return }
+        let appName = FileManager.default.displayName(atPath: app.path).replacingOccurrences(of: ".app", with: "")
+        let alert = NSAlert()
+        alert.messageText = "Do you want to allow this page to open “\(appName)”?"
+        alert.informativeText = "\(self.url?.host ?? "This page") wants to open a \(url.scheme ?? "")\u{3A} link."
+        alert.icon = NSWorkspace.shared.icon(forFile: app.path)
+        alert.addButton(withTitle: "Allow")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { response in
+            if response == .alertFirstButtonReturn { NSWorkspace.shared.open(url) }
+        }
     }
 
     public func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async -> WKNavigationResponsePolicy {

@@ -14,7 +14,7 @@ extension BrowserWindowController {
                 "agent": self.agent.client.status.json,
                 "selection": JSONValue(self.tabs.active?.lastSelection),
                 "platform": "macos",
-                "version": "0.1.0",
+                "version": .string(AppInfo.version),
             ]
         }
 

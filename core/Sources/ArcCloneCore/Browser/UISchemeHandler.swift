@@ -7,6 +7,20 @@ public final class UISchemeHandler: NSObject, WKURLSchemeHandler {
     public static let scheme = "arc-ui"
     public static let entryURL = URL(string: "arc-ui://app/index.html")!
 
+    /// The chrome loads nothing but its own bundle. `base-uri`, `form-action` and `frame-src`
+    /// are listed explicitly because `default-src` does not cover them.
+    public static let contentSecurityPolicy = [
+        "default-src 'self' arc-ui:",
+        "img-src * data: blob:",
+        "style-src 'self' 'unsafe-inline' arc-ui:",
+        "script-src 'self' arc-ui:",
+        "connect-src 'self' arc-ui:",
+        "frame-src 'none'",
+        "object-src 'none'",
+        "base-uri 'none'",
+        "form-action 'none'",
+    ].joined(separator: "; ")
+
     private let root: URL
 
     public init(root: URL) {
@@ -47,7 +61,7 @@ public final class UISchemeHandler: NSObject, WKURLSchemeHandler {
             "Content-Type": mime.hasPrefix("text/") ? "\(mime); charset=utf-8" : mime,
             "Content-Length": "\(data.count)",
             "Cache-Control": "no-cache",
-            "Content-Security-Policy": "default-src 'self' arc-ui:; img-src * data: blob:; style-src 'self' 'unsafe-inline' arc-ui:; script-src 'self' arc-ui:; connect-src 'self' arc-ui:",
+            "Content-Security-Policy": Self.contentSecurityPolicy,
         ]
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)!
         task.didReceive(response)
