@@ -58,6 +58,9 @@ for key in ("NSAllowsArbitraryLoads", "NSAllowsArbitraryLoadsForMedia", "NSExcep
         bad.append(f"ATS {key} weakens the app's own connections")
 if "LSEnvironment" in p:
     bad.append("LSEnvironment can inject environment variables")
+for key in ("NSAppleScriptEnabled", "OSAScriptingDefinition"):
+    if p.get(key):
+        bad.append(f"{key} exposes a scripting interface other apps could drive")
 if not p.get("LSFileQuarantineEnabled"):
     bad.append("LSFileQuarantineEnabled must be true")
 for b in bad:

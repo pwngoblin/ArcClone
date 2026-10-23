@@ -60,6 +60,19 @@ Under **Settings** you can choose a search engine and homepage, make ArcClone yo
 | **Dylib injection and code execution** | Hardened runtime with library validation, no JIT and no DYLD environment variables. The binary keeps only the `/usr/lib/swift` rpath and loads only system libraries. Packaged builds ignore developer environment overrides and verify their own signature and sealed resources at launch, refusing to run if modified. |
 | **Reverse engineering** | Release binaries are stripped; the dSYM stays out of the bundle. No credentials or keys ship in the app. There is no `get-task-allow`, so debuggers can't attach, and Web Inspector is off in release builds. |
 
+**What other apps on your Mac can reach**
+
+| Data | Protection |
+|---|---|
+| Session, history, site settings | AES-GCM encrypted; the key is in your Keychain with an access list that trusts only ArcClone, so any other app triggers a macOS approval prompt |
+| Cookies, site storage, caches | Written by WebKit inside ArcClone's sandbox container (WebKit can't encrypt them). On macOS 14+, a **Developer ID-signed** build is covered by container protection, so other apps need your approval to read it; ad-hoc builds aren't. *Clear cookies and website data when ArcClone quits* removes them entirely. Private windows never write them. |
+| Clipboard | Copies from private windows are marked Concealed and Transient, so clipboard managers skip them |
+| Screen capture | Private windows ask macOS to exclude them from screenshots, recording and screen sharing |
+| Logs | URLs, paths and page text are logged as private |
+| Scripting | No AppleScript or Apple Events interface; `verify-app.sh` fails the build if one appears |
+
+The assistant sends page text to Ollama over loopback HTTP. Any local process could listen on that port while Ollama isn't running, so only use the assistant on a Mac you trust.
+
 [`scripts/verify-app.sh`](scripts/verify-app.sh) audits every bundle (it runs in `make app` and in CI): signature and sealed resources, hardened runtime, an exact entitlement allowlist, load commands and rpaths, Info.plist ATS rules, stripped symbols, and a scan for embedded secrets.
 
 **Signing note:** ad-hoc builds (no Developer ID) store the encryption key per build, so the saved session doesn't survive an update. Builds signed with Developer ID keep it across updates.
