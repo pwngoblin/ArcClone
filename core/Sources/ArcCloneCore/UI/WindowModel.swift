@@ -19,6 +19,37 @@ public final class WindowModel {
 
     var hasSplit = false
     var splitCanGrow = false
+    var splitLayout: SplitLayout?
+    var splitIDs: [UUID] = []
+
+    /// One row of the sidebar's tab list: a tab, or a split group drawn as a single pill.
+    enum ListItem: Identifiable {
+        case tab(TabItem)
+        case split(SplitLayout, [TabItem])
+
+        var id: String {
+            switch self {
+            case .tab(let tab): return tab.id.uuidString
+            case .split(_, let tabs): return "split:" + tabs.map(\.id.uuidString).joined(separator: ",")
+            }
+        }
+    }
+
+    /// Regular tabs, with split members folded into one group at the first member's position.
+    var regularItems: [ListItem] {
+        var items: [ListItem] = []
+        var placedSplit = false
+        for tab in regularTabs {
+            if let layout = splitLayout, splitIDs.contains(tab.id) {
+                guard !placedSplit else { continue }
+                placedSplit = true
+                items.append(.split(layout, splitIDs.compactMap { id in tabs.first { $0.id == id } }))
+            } else {
+                items.append(.tab(tab))
+            }
+        }
+        return items
+    }
 
     struct Toast: Equatable {
         let id = UUID()
@@ -62,6 +93,8 @@ public final class WindowModel {
         }
         hasSplit = store.split != nil
         splitCanGrow = store.split?.layout.grown != nil
+        splitLayout = store.split?.layout
+        splitIDs = store.split?.tabIDs ?? []
         if items != tabs { tabs = items }
         if activeID != store.activeID { activeID = store.activeID }
         canGoBack = store.active?.webView.canGoBack ?? false
@@ -111,6 +144,28 @@ public final class WindowModel {
         Haptics.perform(.levelChange)
     }
 
+    /// Moves a regular-list row; a split group moves as one block.
+    func moveItems(from source: IndexSet, to destination: Int) {
+        let items = regularItems
+        guard let store = controller?.tabs, let first = source.first else { return }
+        let ids: [UUID]
+        switch items[first] {
+        case .tab(let tab): ids = [tab.id]
+        case .split(_, let members): ids = members.map(\.id)
+        }
+        let anchorTab: UUID? = destination < items.count ? {
+            switch items[destination] { case .tab(let t): return t.id; case .split(_, let m): return m.first?.id }
+        }() : nil
+        var target = anchorTab.flatMap { id in store.tabs.firstIndex { $0.id == id } } ?? store.tabs.count
+        for id in ids {
+            guard let current = store.tabs.firstIndex(where: { $0.id == id }) else { continue }
+            if current < target { target -= 1 }
+            store.move(id, to: target)
+            target += 1
+        }
+        Haptics.perform(.alignment)
+    }
+
     /// Moves within a section (pinned or regular), as reported by SwiftUI's `onMove`.
     func move(in section: [TabItem], from source: IndexSet, to destination: Int) {
         guard let store = controller?.tabs, let first = source.first else { return }
@@ -132,6 +187,14 @@ public final class WindowModel {
 
     func addToSplit(_ id: UUID) { controller?.tabs.addToSplit(id) }
     func removeFromSplit(_ id: UUID) { controller?.tabs.removeFromSplit(id) }
+
+    /// Drag between pinned tiles.
+    func movePinned(_ id: UUID, before target: UUID) {
+        guard id != target, let store = controller?.tabs, store.tab(id)?.isPinned == true,
+              let index = store.tabs.firstIndex(where: { $0.id == target }) else { return }
+        store.move(id, to: index)
+        Haptics.perform(.alignment)
+    }
 
     func duplicate(_ id: UUID) {
         guard let store = controller?.tabs, let url = store.tab(id)?.url else { return }

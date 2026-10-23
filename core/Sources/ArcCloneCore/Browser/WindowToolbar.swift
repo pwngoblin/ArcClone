@@ -24,7 +24,10 @@ final class WindowToolbar: NSObject, NSToolbarDelegate {
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.toggleSidebar, .flexibleSpace, Self.back, Self.forward, Self.reload, .sidebarTrackingSeparator, .flexibleSpace, Self.split, Self.adBlock, Self.darkMode, Self.siteSettings, Self.newTab]
+        // Navigation sits at the start of the content side: over the sidebar, the traffic lights
+        // plus four buttons overflowed narrow sidebars and pushed Reload into the » menu.
+        [.toggleSidebar, .sidebarTrackingSeparator, Self.back, Self.forward, Self.reload, .flexibleSpace,
+         Self.split, Self.adBlock, Self.darkMode, Self.siteSettings, Self.newTab]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
