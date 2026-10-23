@@ -54,6 +54,7 @@ struct GeneralSettingsView: View {
     @AppStorage(Preferences.Key.searchEngine) private var searchEngine = Preferences.SearchEngine.google.rawValue
     @AppStorage(Preferences.Key.homepage) private var homepage = Preferences.defaultHomepage
     @AppStorage(Preferences.Key.restoreSession) private var restoreSession = true
+    @AppStorage(Preferences.Key.haptics) private var haptics = true
     @State private var isDefaultBrowser = DefaultBrowser.isDefault
     @State private var defaultBrowserError: String?
 
@@ -63,6 +64,7 @@ struct GeneralSettingsView: View {
                 ForEach(Preferences.SearchEngine.allCases) { Text($0.displayName).tag($0.rawValue) }
             }
             TextField("Homepage:", text: $homepage, prompt: Text(Preferences.defaultHomepage))
+            Toggle("Haptic feedback on the trackpad", isOn: $haptics)
             Picker("On launch, open:", selection: $restoreSession) {
                 Text("Tabs from last time").tag(true)
                 Text("The homepage").tag(false)

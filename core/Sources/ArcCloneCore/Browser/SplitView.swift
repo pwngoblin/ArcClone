@@ -159,7 +159,7 @@ final class TabContentViewController: NSViewController {
             content.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
         if layout != nil {
-            Haptics.perform(.levelChange)
+            Haptics.step()
             content.alphaValue = 0
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.18

@@ -16,6 +16,8 @@ struct SidebarView: View {
                     if !window.isPrivate, let space = window.currentSpace { SpaceHeader(space: space, window: window) }
                     TabListView(window: window)
                 }
+                .offset(x: window.spaceDragOffset)
+                .opacity(1 - min(0.35, abs(window.spaceDragOffset) / 500))
                 .id(window.currentSpaceID)
                 .transition(.push(from: window.spaceForward ? .trailing : .leading))
             case .assistant:

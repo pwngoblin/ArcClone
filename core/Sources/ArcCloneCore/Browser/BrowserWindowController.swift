@@ -23,6 +23,9 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     private weak var sidebarHost: NSView?
     private var swipeMonitor: Any?
     private var swipeDelta = CGSize.zero
+    private var swipeAxis: SwipeAxis = .idle
+    private var swipeCrossed = false
+    private var swallowMomentum = false
     private var commandBarObservation: Task<Void, Never>?
     var onClose: (@MainActor (BrowserWindowController) -> Void)?
     var onSessionChange: (@MainActor () -> Void)?
@@ -76,32 +79,100 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         if let extensionController { registerWithExtensions(extensionController) }
     }
 
-    /// Two-finger horizontal swipes over the sidebar switch spaces (left: next, right: previous).
+    /// Two-finger horizontal swipes over the sidebar switch spaces. Events of a swipe are consumed so
+    /// the tab list doesn't scroll at the same time.
     private func installSpaceSwipe() {
         swipeMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            MainActor.assumeIsolated { self?.trackSwipe(event) }
-            return event
+            let consumed = MainActor.assumeIsolated { self?.handleSwipe(event) ?? false }
+            return consumed ? nil : event
         }
     }
 
-    private func trackSwipe(_ event: NSEvent) {
-        guard event.window === window, event.hasPreciseScrollingDeltas, event.momentumPhase.isEmpty,
-              let host = sidebarHost, host.bounds.contains(host.convert(event.locationInWindow, from: nil)) else { return }
-        switch event.phase {
-        case .began:
-            swipeDelta = .zero
-        case .changed:
-            swipeDelta.width += event.scrollingDeltaX
-            swipeDelta.height += event.scrollingDeltaY
-        case .ended:
-            let dx = swipeDelta.width, dy = swipeDelta.height
-            swipeDelta = .zero
-            guard abs(dx) > 70, abs(dx) > abs(dy) * 1.5 else { return }
-            tabs.switchSpace(by: dx < 0 ? 1 : -1)
-            Haptics.perform(.alignment)
-        default:
-            break
+    private enum SwipeAxis { case idle, undecided, horizontal, vertical }
+
+    /// Interactive space swipe: the tab list follows the fingers; past the threshold it switches,
+    /// otherwise it springs back. Returns true when the event belongs to the swipe.
+    private func handleSwipe(_ event: NSEvent) -> Bool {
+        guard event.window === window, event.hasPreciseScrollingDeltas else { return false }
+        // Momentum after a swipe ends must not scroll the (new) list or trigger another switch.
+        if !event.momentumPhase.isEmpty {
+            let swallow = swallowMomentum
+            if event.momentumPhase == .ended || event.momentumPhase == .cancelled { swallowMomentum = false }
+            return swallow
         }
+        switch event.phase {
+        case .mayBegin, .began:
+            swallowMomentum = false
+            guard model.panel == .tabs, tabs.spaces.count > 1, let host = sidebarHost,
+                  host.bounds.contains(host.convert(event.locationInWindow, from: nil)) else { swipeAxis = .idle; return false }
+            swipeAxis = .undecided
+            swipeDelta = .zero
+            swipeCrossed = false
+            return false
+        case .changed:
+            // Finger direction, whatever the natural-scrolling setting.
+            let dx = event.isDirectionInvertedFromDevice ? event.scrollingDeltaX : -event.scrollingDeltaX
+            switch swipeAxis {
+            case .idle, .vertical:
+                return false
+            case .undecided:
+                swipeDelta.width += dx
+                swipeDelta.height += abs(event.scrollingDeltaY)
+                if abs(swipeDelta.width) > 6, abs(swipeDelta.width) > swipeDelta.height * 1.4 {
+                    swipeAxis = .horizontal
+                    updateSwipe()
+                    return true
+                }
+                if swipeDelta.height > 6 { swipeAxis = .vertical }
+                return false
+            case .horizontal:
+                swipeDelta.width += dx
+                updateSwipe()
+                return true
+            }
+        case .ended, .cancelled:
+            defer { swipeAxis = .idle }
+            guard swipeAxis == .horizontal else { return false }
+            swallowMomentum = true
+            finishSwipe(cancelled: event.phase == .cancelled)
+            return true
+        default:
+            return swipeAxis == .horizontal
+        }
+    }
+
+    private var swipeThreshold: CGFloat { max(60, (sidebarHost?.bounds.width ?? 260) * 0.25) }
+
+    /// Index offset the current drag points at (+1 next, -1 previous), if that space exists.
+    private func swipeTarget(for offset: CGFloat) -> Int? {
+        guard let index = tabs.spaces.firstIndex(where: { $0.id == tabs.currentSpaceID }) else { return nil }
+        let step = offset < 0 ? 1 : -1
+        return tabs.spaces.indices.contains(index + step) ? step : nil
+    }
+
+    private func updateSwipe() {
+        let raw = swipeDelta.width
+        // Rubber-band when there's no space in that direction.
+        let offset = swipeTarget(for: raw) == nil ? raw * 0.2 : raw
+        model.spaceDragOffset = offset
+        let crossed = abs(offset) >= swipeThreshold && swipeTarget(for: raw) != nil
+        if crossed != swipeCrossed {
+            swipeCrossed = crossed
+            Haptics.snap()
+        }
+    }
+
+    private func finishSwipe(cancelled: Bool) {
+        let offset = swipeDelta.width
+        swipeDelta = .zero
+        if !cancelled, swipeCrossed, let step = swipeTarget(for: offset) {
+            model.spaceDragOffset = 0
+            tabs.switchSpace(by: step)
+            Haptics.step()
+        } else {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { model.spaceDragOffset = 0 }
+        }
+        swipeCrossed = false
     }
 
     @available(*, unavailable)
@@ -273,6 +344,7 @@ extension BrowserWindowController: TabDelegate {
 
     public func tabDidStartDownload(_ tab: Tab) {
         animateDownloadFlight()
+        Haptics.step()
     }
 
     /// A file icon arcs from the page into the sidebar's downloads button, shrinking as it lands.

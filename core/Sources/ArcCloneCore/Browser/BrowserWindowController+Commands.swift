@@ -95,6 +95,7 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
     private func adjustZoom(by delta: CGFloat) {
         guard let web = tabs.active?.webView else { return }
         let next = Double(min(3, max(0.3, web.pageZoom + delta)))
+        if next == 3 || next == 0.3 { Haptics.snap() } // hit a limit
         setZoom((next * 100).rounded() / 100)
     }
 
@@ -106,7 +107,7 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
             settings.update(tab.webView.url) { $0.zoom = abs(zoom - SiteSettings.defaultZoom) < 0.001 ? nil : zoom }
         }
         model.showToast("Zoom \(Int((zoom * 100).rounded()))%")
-        Haptics.perform(.alignment)
+        Haptics.snap()
     }
 
     // MARK: Split view
@@ -118,12 +119,12 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
         tabs.makeSplit(layout)
     }
 
-    @objc public func nextSpace(_ sender: Any?) { tabs.switchSpace(by: 1) }
-    @objc public func previousSpace(_ sender: Any?) { tabs.switchSpace(by: -1) }
+    @objc public func nextSpace(_ sender: Any?) { model.switchSpace(by: 1) }
+    @objc public func previousSpace(_ sender: Any?) { model.switchSpace(by: -1) }
 
     @objc public func exitSplitView(_ sender: Any?) {
         tabs.exitSplit()
-        Haptics.perform(.generic)
+        Haptics.tap()
     }
 
     /// The Split View submenu, shared by the View menu and the toolbar.
@@ -166,7 +167,7 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
         settings.update(tab.webView.url) { $0.adsAllowed = allow ? true : nil }
         tab.reload()
         model.showToast(allow ? "Ads allowed on this site" : "Blocking ads on this site")
-        Haptics.perform(.generic)
+        Haptics.tap()
     }
 
     @objc public func toggleSiteDarkMode(_ sender: Any?) {
@@ -185,6 +186,7 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
             Task { _ = try? await tab.callInjection("darkMode.apply", ["mode": .string(mode.rawValue)], timeout: 5) }
         }
         model.showToast("Appearance: \(mode.title)")
+        Haptics.step()
     }
 
 
