@@ -149,8 +149,7 @@ private struct MessageBubble: View {
                     HStack(spacing: 8) {
                         if let model = message.model { Text(model).font(.caption2).foregroundStyle(.tertiary) }
                         Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(message.content, forType: .string)
+                            Clipboard.copy(message.content, sensitive: window.isPrivate)
                             window.showToast("Copied")
                         } label: { Image(systemName: "doc.on.doc").font(.caption) }
                             .buttonStyle(.plain).foregroundStyle(.tertiary).help("Copy")

@@ -80,8 +80,7 @@ private struct HistoryPanelRow: View {
             Button("Open") { window.controller?.open(visit.url, newTab: false) }
             Button("Open in New Tab") { window.controller?.open(visit.url, newTab: true) }
             Button("Copy Link") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(visit.url.absoluteString, forType: .string)
+                Clipboard.copy(visit.url.absoluteString, sensitive: false)
             }
             Divider()
             Button("Delete from History") { window.controller?.history?.remove([visit.id]) }

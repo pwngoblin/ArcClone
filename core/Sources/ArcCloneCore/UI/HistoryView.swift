@@ -112,8 +112,7 @@ struct HistoryView: View {
     }
 
     private func copy(_ ids: Set<UUID>) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(visits(ids).map(\.url.absoluteString).joined(separator: "\n"), forType: .string)
+        Clipboard.copy(visits(ids).map(\.url.absoluteString).joined(separator: "\n"), sensitive: false)
     }
 
     private func dayTitle(_ day: Date) -> String {
