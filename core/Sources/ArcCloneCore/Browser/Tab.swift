@@ -34,6 +34,10 @@ public final class Tab: NSObject {
     private var securityScopedURL: URL?
     /// The original http:// URL while its HTTPS-First upgrade is loading.
     private var upgradedFrom: URL?
+    private var dialogCount = 0
+    private var dialogsSuppressed = false
+    /// A data: URL this app chose to load (typed, history); pages may not navigate the tab to data: URLs.
+    private var allowedDataURL: URL?
     private var isDiscarded = false
     let siteSettings: SiteSettings?
     let adBlocker: AdBlocker?
@@ -78,6 +82,7 @@ public final class Tab: NSObject {
     // MARK: Navigation
 
     public func load(_ url: URL) {
+        if url.scheme == "data" { allowedDataURL = url }
         if url.isFileURL {
             // Least privilege: WebContent may read this file only, not its whole folder.
             webView.loadFileURL(url, allowingReadAccessTo: url)
@@ -263,6 +268,12 @@ extension Tab: WKNavigationDelegate {
     public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                         preferences: WKWebpagePreferences) async -> (WKNavigationActionPolicy, WKWebpagePreferences) {
         if navigationAction.shouldPerformDownload { return (.download, preferences) }
+        // Top-level data: URLs from pages are a phishing vector (a fake login page with no real origin).
+        if navigationAction.request.url?.scheme == "data", navigationAction.targetFrame?.isMainFrame ?? true,
+           navigationAction.request.url != allowedDataURL {
+            Log.web.info("Blocked a page-initiated top-level data: navigation")
+            return (.cancel, preferences)
+        }
         let isLink = navigationAction.navigationType == .linkActivated
         let wantsNewTab = navigationAction.modifierFlags.contains(.command) || navigationAction.buttonNumber == 4 // middle click
         if isLink && wantsNewTab {
@@ -374,6 +385,8 @@ extension Tab: WKNavigationDelegate {
 
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         upgradedFrom = nil
+        dialogCount = 0
+        dialogsSuppressed = false
         applySiteAppearance()
     }
 
@@ -427,33 +440,50 @@ extension Tab: WKUIDelegate {
 
     public func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
                         initiatedByFrame frame: WKFrameInfo) async {
-        let alert = NSAlert()
-        alert.messageText = frame.request.url?.host ?? "This page says"
-        alert.informativeText = message
-        alert.runModal()
+        _ = await presentDialog(message, frame: frame, buttons: ["OK"])
     }
 
     public func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
                         initiatedByFrame frame: WKFrameInfo) async -> Bool {
-        let alert = NSAlert()
-        alert.messageText = frame.request.url?.host ?? "This page says"
-        alert.informativeText = message
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Cancel")
-        return alert.runModal() == .alertFirstButtonReturn
+        await presentDialog(message, frame: frame, buttons: ["OK", "Cancel"]) == .alertFirstButtonReturn
     }
 
     public func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String,
                         defaultText: String?, initiatedByFrame frame: WKFrameInfo) async -> String? {
+        let field = NSTextField(string: String((defaultText ?? "").prefix(1_000)))
+        field.frame = NSRect(x: 0, y: 0, width: 300, height: 24)
+        let response = await presentDialog(prompt, frame: frame, buttons: ["OK", "Cancel"], accessory: field)
+        return response == .alertFirstButtonReturn ? field.stringValue : nil
+    }
+
+    /// JavaScript dialogs, hardened: titled with the frame's real security origin (not a URL the page
+    /// controls), text capped, shown as a sheet on this window only, and after the third dialog the
+    /// user can block the rest for this page.
+    private func presentDialog(_ message: String, frame: WKFrameInfo, buttons: [String], accessory: NSView? = nil) async -> NSApplication.ModalResponse {
+        if dialogsSuppressed { return .alertSecondButtonReturn }
+        let origin = frame.securityOrigin
         let alert = NSAlert()
-        alert.messageText = frame.request.url?.host ?? "This page says"
-        alert.informativeText = prompt
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
-        field.stringValue = defaultText ?? ""
-        alert.accessoryView = field
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Cancel")
-        return alert.runModal() == .alertFirstButtonReturn ? field.stringValue : nil
+        alert.messageText = Self.dialogTitle(origin: IPCSource.originURL(protocol: origin.protocol, host: origin.host, port: origin.port))
+        alert.informativeText = Self.dialogText(message)
+        buttons.forEach { alert.addButton(withTitle: $0) }
+        alert.accessoryView = accessory
+        dialogCount += 1
+        alert.showsSuppressionButton = dialogCount > 2
+        alert.suppressionButton?.title = "Don't allow this page to show more dialogs"
+        guard let window = webView.window else { return alert.runModal() }
+        let response = await alert.beginSheetModal(for: window)
+        if alert.suppressionButton?.state == .on { dialogsSuppressed = true }
+        return response
+    }
+
+    nonisolated static func dialogTitle(origin: URL?) -> String {
+        guard let host = origin?.host, !host.isEmpty else { return "This page says:" }
+        return "\(host) says:"
+    }
+
+    nonisolated static func dialogText(_ message: String) -> String {
+        let cleaned = String(message.unicodeScalars.filter { !Sanitize.isInvisibleControl($0) }.map(Character.init))
+        return cleaned.count > 1_000 ? String(cleaned.prefix(1_000)) + "…" : cleaned
     }
 
     public func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
@@ -490,8 +520,7 @@ final class OnceGate {
 enum ErrorPage {
     static func html(title: String, message: String, url: URL?) -> String {
         func esc(_ s: String) -> String {
-            s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
-                .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
+            Sanitize.html(s)
         }
         return """
         <!doctype html><html><head><meta charset="utf-8">

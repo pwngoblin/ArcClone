@@ -19,7 +19,7 @@ final class FaviconLoader {
         if let cached = cache.object(forKey: url as NSURL) { return cached }
         if let task = inFlight[url] { return await task.value }
         let task = Task<NSImage?, Never> { [session] in
-            guard url.scheme == "https" || url.scheme == "http",
+            guard Sanitize.isFetchableFavicon(url),
                   let (data, response) = try? await session.data(from: url),
                   (response as? HTTPURLResponse)?.statusCode ?? 0 < 400, data.count < 512_000 else { return nil }
             return NSImage(data: data)

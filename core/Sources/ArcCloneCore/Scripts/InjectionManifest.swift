@@ -31,8 +31,16 @@ public struct InjectionManifest: Codable, Sendable, Equatable {
             guard seen.insert(script.id).inserted else {
                 throw IPCError.malformed("Duplicate injection id \(script.id)")
             }
-            guard !script.file.contains(".."), !script.file.hasPrefix("/") else {
+            // ids, paths and patterns end up inside generated JavaScript (ScriptRegistry.wrap), so
+            // they must match a strict grammar: no quotes, newlines, slashes outside the path, or "..".
+            guard script.id.range(of: #"^[a-z0-9][a-z0-9-]{0,63}$"#, options: .regularExpression) != nil else {
+                throw IPCError.malformed("Injection id '\(script.id)' is not allowed")
+            }
+            guard script.file.range(of: #"^modules/[a-z0-9][a-z0-9-]{0,63}\.js$"#, options: .regularExpression) != nil else {
                 throw IPCError.malformed("Injection \(script.id) has an unsafe path")
+            }
+            for pattern in script.matches where pattern.range(of: #"^(\*|(\*\.)?[a-z0-9-]+(\.[a-z0-9-]+)*)$"#, options: .regularExpression) == nil {
+                throw IPCError.malformed("Injection \(script.id) has an invalid match pattern")
             }
             guard !script.matches.isEmpty else {
                 throw IPCError.malformed("Injection \(script.id) has no match patterns")
