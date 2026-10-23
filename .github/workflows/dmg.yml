@@ -28,7 +28,23 @@ permissions:
   contents: read
 
 jobs:
+  # Promotion rules: testing and release only take changes from main (release also from hotfix/*).
+  source-guard:
+    name: source-guard
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check where this PR comes from
+        run: |
+          base="${{ github.base_ref }}"; head="${{ github.head_ref }}"
+          case "$base:$head" in
+            testing:main|release:main|release:hotfix/*) echo "$head -> $base is allowed" ;;
+            *) echo "::error::$head -> $base is not allowed. Merge features into main first, then open main -> $base (hotfix/* may target release)."; exit 1 ;;
+          esac
+
   build:
+    needs: source-guard
+    if: always() && (needs.source-guard.result == 'success' || needs.source-guard.result == 'skipped')
     runs-on: macos-26
     timeout-minutes: 45
     env:
