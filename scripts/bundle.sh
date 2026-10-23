@@ -24,12 +24,10 @@ ARCH_FLAGS=()
 BIN="$(cd "$ROOT/core" && swift build -c release ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} --show-bin-path)/ArcClone"
 
 rm -rf "$OUT"
-mkdir -p "$OUT/Contents/MacOS" "$RES/ui" "$RES/agent-bridge"
+mkdir -p "$OUT/Contents/MacOS" "$RES/ui"
 cp "$BIN" "$OUT/Contents/MacOS/ArcClone"
 cp -R "$ROOT/injections" "$RES/injections"
 cp -R "$ROOT/ui/dist" "$RES/ui/dist"
-cp -R "$ROOT/agent-bridge/src" "$RES/agent-bridge/src"
-cp "$ROOT/agent-bridge/package.json" "$RES/agent-bridge/package.json"
 find "$OUT" -name .DS_Store -delete
 
 ICONSET="$(mktemp -d)/AppIcon.iconset"

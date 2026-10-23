@@ -95,7 +95,7 @@ extension BrowserWindowController: NSMenuItemValidation {
         }
     }
 
-    @objc public func restartAgentBridge(_ sender: Any?) { agent.restart() }
+    @objc public func reloadAssistant(_ sender: Any?) { assistant.reconfigure(.fromPreferences()) }
 
     public func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {

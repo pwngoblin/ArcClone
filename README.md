@@ -14,10 +14,9 @@ The app is written in Swift with AppKit and SwiftUI and renders pages with WebKi
 
 **Requirements**
 - macOS 14 Sonoma or later, Apple silicon or Intel
-- [Node.js](https://nodejs.org) 20+ for the assistant, installed with Homebrew, nvm or Volta (`brew install node`). The sandbox can only find Node in those locations.
 - [Ollama](https://ollama.com) with at least one model pulled for the assistant (`ollama pull llama3.2`)
 
-Browsing works without Node or Ollama. Only the assistant needs them.
+Browsing works without Ollama. Only the assistant needs it.
 
 ## Using it
 
@@ -51,10 +50,9 @@ Under **Settings** you can choose a search engine and homepage, make ArcClone yo
 ## Architecture
 
 ```
-core/           Swift package: AppKit app, WKWebView tabs, native IPC router
+core/           Swift package: AppKit app, WKWebView tabs, native IPC router, Ollama assistant
 injections/     JavaScript run in every page, in an isolated WebKit content world
 ui/             Sidebar UI (Svelte) loaded from the app bundle via arc-ui://
-agent-bridge/   Node process that talks JSON-RPC (stdio) to core and HTTP to Ollama
 scripts/        Packaging: .app bundle, icon, entitlements, DMG
 ```
 
@@ -69,32 +67,34 @@ The sidebar is planned to move to SwiftUI.
 
 ## Development
 
-You need Xcode 16 or later (Swift 6) and Node 20 or later.
+You need Xcode 16 or later (Swift 6). Node 20+ is only needed to build the sidebar UI.
 
 ```sh
 make            # build ui/ and core/
 make run        # run the dev build from the repo
-make test       # agent-bridge, ui and Swift tests, then the end-to-end self-test
+make test       # ui and Swift tests, then the end-to-end self-test
 make app        # build/ArcClone.app
 make dmg        # build/ArcClone-<version>.dmg
 ```
 
 `make app` options: `UNIVERSAL=1` builds arm64 + x86_64, `VERSION`/`BUILD_NUMBER` override the version, and `CODESIGN_IDENTITY` signs with a real certificate (the default is ad-hoc).
 
-`ArcClone --self-test` starts the real app, runs every IPC path (sidebar handshake, injections, page events, native→page calls, agent bridge), prints a JSON report, and exits non-zero on failure.
+`ArcClone --self-test` starts the real app, runs every IPC path (sidebar handshake, injections, page events, native→page calls, assistant), prints a JSON report, and exits non-zero on failure.
 
 For quick UI work, `cd ui && npm run dev` serves the sidebar in a browser against a mock native layer.
 
 ## Releases
 
-DMGs are built by GitHub Actions ([`.github/workflows/dmg.yml`](.github/workflows/dmg.yml)):
+[`.github/workflows/dmg.yml`](.github/workflows/dmg.yml) builds and publishes DMGs. The version comes from [`VERSION`](VERSION) (`MAJOR.MINOR.PATCH`).
 
-| Open a pull request into | You get |
+| Action | Result |
 |---|---|
-| `testing` | a test build: `ArcClone-<version>-testing.<run>-<sha>.dmg`, kept 14 days |
-| `release` | a release candidate: `ArcClone-<version>-release.<run>-<sha>.dmg`, kept 90 days |
+| Open a PR into `testing` | Tests run and a DMG is attached to the run (**Actions → run → Artifacts**) |
+| Merge it | Tag `vX.Y.Z-testing.N` and a GitHub **pre-release** with the DMG and its SHA-256 |
+| Open a PR into `release` | Same build, as a release candidate. The PR fails if `vX.Y.Z` already exists, which reminds you to bump `VERSION` |
+| Merge it | Annotated tag `vX.Y.Z` and a GitHub **Release** (marked latest) with the DMG, its SHA-256 and generated notes |
 
-Every run tests the project, builds a universal app, and attaches the DMG to the workflow run (**Actions → run → Artifacts**). The marketing version comes from [`VERSION`](VERSION).
+To ship a release: bump `VERSION` on `main`, open a PR from `main` into `release`, check the DMG from the PR run, then merge.
 
 **Signing and notarization** are optional and turn on when these repository secrets are set:
 

@@ -1,7 +1,7 @@
 import AppKit
 
 /// `ArcClone --self-test`: boots the real app, loads a fixture page and exercises every IPC path
-/// (chrome UI handshake, injection runtime, page events, native->page invoke, agent bridge),
+/// (chrome UI handshake, injection runtime, page events, native->page invoke, assistant),
 /// prints a JSON report to stdout and exits non-zero on failure.
 @MainActor
 enum SelfTest {
@@ -17,7 +17,7 @@ enum SelfTest {
     <footer>Footer text</footer></body></html>
     """
 
-    static func run(window: BrowserWindowController, agent: AgentService) {
+    static func run(window: BrowserWindowController, assistant: Assistant) {
         Task { @MainActor in
             var report: [String: JSONValue] = [:]
             var failures: [String] = []
@@ -58,12 +58,9 @@ enum SelfTest {
             let leaked = try? await tab.webView.evaluateJavaScript("typeof (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.arc)")
             check("page world isolated", (leaked as? String) == "undefined", JSONValue(leaked as? String))
 
-            let agentReady = await waitUntil(10) { agent.client.status == .ready }
-            if agentReady, let health = try? await agent.client.call("bridge.health", [:], timeout: 15) {
-                check("agent.bridge", health["bridge"]?["pid"]?.int != nil, health)
-            } else {
-                check("agent.bridge", false, agent.client.status.json)
-            }
+            // Ollama itself is optional (CI has none); the assistant must answer health without failing.
+            let health = await assistant.health()
+            check("assistant", health["ollama"]?["reachable"]?.bool != nil, health)
 
             // Optional live check against YouTube (needs network): ARCCLONE_SELFTEST_YOUTUBE=<videoId>
             if let videoID = ProcessInfo.processInfo.environment["ARCCLONE_SELFTEST_YOUTUBE"] {

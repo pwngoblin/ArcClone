@@ -6,7 +6,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     public private(set) var paths: AppPaths!
     private var registry: ScriptRegistry!
     private var factory: WebViewFactory!
-    private var agent: AgentService!
+    private var assistant: Assistant!
     private var sessionStore: SessionStore!
     private var windows: [BrowserWindowController] = []
     private var settingsWindow: SettingsWindowController?
@@ -30,14 +30,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
             return
         }
         factory = WebViewFactory(registry: registry)
-        agent = AgentService(paths: paths)
-        agent.start()
+        assistant = Assistant(configuration: .fromPreferences())
         sessionStore = SessionStore(directory: paths.applicationSupport)
 
         let controller = makeWindow()
         if ProcessInfo.processInfo.arguments.contains("--self-test") {
             controller.showWindowCentered()
-            SelfTest.run(window: controller, agent: agent)
+            SelfTest.run(window: controller, assistant: assistant)
             return
         }
         let args = ProcessInfo.processInfo.arguments.dropFirst().filter { !$0.hasPrefix("-") }
@@ -56,7 +55,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
 
     public func applicationWillTerminate(_ notification: Notification) {
         saveSession()
-        agent?.shutdown()
+        assistant?.cancelAll()
     }
 
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -86,7 +85,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
 
     @objc public func showSettings(_ sender: Any?) {
         if settingsWindow == nil {
-            settingsWindow = SettingsWindowController { [weak self] in self?.agent.restart() }
+            settingsWindow = SettingsWindowController { [weak self] in self?.assistant.reconfigure(.fromPreferences()) }
         }
         settingsWindow?.present()
     }
@@ -102,7 +101,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     }
 
     private func makeWindow() -> BrowserWindowController {
-        let controller = BrowserWindowController(factory: factory, agent: agent, paths: paths)
+        let controller = BrowserWindowController(factory: factory, assistant: assistant, paths: paths)
         controller.onClose = { [weak self] closed in
             guard let self else { return }
             if self.windows.first === closed { self.sessionStore.save(closed.tabs.session) }

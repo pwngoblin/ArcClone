@@ -1,6 +1,6 @@
 import Foundation
 
-/// Locates the non-Swift components (injections, built UI, agent bridge) at runtime.
+/// Locates the non-Swift components (injections, built UI) at runtime.
 ///
 /// Packaged builds only ever use `<App>.app/Contents/Resources/ArcClone` (see scripts/bundle.sh),
 /// which code signing seals. Development builds try, in order:
@@ -13,7 +13,6 @@ public struct AppPaths: Sendable {
     public var injections: URL { root.appendingPathComponent("injections", isDirectory: true) }
     public var injectionManifest: URL { injections.appendingPathComponent("manifest.json") }
     public var uiDist: URL { root.appendingPathComponent("ui/dist", isDirectory: true) }
-    public var agentBridgeMain: URL { root.appendingPathComponent("agent-bridge/src/main.js") }
 
     public var applicationSupport: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
