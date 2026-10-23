@@ -19,7 +19,7 @@ final class OllamaStub: URLProtocol, @unchecked Sendable {
         registry.lock.withLock { registry.handlers[host] = handler }
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [OllamaStub.self]
-        return (URLSession(configuration: config), "http://\(host):11434")
+        return (URLSession(configuration: config), "https://\(host)")
     }
 
     static func requestBodies(host: String) -> [JSONValue] {
