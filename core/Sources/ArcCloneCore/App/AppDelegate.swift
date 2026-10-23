@@ -10,6 +10,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     private var assistant: Assistant!
     private var sessionStore: SessionStore!
     private(set) var history: History!
+    private(set) var siteSettings: SiteSettings!
     private var historyWindow: HistoryWindowController?
     private let historyMenuDelegate = HistoryMenuDelegate()
     private var windows: [BrowserWindowController] = []
@@ -22,6 +23,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         paths = AppPaths.resolve()
         Log.app.info("Resources at \(self.paths.root.path, privacy: .public)")
         NSApp.mainMenu = MainMenu.build()
+        AppearanceStyle.applyAppAppearance()
         Task { await launch() }
     }
 
@@ -47,7 +49,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
             NSApp.terminate(nil)
             return
         }
-        factory = WebViewFactory(registry: registry)
+        siteSettings = SiteSettings(directory: ProcessInfo.processInfo.arguments.contains("--self-test") ? nil : paths.applicationSupport)
+        await siteSettings.load()
+        factory = WebViewFactory(registry: registry, siteSettings: siteSettings)
         assistant = Assistant(configuration: .fromPreferences())
         sessionStore = SessionStore(directory: paths.applicationSupport)
         // The self-test must not leave its fixture pages in the user's real history.
@@ -64,7 +68,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
             return
         }
         let args = ProcessInfo.processInfo.arguments.dropFirst().filter { !$0.hasPrefix("-") }
-        if let session = await sessionStore.load(), !session.tabs.isEmpty {
+        if Preferences.restoresSession, let session = await sessionStore.load(), !session.tabs.isEmpty {
             controller.tabs.restore(session)
         }
         for arg in args {
@@ -84,7 +88,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         let session = primary.tabs.session
         Task {
             await sessionStore.save(session)
+            if Preferences.flag(Preferences.Key.clearHistoryOnQuit, default: false) { history?.clear() }
             await history?.flush()
+            if Preferences.flag(Preferences.Key.clearWebsiteDataOnQuit, default: false) {
+                // Cookies, storage and caches are written by WebKit unencrypted; don't leave them behind.
+                await factory.dataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
+            }
             NSApp.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
@@ -166,7 +175,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
 
     @objc public func showSettings(_ sender: Any?) {
         if settingsWindow == nil {
-            settingsWindow = SettingsWindowController { [weak self] in self?.assistant.reconfigure(.fromPreferences()) }
+            settingsWindow = SettingsWindowController(siteSettings: siteSettings,
+                                                      clearBrowsingData: { [weak self] in self?.clearBrowsingData(nil) },
+                                                      onAgentSettingsChanged: { [weak self] in self?.assistant.reconfigure(.fromPreferences()) })
         }
         settingsWindow?.present()
     }
@@ -203,7 +214,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     private func makeWindow(isPrivate: Bool = false) -> BrowserWindowController {
         // Each private window gets its own in-memory data store: no cookies or caches touch disk,
         // and private windows can't see each other's sessions.
-        let factory = isPrivate ? WebViewFactory(registry: registry, dataStore: .nonPersistent()) : self.factory!
+        let factory = isPrivate
+            ? WebViewFactory(registry: registry, dataStore: .nonPersistent(), siteSettings: siteSettings, savesSiteChanges: false)
+            : self.factory!
         let controller = BrowserWindowController(factory: factory, assistant: assistant, history: isPrivate ? nil : history, isPrivate: isPrivate)
         controller.onClose = { [weak self] closed in
             guard let self else { return }

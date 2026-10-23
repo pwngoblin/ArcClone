@@ -4,10 +4,15 @@ import SwiftUI
 /// Settings… (⌘,): a toolbar-style preferences window with SwiftUI panes, like the system apps.
 @MainActor
 final class SettingsWindowController: NSWindowController {
-    init(onAgentSettingsChanged: @escaping @MainActor () -> Void) {
+    init(siteSettings: SiteSettings, clearBrowsingData: @escaping @MainActor () -> Void,
+         onAgentSettingsChanged: @escaping @MainActor () -> Void) {
         let tabs = NSTabViewController()
         tabs.tabStyle = .toolbar
         tabs.addTabViewItem(Self.pane("General", symbol: "gearshape", GeneralSettingsView()))
+        tabs.addTabViewItem(Self.pane("Tabs", symbol: "square.on.square", TabsSettingsView()))
+        tabs.addTabViewItem(Self.pane("Appearance", symbol: "paintpalette", AppearanceSettingsView()))
+        tabs.addTabViewItem(Self.pane("Websites", symbol: "globe", WebsitesSettingsView(settings: siteSettings)))
+        tabs.addTabViewItem(Self.pane("Privacy", symbol: "hand.raised", PrivacySettingsView(clearBrowsingData: clearBrowsingData)))
         tabs.addTabViewItem(Self.pane("Assistant", symbol: "sparkles", AssistantSettingsView(onApply: onAgentSettingsChanged)))
 
         let window = NSWindow(contentViewController: tabs)
@@ -21,7 +26,7 @@ final class SettingsWindowController: NSWindowController {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     private static func pane(_ title: String, symbol: String, _ view: some View) -> NSTabViewItem {
-        let host = NSHostingController(rootView: view.frame(width: 460).fixedSize())
+        let host = NSHostingController(rootView: view.frame(width: 520).fixedSize().appAccent())
         host.sizingOptions = .preferredContentSize
         let item = NSTabViewItem(viewController: host)
         item.label = title
@@ -39,6 +44,7 @@ final class SettingsWindowController: NSWindowController {
 struct GeneralSettingsView: View {
     @AppStorage(Preferences.Key.searchEngine) private var searchEngine = Preferences.SearchEngine.google.rawValue
     @AppStorage(Preferences.Key.homepage) private var homepage = Preferences.defaultHomepage
+    @AppStorage(Preferences.Key.restoreSession) private var restoreSession = true
     @State private var isDefaultBrowser = DefaultBrowser.isDefault
     @State private var defaultBrowserError: String?
 
@@ -48,6 +54,10 @@ struct GeneralSettingsView: View {
                 ForEach(Preferences.SearchEngine.allCases) { Text($0.displayName).tag($0.rawValue) }
             }
             TextField("Homepage:", text: $homepage, prompt: Text(Preferences.defaultHomepage))
+            Picker("On launch, open:", selection: $restoreSession) {
+                Text("Tabs from last time").tag(true)
+                Text("The homepage").tag(false)
+            }
             LabeledContent("Default browser:") {
                 if isDefaultBrowser {
                     Label("ArcClone is your default browser", systemImage: "checkmark.circle.fill")
@@ -75,6 +85,189 @@ struct GeneralSettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             isDefaultBrowser = DefaultBrowser.isDefault
         }
+    }
+}
+
+struct TabsSettingsView: View {
+    @AppStorage(Preferences.Key.newTabsNextToCurrent) private var nextToCurrent = true
+
+    var body: some View {
+        Form {
+            Picker("Open new tabs:", selection: $nextToCurrent) {
+                Text("Next to the current tab").tag(true)
+                Text("At the end of the list").tag(false)
+            }
+            .pickerStyle(.radioGroup)
+            LabeledContent("Shortcuts:") {
+                Text("⌘T new tab · ⌘W close · ⇧⌘T reopen · ⌘D pin · ⌘1–⌘9 jump · ⌃Tab cycle")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.columns)
+        .padding(20)
+    }
+}
+
+struct AppearanceSettingsView: View {
+    @AppStorage(AppearanceStyle.Key.appAppearance) private var mode = AppearanceStyle.Mode.system.rawValue
+    @AppStorage(AppearanceStyle.Key.accent) private var accent = AppearanceStyle.defaultAccent
+    @AppStorage(AppearanceStyle.Key.sidebarTint) private var tint = AppearanceStyle.defaultAccent
+    @AppStorage(AppearanceStyle.Key.tintStrength) private var strength = 0.12
+    @AppStorage(AppearanceStyle.Key.grain) private var grain = 0.0
+
+    var body: some View {
+        Form {
+            Picker("Appearance:", selection: $mode) {
+                ForEach(AppearanceStyle.Mode.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 260)
+            .onChange(of: mode) { _, _ in AppearanceStyle.applyAppAppearance() }
+
+            LabeledContent("Accent color:") { swatches($accent) }
+            LabeledContent("Sidebar color:") { swatches($tint) }
+            LabeledContent("Color strength:") {
+                Slider(value: $strength, in: 0...0.5) { EmptyView() } minimumValueLabel: { Image(systemName: "circle") } maximumValueLabel: { Image(systemName: "circle.fill") }
+                    .frame(width: 260)
+            }
+            LabeledContent("Grain:") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Slider(value: $grain, in: 0...0.6) { EmptyView() } minimumValueLabel: { Text("Smooth").font(.caption) } maximumValueLabel: { Text("Paper").font(.caption) }
+                        .frame(width: 260)
+                    Text("Adds a subtle paper-like texture to the sidebar.").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            LabeledContent("Preview:") {
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 10).fill(.background)
+                    SidebarBackground().clipShape(RoundedRectangle(cornerRadius: 10))
+                    VStack(alignment: .leading, spacing: 6) {
+                        RoundedRectangle(cornerRadius: 6).fill(Color(hex: accent).opacity(0.22)).frame(height: 22)
+                            .overlay(alignment: .leading) { Text("Active tab").font(.caption).padding(.leading, 8) }
+                        Text("Another tab").font(.caption).padding(.leading, 8)
+                    }
+                    .padding(10)
+                }
+                .frame(width: 260, height: 80)
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.separator))
+            }
+            LabeledContent("") {
+                Button("Restore Defaults") {
+                    accent = AppearanceStyle.defaultAccent; tint = AppearanceStyle.defaultAccent; strength = 0.12; grain = 0
+                    mode = AppearanceStyle.Mode.system.rawValue; AppearanceStyle.applyAppAppearance()
+                }
+            }
+        }
+        .formStyle(.columns)
+        .padding(20)
+    }
+
+    private func swatches(_ value: Binding<String>) -> some View {
+        HStack(spacing: 8) {
+            ForEach(AppearanceStyle.presets, id: \.self) { hex in
+                Circle().fill(Color(hex: hex)).frame(width: 20, height: 20)
+                    .overlay(Circle().strokeBorder(.primary.opacity(value.wrappedValue == hex ? 0.8 : 0), lineWidth: 2).padding(-3))
+                    .onTapGesture { value.wrappedValue = hex }
+                    .help(hex)
+            }
+            ColorPicker("", selection: Binding(get: { Color(hex: value.wrappedValue) }, set: { value.wrappedValue = $0.hexString }),
+                        supportsOpacity: false)
+                .labelsHidden()
+        }
+    }
+}
+
+struct WebsitesSettingsView: View {
+    @Bindable var settings: SiteSettings
+    @AppStorage(Preferences.Key.defaultZoom) private var defaultZoom = 1.0
+    @AppStorage(Preferences.Key.defaultDarkMode) private var defaultDarkMode = SiteSettings.DarkMode.standard.rawValue
+
+    var body: some View {
+        Form {
+            Picker("Default zoom:", selection: $defaultZoom) {
+                ForEach([0.75, 0.85, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0], id: \.self) { Text("\(Int($0 * 100))%").tag($0) }
+            }
+            .frame(width: 220)
+            Picker("Website appearance:", selection: $defaultDarkMode) {
+                ForEach(SiteSettings.DarkMode.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
+            }
+            .frame(width: 260)
+            LabeledContent("") {
+                Text("“Force Dark” uses a site's own dark theme when it has one and inverts it otherwise.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            LabeledContent("Customized sites:") {
+                VStack(alignment: .leading, spacing: 6) {
+                    if settings.sites.isEmpty {
+                        Text("None yet. Use the toolbar's Site Settings button on any site.").font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        List {
+                            ForEach(settings.sites.keys.sorted(), id: \.self) { host in
+                                HStack {
+                                    Text(host)
+                                    Spacer()
+                                    Text(summary(settings.sites[host] ?? .init())).font(.caption).foregroundStyle(.secondary)
+                                    Button { settings.reset(host) } label: { Image(systemName: "minus.circle") }.buttonStyle(.plain)
+                                }
+                            }
+                        }
+                        .frame(width: 330, height: 150)
+                        .listStyle(.bordered)
+                        Button("Remove All") { settings.removeAll() }
+                    }
+                }
+            }
+        }
+        .formStyle(.columns)
+        .padding(20)
+    }
+
+    private func summary(_ site: SiteSettings.Site) -> String {
+        var parts: [String] = []
+        if let zoom = site.zoom { parts.append("\(Int(zoom * 100))%") }
+        if let dark = site.darkMode { parts.append(dark.title) }
+        if site.javaScript == false { parts.append("No JS") }
+        if let camera = site.camera { parts.append("Camera: \(camera.title)") }
+        if let mic = site.microphone { parts.append("Mic: \(mic.title)") }
+        return parts.joined(separator: " · ")
+    }
+}
+
+struct PrivacySettingsView: View {
+    let clearBrowsingData: @MainActor () -> Void
+    @AppStorage(Preferences.Key.httpsFirst) private var httpsFirst = true
+    @AppStorage(Preferences.Key.historyRetentionDays) private var retention = History.defaultRetentionDays
+    @AppStorage(Preferences.Key.clearHistoryOnQuit) private var clearHistoryOnQuit = false
+    @AppStorage(Preferences.Key.clearWebsiteDataOnQuit) private var clearDataOnQuit = false
+
+    var body: some View {
+        Form {
+            Toggle("Upgrade connections to HTTPS (HTTPS-First)", isOn: $httpsFirst)
+            Picker("Keep history:", selection: $retention) {
+                Text("One day").tag(1)
+                Text("One week").tag(7)
+                Text("One month").tag(30)
+                Text("Three months").tag(90)
+                Text("One year").tag(365)
+                Text("Forever").tag(0)
+            }
+            .frame(width: 220)
+            Toggle("Clear history when ArcClone quits", isOn: $clearHistoryOnQuit)
+            Toggle("Clear cookies and website data when ArcClone quits", isOn: $clearDataOnQuit)
+            LabeledContent("") {
+                Text("Website data (cookies, storage, caches) is written by WebKit unencrypted inside ArcClone's container. Clearing it on quit signs you out of websites each time.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            LabeledContent("") {
+                Button("Clear Browsing Data…", action: clearBrowsingData)
+            }
+            LabeledContent("Protected:") {
+                Text("Your session, history and site settings are encrypted on disk with a key in your Keychain. Private windows leave none of them behind.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .formStyle(.columns)
+        .padding(20)
     }
 }
 
