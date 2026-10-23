@@ -14,6 +14,9 @@ enum MainMenu {
         let window = windowMenu()
         main.addItem(submenu(window))
         NSApp.windowsMenu = window
+        let help = helpMenu()
+        main.addItem(submenu(help))
+        NSApp.helpMenu = help
         return main
     }
 
@@ -34,6 +37,9 @@ enum MainMenu {
     private static func appMenu() -> NSMenu {
         let m = NSMenu(title: "ArcClone")
         m.addItem(item("About ArcClone", #selector(NSApplication.orderFrontStandardAboutPanel(_:))))
+        m.addItem(.separator())
+        m.addItem(item("Settings…", #selector(AppDelegate.showSettings(_:)), ","))
+        m.addItem(item("Set as Default Browser…", #selector(AppDelegate.makeDefaultBrowser(_:))))
         m.addItem(.separator())
         let services = NSMenu(title: "Services")
         let servicesItem = submenu(services)
@@ -59,6 +65,8 @@ enum MainMenu {
         m.addItem(item("Reopen Closed Tab", #selector(BrowserWindowController.reopenClosedTab(_:)), "t", [.command, .shift]))
         m.addItem(.separator())
         m.addItem(item("Copy Link", #selector(BrowserWindowController.copyPageURL(_:)), "c", [.command, .shift]))
+        m.addItem(.separator())
+        m.addItem(item("Print…", #selector(BrowserWindowController.printPage(_:)), "p"))
         return m
     }
 
@@ -70,6 +78,8 @@ enum MainMenu {
         m.addItem(item("Cut", #selector(NSText.cut(_:)), "x"))
         m.addItem(item("Copy", #selector(NSText.copy(_:)), "c"))
         m.addItem(item("Paste", #selector(NSText.paste(_:)), "v"))
+        m.addItem(item("Paste and Match Style", #selector(NSTextView.pasteAsPlainText(_:)), "v", [.command, .option, .shift]))
+        m.addItem(item("Delete", #selector(NSText.delete(_:))))
         m.addItem(item("Select All", #selector(NSText.selectAll(_:)), "a"))
         m.addItem(.separator())
         let find = NSMenu(title: "Find")
@@ -79,7 +89,32 @@ enum MainMenu {
         let next = item("Find Next", #selector(NSResponder.performTextFinderAction(_:)), "g")
         next.tag = NSTextFinder.Action.nextMatch.rawValue
         find.addItem(next)
+        let previous = item("Find Previous", #selector(NSResponder.performTextFinderAction(_:)), "g", [.command, .shift])
+        previous.tag = NSTextFinder.Action.previousMatch.rawValue
+        find.addItem(previous)
         m.addItem(submenu(find))
+
+        let spelling = NSMenu(title: "Spelling and Grammar")
+        spelling.addItem(item("Show Spelling and Grammar", #selector(NSText.showGuessPanel(_:)), ":"))
+        spelling.addItem(item("Check Document Now", #selector(NSText.checkSpelling(_:)), ";"))
+        spelling.addItem(.separator())
+        spelling.addItem(item("Check Spelling While Typing", #selector(NSTextView.toggleContinuousSpellChecking(_:))))
+        spelling.addItem(item("Check Grammar With Spelling", #selector(NSTextView.toggleGrammarChecking(_:))))
+        m.addItem(submenu(spelling))
+
+        let substitutions = NSMenu(title: "Substitutions")
+        substitutions.addItem(item("Show Substitutions", #selector(NSTextView.orderFrontSubstitutionsPanel(_:))))
+        substitutions.addItem(.separator())
+        substitutions.addItem(item("Smart Quotes", #selector(NSTextView.toggleAutomaticQuoteSubstitution(_:))))
+        substitutions.addItem(item("Smart Dashes", #selector(NSTextView.toggleAutomaticDashSubstitution(_:))))
+        substitutions.addItem(item("Text Replacement", #selector(NSTextView.toggleAutomaticTextReplacement(_:))))
+        m.addItem(submenu(substitutions))
+
+        let speech = NSMenu(title: "Speech")
+        speech.addItem(item("Start Speaking", #selector(NSTextView.startSpeaking(_:))))
+        speech.addItem(item("Stop Speaking", #selector(NSTextView.stopSpeaking(_:))))
+        m.addItem(submenu(speech))
+        // AppKit appends AutoFill, Start Dictation and Emoji & Symbols to the menu titled "Edit".
         return m
     }
 
@@ -124,6 +159,13 @@ enum MainMenu {
         m.addItem(item("Reload Injections", #selector(BrowserWindowController.reloadInjections(_:)), "i", [.command, .option, .shift]))
         m.addItem(item("Reload Sidebar UI", #selector(BrowserWindowController.reloadChromeUI(_:)), "r", [.command, .option, .shift]))
         m.addItem(item("Restart Agent Bridge", #selector(BrowserWindowController.restartAgentBridge(_:))))
+        return m
+    }
+
+    private static func helpMenu() -> NSMenu {
+        // Assigned to NSApp.helpMenu, so macOS adds the menu-search field on top.
+        let m = NSMenu(title: "Help")
+        m.addItem(item("ArcClone Help", #selector(AppDelegate.showHelp(_:)), "?"))
         return m
     }
 

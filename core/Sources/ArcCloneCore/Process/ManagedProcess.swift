@@ -36,7 +36,7 @@ public final class ManagedProcess {
     }
 
     public let name: String
-    public let spec: Spec
+    public var spec: Spec
     public var maxConsecutiveFailures = 8
     public var stableUptime: TimeInterval = 60
 
