@@ -139,6 +139,8 @@ enum MainMenu {
         let m = NSMenu(title: "History")
         m.addItem(item("Back", #selector(BrowserWindowController.goBack(_:)), "["))
         m.addItem(item("Forward", #selector(BrowserWindowController.goForward(_:)), "]"))
+        m.addItem(.separator())
+        m.addItem(item("Clear Browsing Data…", #selector(AppDelegate.clearBrowsingData(_:)), "\u{8}", [.command, .shift]))
         return m
     }
 

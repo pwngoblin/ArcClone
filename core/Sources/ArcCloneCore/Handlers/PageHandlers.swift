@@ -42,7 +42,7 @@ extension BrowserWindowController {
         }
 
         router.on("runtime.error", from: pageOnly) { ctx, p in
-            Log.scripts.error("Injection error \(p["source"]?.string ?? "?", privacy: .public):\(p["line"]?.int ?? 0): \(p["message"]?.string ?? "", privacy: .public) [\(ctx.source.tabID?.uuidString ?? "-", privacy: .public)]")
+            Log.scripts.error("Injection error \(p["source"]?.string ?? "?", privacy: .public):\(p["line"]?.int ?? 0): \(p["message"]?.string ?? "", privacy: .private) [\(ctx.source.tabID?.uuidString ?? "-", privacy: .public)]")
             return .null
         }
 

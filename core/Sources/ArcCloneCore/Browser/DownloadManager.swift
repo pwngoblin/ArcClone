@@ -14,7 +14,7 @@ public final class DownloadManager: NSObject, WKDownloadDelegate {
         let safeName = suggestedFilename.replacingOccurrences(of: "/", with: "_")
         let url = Self.uniqueURL(in: downloads, name: safeName.isEmpty ? "download" : safeName)
         destinations[ObjectIdentifier(download)] = url
-        Log.web.info("Downloading to \(url.path, privacy: .public)")
+        Log.web.info("Downloading to \(url.path, privacy: .private)")
         return url
     }
 

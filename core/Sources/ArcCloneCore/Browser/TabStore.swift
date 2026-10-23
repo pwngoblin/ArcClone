@@ -13,6 +13,8 @@ public final class TabStore {
     public private(set) var activeID: UUID?
     public private(set) var recentlyClosed: [ClosedTab] = []
 
+    public func clearRecentlyClosed() { recentlyClosed.removeAll() }
+
     public var onChange: (@MainActor () -> Void)?
     public var onActiveChange: (@MainActor (Tab?) -> Void)?
     public weak var tabDelegate: TabDelegate?
@@ -144,40 +146,5 @@ public final class TabStore {
         }
         if let i = session.activeIndex, tabs.indices.contains(i) { setActive(tabs[i].id) }
         else if let first = tabs.first { setActive(first.id) }
-    }
-}
-
-/// Persists window sessions as JSON in Application Support.
-public struct SessionStore: Sendable {
-    public struct Session: Codable, Sendable, Equatable {
-        public struct Entry: Codable, Sendable, Equatable {
-            public var url: URL
-            public var title: String
-            public var pinned: Bool
-        }
-
-        public var tabs: [Entry]
-        public var activeIndex: Int?
-    }
-
-    public let fileURL: URL
-
-    public init(directory: URL) {
-        fileURL = directory.appendingPathComponent("session.json")
-    }
-
-    public func load() -> Session? {
-        guard let data = try? Data(contentsOf: fileURL) else { return nil }
-        return try? JSONDecoder().decode(Session.self, from: data)
-    }
-
-    public func save(_ session: Session) {
-        do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(session).write(to: fileURL, options: .atomic)
-        } catch {
-            Log.app.error("Session save failed: \(error.localizedDescription, privacy: .public)")
-        }
     }
 }
