@@ -6,6 +6,10 @@ import WebKit
 public final class WebViewFactory {
     public let registry: ScriptRegistry
     public let dataStore: WKWebsiteDataStore
+    /// Per-site zoom, dark mode, JavaScript and permissions; shared by every window.
+    public let siteSettings: SiteSettings?
+    /// Private windows apply site settings but never record changes (that would reveal the site).
+    public let savesSiteChanges: Bool
     /// Web Inspector is a development tool: release builds don't let it attach to tabs or the chrome.
     #if DEBUG
     public var inspectable = true
@@ -16,9 +20,12 @@ public final class WebViewFactory {
     /// Presents as Safari so sites don't serve degraded "unknown browser" pages.
     public var applicationNameForUserAgent = "Version/18.0 Safari/605.1.15 ArcClone/0.1"
 
-    public init(registry: ScriptRegistry, dataStore: WKWebsiteDataStore = .default()) {
+    public init(registry: ScriptRegistry, dataStore: WKWebsiteDataStore = .default(),
+                siteSettings: SiteSettings? = nil, savesSiteChanges: Bool = true) {
         self.registry = registry
         self.dataStore = dataStore
+        self.siteSettings = siteSettings
+        self.savesSiteChanges = savesSiteChanges
     }
 
     public func makeConfiguration(bridge: ScriptMessageBridge) -> WKWebViewConfiguration {
