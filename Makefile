@@ -1,6 +1,6 @@
 # ArcClone build entry points. Run `make` for a dev build, `make app` for a packaged .app,
 # `make dmg` for a distributable disk image.
-.PHONY: all core run test check test-core selftest app dmg clean
+.PHONY: all ui core run test check test-core test-ui selftest app dmg clean
 
 all: core
 
@@ -13,7 +13,7 @@ run: all
 test: check selftest
 
 # Every automated test; CI runs this, so it lists whatever test suites the repo has.
-check: test-core
+check: test-ui test-core
 
 test-core:
 	cd core && swift test
