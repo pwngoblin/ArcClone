@@ -26,6 +26,16 @@ BIN="$(cd "$ROOT/core" && swift build -c release ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@
 rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$RES/ui"
 cp "$BIN" "$OUT/Contents/MacOS/ArcClone"
+EXE="$OUT/Contents/MacOS/ArcClone"
+# Drop every rpath except the OS Swift runtime: toolchain paths baked in by the linker are a
+# dylib-hijacking surface and nothing loads through @rpath.
+for rpath in $(otool -l "$EXE" | awk '/cmd LC_RPATH/{getline; getline; print $2}'); do
+  [ "$rpath" = "/usr/lib/swift" ] || install_name_tool -delete_rpath "$rpath" "$EXE"
+done
+# Keep symbols for crash reports in a dSYM next to the app (never shipped), then strip the binary.
+rm -rf "$ROOT/build/ArcClone.app.dSYM"
+dsymutil "$EXE" -o "$ROOT/build/ArcClone.app.dSYM" 2>/dev/null || echo "warning: dsymutil failed" >&2
+strip -rSTx "$EXE"
 cp -R "$ROOT/injections" "$RES/injections"
 cp -R "$ROOT/ui/dist" "$RES/ui/dist"
 find "$OUT" -name .DS_Store -delete
@@ -89,5 +99,5 @@ plutil -lint -s "$OUT/Contents/Info.plist"
 SIGN_FLAGS=(--force --options runtime --entitlements "$ROOT/scripts/ArcClone.entitlements" --sign "$IDENTITY")
 [ "$IDENTITY" != "-" ] && SIGN_FLAGS+=(--timestamp)
 codesign "${SIGN_FLAGS[@]}" "$OUT"
-codesign --verify --strict "$OUT"
+"$ROOT/scripts/verify-app.sh" "$OUT"
 echo "Built $OUT ($VERSION, build $BUILD_NUMBER, $(lipo -archs "$OUT/Contents/MacOS/ArcClone"))"
