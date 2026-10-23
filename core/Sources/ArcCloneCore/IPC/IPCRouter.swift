@@ -4,19 +4,14 @@ import Foundation
 /// injection content world, so web content itself never reaches these handlers.
 public enum IPCSource: Sendable, Equatable {
     case page(tabID: UUID, isMainFrame: Bool, url: URL?)
-    case chrome
 
+    /// Route permission classes. Only injected page scripts message native code today; the browser
+    /// chrome is native SwiftUI and calls Swift directly.
     public enum Kind: Sendable, Hashable {
         case page
-        case chrome
     }
 
-    public var kind: Kind {
-        switch self {
-        case .page: return .page
-        case .chrome: return .chrome
-        }
-    }
+    public var kind: Kind { .page }
 
     public var tabID: UUID? {
         if case .page(let id, _, _) = self { return id }

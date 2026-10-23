@@ -4,12 +4,7 @@ import AppKit
 /// so these are reached from MainMenu items with a nil target.
 extension BrowserWindowController: NSMenuItemValidation {
     @objc public func newTab(_ sender: Any?) {
-        if chrome.events.isReady {
-            chrome.events.send("chrome.command", ["command": "newTab"])
-            window?.makeFirstResponder(chrome.webView)
-        } else {
-            tabs.create(url: nil)
-        }
+        model.presentCommandBar(newTab: true)
     }
 
     @objc public func closeTab(_ sender: Any?) {
@@ -21,8 +16,7 @@ extension BrowserWindowController: NSMenuItemValidation {
     }
 
     @objc public func focusAddressBar(_ sender: Any?) {
-        window?.makeFirstResponder(chrome.webView)
-        chrome.events.send("chrome.command", ["command": "focusAddressBar"])
+        model.presentCommandBar(newTab: false)
     }
 
     @objc public func reloadPage(_ sender: Any?) { tabs.active?.reload() }
@@ -38,12 +32,13 @@ extension BrowserWindowController: NSMenuItemValidation {
         if let split = window?.contentViewController as? NSSplitViewController, split.splitViewItems.first?.isCollapsed == true {
             split.toggleSidebar(sender)
         }
-        chrome.events.send("chrome.command", ["command": "toggleAssistant"])
-        window?.makeFirstResponder(chrome.webView)
+        model.showsAssistant.toggle()
     }
 
     @objc public func summarizePage(_ sender: Any?) {
-        chrome.events.send("chrome.command", ["command": "summarize"])
+        if isSidebarCollapsed { toggleSidebar(sender) }
+        model.showsAssistant = true
+        model.assistant.summarize()
     }
 
     @objc public func selectTabByNumber(_ sender: NSMenuItem) {
@@ -63,7 +58,7 @@ extension BrowserWindowController: NSMenuItemValidation {
         guard let url = tabs.active?.url else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(url.absoluteString, forType: .string)
-        chrome.events.send("chrome.toast", ["message": "Link copied"])
+        model.showToast("Link copied")
     }
 
     @objc public func printPage(_ sender: Any?) {
@@ -82,16 +77,15 @@ extension BrowserWindowController: NSMenuItemValidation {
         web.pageZoom = min(3, max(0.3, web.pageZoom + delta))
     }
 
-    @objc public func reloadChromeUI(_ sender: Any?) { chrome.reload() }
 
     @objc public func reloadInjections(_ sender: Any?) {
         do {
             try factory.registry.reload()
             for tab in tabs.tabs { factory.registry.install(into: tab.webView.configuration.userContentController) }
             tabs.active?.reload()
-            chrome.events.send("chrome.toast", ["message": "Injections reloaded"])
+            model.showToast("Injections reloaded")
         } catch {
-            chrome.events.send("chrome.toast", ["message": .string("Injection reload failed: \(error)")])
+            model.showToast("Injection reload failed: \(error)")
         }
     }
 

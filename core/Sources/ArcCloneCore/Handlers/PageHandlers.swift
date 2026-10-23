@@ -20,9 +20,7 @@ extension BrowserWindowController {
             let selection = try PagePayload.selection(p, origin: origin)
             tab.applySelection(selection.text)
             self.recordForAssistant(tabID, "selection.changed", ["text": .string(selection.text), "url": .string(selection.url.absoluteString)])
-            if tabID == self.tabs.activeID {
-                self.chrome.events.send("page.selection", ["tabId": .string(tabID.uuidString), "text": .string(selection.text)])
-            }
+            if tabID == self.tabs.activeID { self.model.selection = selection.text }
             return .null
         }
 
@@ -30,9 +28,7 @@ extension BrowserWindowController {
             guard let self, let tabID = ctx.source.tabID, let tab = self.tabs.tab(tabID) else { return .null }
             tab.applySelection(nil)
             self.recordForAssistant(tabID, "selection.cleared", .null)
-            if tabID == self.tabs.activeID {
-                self.chrome.events.send("page.selection", ["tabId": .string(tabID.uuidString), "text": .null])
-            }
+            if tabID == self.tabs.activeID { self.model.selection = nil }
             return .null
         }
 
