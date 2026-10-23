@@ -59,6 +59,8 @@ cat > "$OUT/Contents/Info.plist" <<PLIST
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>NSSupportsAutomaticTermination</key><false/>
   <key>NSSupportsSuddenTermination</key><false/>
+  <!-- Downloads carry the quarantine flag, so Gatekeeper checks downloaded apps and scripts. -->
+  <key>LSFileQuarantineEnabled</key><true/>
   <key>NSCameraUsageDescription</key><string>Websites you visit may request your camera.</string>
   <key>NSMicrophoneUsageDescription</key><string>Websites you visit may request your microphone.</string>
   <!-- A browser must load any site; ATS still applies to the app's own connections. -->
