@@ -26,11 +26,13 @@ enum SelfTest {
                 if !ok { failures.append(name) }
             }
 
-            check("chrome.ready", await waitUntil(10) { window.chrome.events.isReady })
+            check("window.ready", await waitUntil(10) { window.window?.isVisible == true })
 
             let tab = window.tabs.create(url: nil)
             tab.webView.loadHTMLString(fixture, baseURL: URL(string: "https://selftest.arcclone.test/article")!)
-            let titled = await waitUntil(10) { tab.title == "ArcClone Self Test" && tab.faviconURL != nil }
+            let titled = await waitUntil(10) {
+                tab.title == "ArcClone Self Test" && tab.faviconURL != nil && window.model.tabs.contains { $0.title == "ArcClone Self Test" }
+            }
             check("page.didChange event", titled, ["title": .string(tab.title), "favicon": JSONValue(tab.faviconURL?.absoluteString)])
 
             do {
@@ -110,11 +112,25 @@ enum SelfTest {
 
             if let dir = ProcessInfo.processInfo.environment["ARCCLONE_SELFTEST_SNAPSHOT_DIR"] {
                 try? await Task.sleep(for: .milliseconds(600)) // let the sidebar render the new tab
-                for (name, view) in [("sidebar", window.chrome.webView), ("page", tab.webView)] {
-                    if let image = try? await view.takeSnapshot(configuration: nil),
-                       let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
-                       let png = rep.representation(using: .png, properties: [:]) {
+                func save(_ rep: NSBitmapImageRep?, _ name: String) {
+                    if let png = rep?.representation(using: .png, properties: [:]) {
                         try? png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).png"))
+                    }
+                }
+                if let content = window.window?.contentView, let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
+                    content.cacheDisplay(in: content.bounds, to: rep)
+                    save(rep, "window")
+                }
+                if let image = try? await tab.webView.takeSnapshot(configuration: nil), let tiff = image.tiffRepresentation {
+                    save(NSBitmapImageRep(data: tiff), "page")
+                }
+                if ProcessInfo.processInfo.environment["ARCCLONE_SELFTEST_COMMANDBAR"] != nil {
+                    window.model.presentCommandBar(newTab: true)
+                    window.model.commandBar?.query = "self"
+                    try? await Task.sleep(for: .milliseconds(700))
+                    if let content = window.window?.contentView, let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
+                        content.cacheDisplay(in: content.bounds, to: rep)
+                        save(rep, "commandbar")
                     }
                 }
             }

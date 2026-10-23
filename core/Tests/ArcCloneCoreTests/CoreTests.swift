@@ -98,47 +98,41 @@ private let repoRoot = URL(fileURLWithPath: #filePath)
 
     func decode(_ s: String) throws -> IPCReply { try JSONDecoder().decode(IPCReply.self, from: Data(s.utf8)) }
 
+    let page = IPCSource.page(tabID: UUID(), isMainFrame: true, url: URL(string: "https://a.example"))
+
     @Test func dispatchesAndEnforcesSources() async throws {
         let router = IPCRouter()
-        router.on("echo", from: [.chrome]) { _, p in p }
-        let ok = try decode(await router.dispatch(rawBody: envelope("echo", payload: ["x": 1]), source: .chrome))
+        router.on("echo", from: [.page]) { _, p in p }
+        let ok = try decode(await router.dispatch(rawBody: envelope("echo", payload: ["x": 1]), source: page))
         #expect(ok.ok && ok.result?["x"]?.int == 1)
 
-        let blocked = try decode(await router.dispatch(rawBody: envelope("echo"), source: .page(tabID: UUID(), isMainFrame: true, url: nil)))
+        // A route that admits no source kinds can't be called by pages.
+        router.on("locked", from: []) { _, _ in .null }
+        let blocked = try decode(await router.dispatch(rawBody: envelope("locked"), source: page))
         #expect(!blocked.ok && blocked.error?.code == "forbidden")
     }
 
     @Test func reportsMalformedAndUnknown() async throws {
         let router = IPCRouter()
-        #expect(try decode(await router.dispatch(rawBody: 42, source: .chrome)).error?.code == "malformed")
-        #expect(try decode(await router.dispatch(rawBody: "{nope", source: .chrome)).error?.code == "malformed")
-        #expect(try decode(await router.dispatch(rawBody: envelope("missing"), source: .chrome)).error?.code == "unknown_type")
+        #expect(try decode(await router.dispatch(rawBody: 42, source: page)).error?.code == "malformed")
+        #expect(try decode(await router.dispatch(rawBody: "{nope", source: page)).error?.code == "malformed")
+        #expect(try decode(await router.dispatch(rawBody: envelope("missing"), source: page)).error?.code == "unknown_type")
     }
 
     @Test func unhandledEventsGoToFallback() async throws {
         let router = IPCRouter()
         var seen: String?
         router.onUnhandledEvent = { _, type, _ in seen = type }
-        let reply = try decode(await router.dispatch(rawBody: envelope("custom.thing", kind: .event), source: .chrome))
+        let reply = try decode(await router.dispatch(rawBody: envelope("custom.thing", kind: .event), source: page))
         #expect(reply.ok)
         #expect(seen == "custom.thing")
     }
 
     @Test func handlerErrorsAreMapped() async throws {
         let router = IPCRouter()
-        router.on("fail", from: [.chrome]) { _, _ in throw IPCError.notFound("nope") }
-        let reply = try decode(await router.dispatch(rawBody: envelope("fail"), source: .chrome))
+        router.on("fail", from: [.page]) { _, _ in throw IPCError.notFound("nope") }
+        let reply = try decode(await router.dispatch(rawBody: envelope("fail"), source: page))
         #expect(reply.error == IPCError.notFound("nope"))
-    }
-}
-
-@Suite @MainActor struct SchemeHandlerTests {
-    @Test func blocksPathTraversal() {
-        let h = UISchemeHandler(root: URL(fileURLWithPath: "/tmp/ui/dist"))
-        #expect(h.fileURL(for: URL(string: "arc-ui://app/")!)?.path == "/tmp/ui/dist/index.html")
-        #expect(h.fileURL(for: URL(string: "arc-ui://app/assets/a.js")!)?.path == "/tmp/ui/dist/assets/a.js")
-        #expect(h.fileURL(for: URL(string: "arc-ui://app/../../etc/passwd")!) == nil)
-        #expect(h.fileURL(for: URL(string: "arc-ui://app/%2E%2E/secret")!) == nil)
     }
 }
 
@@ -149,14 +143,6 @@ private let repoRoot = URL(fileURLWithPath: #filePath)
         #expect(paths.root.path == "/Applications/ArcClone.app/Contents/Resources/ArcClone")
         // Development builds still honour the override.
         #expect(AppPaths.resolve(environment: ["ARCCLONE_ROOT": repoRoot.path], packagedResources: nil).root == AppPaths(root: repoRoot).root)
-    }
-
-    @Test func chromeCSPCoversDirectivesDefaultSrcMisses() {
-        let csp = UISchemeHandler.contentSecurityPolicy
-        for directive in ["base-uri 'none'", "form-action 'none'", "frame-src 'none'", "object-src 'none'", "script-src 'self' arc-ui:"] {
-            #expect(csp.contains(directive), "missing \(directive)")
-        }
-        #expect(!csp.contains("unsafe-eval"))
     }
 
     @Test func onlyNonWebSchemesOpenExternally() {

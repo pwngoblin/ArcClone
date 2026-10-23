@@ -119,6 +119,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     /// The saved session belongs to the first regular (non-private) window.
     private var primaryWindow: BrowserWindowController? { windows.first { !$0.isPrivate } }
 
+    func openInNewWindow(_ url: URL, isPrivate: Bool) {
+        let controller = makeWindow(isPrivate: isPrivate)
+        controller.tabs.create(url: url)
+        controller.showWindowCentered()
+    }
+
     @objc public func newPrivateWindow(_ sender: Any?) {
         let controller = makeWindow(isPrivate: true)
         controller.tabs.create(url: nil)
@@ -167,7 +173,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         // Each private window gets its own in-memory data store: no cookies or caches touch disk,
         // and private windows can't see each other's sessions.
         let factory = isPrivate ? WebViewFactory(registry: registry, dataStore: .nonPersistent()) : self.factory!
-        let controller = BrowserWindowController(factory: factory, assistant: assistant, paths: paths, isPrivate: isPrivate)
+        let controller = BrowserWindowController(factory: factory, assistant: assistant, isPrivate: isPrivate)
         controller.onClose = { [weak self] closed in
             guard let self else { return }
             if self.primaryWindow === closed {

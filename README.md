@@ -39,7 +39,8 @@ Under **Settings** you can choose a search engine and homepage, make ArcClone yo
 ## Native macOS integration
 
 - Standard AppKit menus: Services, Spelling and Grammar, Substitutions, Speech, Dictation, Emoji & Symbols, and a searchable Help menu
-- Full-height sidebar with system vibrancy that follows light/dark mode and window focus
+- A native SwiftUI sidebar with system vibrancy, drag-to-reorder with haptic feedback, and tab context menus
+- A centered command bar (⌘T / ⌘L) for URLs, searches, open tabs and history
 - A toolbar-style Settings window built with SwiftUI
 - Can be set as the default browser, and opens `http`/`https` links and `.html` files
 - Handoff: continue the active tab in Safari on your iPhone or iPad
@@ -64,29 +65,27 @@ Under **Settings** you can choose a search engine and homepage, make ArcClone yo
 ## Architecture
 
 ```
-core/           Swift package: AppKit app, WKWebView tabs, native IPC router, Ollama assistant
+core/           Swift package: AppKit + SwiftUI app, WKWebView tabs, page IPC router, Ollama assistant
 injections/     JavaScript run in every page, in an isolated WebKit content world
-ui/             Sidebar UI (Svelte) loaded from the app bundle via arc-ui://
 scripts/        Packaging: .app bundle, icon, entitlements, DMG
 ```
 
-Every message between web content and native code uses one versioned JSON envelope, `{ v, id, kind, type, payload }`, sent through `WKScriptMessageHandlerWithReply` and routed by `IPCRouter`.
+The browser chrome (sidebar, command bar, assistant, settings) is native SwiftUI on AppKit windows. The only JavaScript is in `injections/`, which runs inside web pages.
 
-- Each IPC route declares whether the **chrome** (sidebar UI) or **page** scripts (injections) may call it. Calls from any other source are rejected.
+Injected scripts talk to native code with one versioned JSON envelope, `{ v, id, kind, type, payload }`, sent through `WKScriptMessageHandlerWithReply` and routed by `IPCRouter`:
+
 - Page scripts run in the `ArcInjections` content world, so websites can't see or call the bridge.
-- The sidebar can only load from `arc-ui://`. The scheme handler blocks path traversal.
-- Native code pushes events to the sidebar with `callAsyncJavaScript`. Arguments are passed separately, never interpolated into JS source.
-
-The sidebar is planned to move to SwiftUI.
+- Every payload is decoded into a fixed schema with size limits, and its URL must match the frame's WebKit security origin. Unknown events are dropped.
+- Native code calls injected scripts with `callAsyncJavaScript`. Arguments are passed separately, never interpolated into JS source.
 
 ## Development
 
-You need Xcode 16 or later (Swift 6). Node 20+ is only needed to build the sidebar UI.
+You need Xcode 16 or later (Swift 6). Nothing else: no Node, no web UI.
 
 ```sh
 make            # build ui/ and core/
 make run        # run the dev build from the repo
-make test       # ui and Swift tests, then the end-to-end self-test
+make test       # Swift tests, then the end-to-end self-test
 make app        # build/ArcClone.app
 make dmg        # build/ArcClone-<version>.dmg
 ```
@@ -95,7 +94,6 @@ make dmg        # build/ArcClone-<version>.dmg
 
 `ArcClone --self-test` starts the real app, runs every IPC path (sidebar handshake, injections, page events, native→page calls, assistant), prints a JSON report, and exits non-zero on failure.
 
-For quick UI work, `cd ui && npm run dev` serves the sidebar in a browser against a mock native layer.
 
 ## Releases
 

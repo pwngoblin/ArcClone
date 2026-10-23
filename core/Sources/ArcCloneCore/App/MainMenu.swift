@@ -161,7 +161,6 @@ enum MainMenu {
     private static func developMenu() -> NSMenu {
         let m = NSMenu(title: "Develop")
         m.addItem(item("Reload Injections", #selector(BrowserWindowController.reloadInjections(_:)), "i", [.command, .option, .shift]))
-        m.addItem(item("Reload Sidebar UI", #selector(BrowserWindowController.reloadChromeUI(_:)), "r", [.command, .option, .shift]))
         m.addItem(item("Reload Assistant Settings", #selector(BrowserWindowController.reloadAssistant(_:))))
         return m
     }
