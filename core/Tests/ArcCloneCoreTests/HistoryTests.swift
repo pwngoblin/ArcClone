@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import ArcCloneCore
@@ -88,5 +89,25 @@ import Testing
         reloaded.clear()
         await reloaded.flush()
         #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("history.sealed").path))
+    }
+}
+
+@Suite @MainActor struct HistoryMenuTests {
+    @Test func historyMenuListsRecentlyVisitedPages() {
+        let history = History(directory: nil, keys: InMemoryKeyStore())
+        history.record(url: URL(string: "https://a.example/")!, title: "Alpha")
+        history.record(url: URL(string: "https://b.example/")!, title: "")
+        let delegate = HistoryMenuDelegate()
+        delegate.history = history
+        let menu = NSMenu(title: "History")
+        menu.addItem(NSMenuItem(title: "Back", action: nil, keyEquivalent: "["))
+        delegate.menuNeedsUpdate(menu)
+        let titles = menu.items.map(\.title)
+        #expect(titles.contains("Recently Visited"))
+        #expect(titles.contains("Alpha") && titles.contains("b.example"))
+        #expect((menu.items.first { $0.title == "Alpha" }?.representedObject as? URL)?.host == "a.example")
+        // Opening the menu again replaces, rather than duplicates, the list.
+        delegate.menuNeedsUpdate(menu)
+        #expect(menu.items.filter { $0.title == "Alpha" }.count == 1)
     }
 }
