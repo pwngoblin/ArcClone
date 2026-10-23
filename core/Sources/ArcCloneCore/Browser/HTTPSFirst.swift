@@ -8,7 +8,9 @@ enum HTTPSFirst {
     /// Hosts the user allowed over HTTP, or whose HTTPS endpoint redirects back to HTTP.
     static var allowedHTTPHosts: Set<String> = []
 
-    static func upgrade(_ url: URL) -> URL? { upgrade(url, allowed: allowedHTTPHosts) }
+    static func upgrade(_ url: URL) -> URL? {
+        Preferences.httpsFirstEnabled ? upgrade(url, allowed: allowedHTTPHosts) : nil
+    }
 
     nonisolated static func upgrade(_ url: URL, allowed: Set<String>) -> URL? {
         guard url.scheme?.lowercased() == "http", let host = url.host?.lowercased(), !isPrivate(host), !allowed.contains(host),

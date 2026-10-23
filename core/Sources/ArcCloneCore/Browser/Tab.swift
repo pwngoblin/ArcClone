@@ -35,11 +35,13 @@ public final class Tab: NSObject {
     /// The original http:// URL while its HTTPS-First upgrade is loading.
     private var upgradedFrom: URL?
     private var isDiscarded = false
+    let siteSettings: SiteSettings?
 
     public init(id: UUID = UUID(), factory: WebViewFactory, router: IPCRouter, url: URL?, pinned: Bool = false) {
         self.id = id
         self.isPinned = pinned
         self.contentWorld = factory.registry.contentWorld
+        self.siteSettings = factory.siteSettings
         let tabID = id
         self.bridge = ScriptMessageBridge(name: ScriptRegistry.messageHandlerName,
                                           contentWorld: factory.registry.contentWorld,
@@ -127,6 +129,33 @@ public final class Tab: NSObject {
         themeColor = metadata.themeColor
         if let t = metadata.title, t != title { title = t }
         notify()
+    }
+
+    // MARK: Site settings
+
+    /// Zoom and color scheme for the committed page's site.
+    func applySiteAppearance() {
+        guard let siteSettings, url?.isFileURL != true else { return }
+        let zoom = siteSettings.zoom(for: webView.url)
+        if abs(webView.pageZoom - zoom) > 0.001 { webView.pageZoom = zoom }
+        switch siteSettings.darkMode(for: webView.url) {
+        case .standard: webView.appearance = nil
+        case .dark, .forced: webView.appearance = NSAppearance(named: .darkAqua)
+        case .light: webView.appearance = NSAppearance(named: .aqua)
+        }
+    }
+
+    /// Force Dark: invert the page if it is still light after asking for its dark theme.
+    func applyForcedDark() {
+        guard let siteSettings else { return }
+        let mode = siteSettings.darkMode(for: webView.url)
+        Task { _ = try? await callInjection("darkMode.apply", ["mode": .string(mode.rawValue)], timeout: 5) }
+    }
+
+    /// Re-applies everything after the user changes this site's settings.
+    func siteSettingsDidChange() {
+        applySiteAppearance()
+        applyForcedDark()
     }
 
     /// Keeps sandbox access to a user-chosen file for as long as the tab shows it.
@@ -254,6 +283,10 @@ extension Tab: WKNavigationDelegate {
             if navigationAction.targetFrame?.isMainFrame ?? true { confirmExternalOpen(url) }
             return (.cancel, preferences)
         }
+        // Per-site JavaScript. Only page scripts are affected; our isolated-world injections still run.
+        if navigationAction.targetFrame?.isMainFrame ?? true, let siteSettings {
+            preferences.allowsContentJavaScript = siteSettings.allowsJavaScript(for: navigationAction.request.url)
+        }
         return (.allow, preferences)
     }
 
@@ -332,9 +365,11 @@ extension Tab: WKNavigationDelegate {
 
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         upgradedFrom = nil
+        applySiteAppearance()
     }
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        applyForcedDark()
         notify()
     }
 
@@ -422,7 +457,13 @@ extension Tab: WKUIDelegate {
 
     public func webView(_ webView: WKWebView, decideMediaCapturePermissionsFor origin: WKSecurityOrigin,
                         initiatedBy frame: WKFrameInfo, type: WKMediaCaptureType) async -> WKPermissionDecision {
-        .prompt
+        guard let siteSettings else { return .prompt }
+        let site = IPCSource.originURL(protocol: origin.protocol, host: origin.host, port: origin.port)
+        var asked: [SiteSettings.Permission] = []
+        if type == .camera || type == .cameraAndMicrophone { asked.append(siteSettings.permission(\.camera, for: site)) }
+        if type == .microphone || type == .cameraAndMicrophone { asked.append(siteSettings.permission(\.microphone, for: site)) }
+        if asked.contains(.deny) { return .deny }
+        return asked.allSatisfy { $0 == .allow } ? .grant : .prompt
     }
 }
 

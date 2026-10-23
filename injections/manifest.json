@@ -7,35 +7,55 @@
       "file": "modules/runtime.js",
       "injectionTime": "documentStart",
       "mainFrameOnly": false,
-      "matches": ["*"]
+      "matches": [
+        "*"
+      ]
     },
     {
       "id": "page-metadata",
       "file": "modules/page-metadata.js",
       "injectionTime": "documentEnd",
       "mainFrameOnly": true,
-      "matches": ["*"]
+      "matches": [
+        "*"
+      ]
     },
     {
       "id": "dom-extractor",
       "file": "modules/dom-extractor.js",
       "injectionTime": "documentEnd",
       "mainFrameOnly": true,
-      "matches": ["*"]
+      "matches": [
+        "*"
+      ]
+    },
+    {
+      "id": "dark-mode",
+      "file": "modules/dark-mode.js",
+      "injectionTime": "documentEnd",
+      "mainFrameOnly": true,
+      "matches": [
+        "*"
+      ]
     },
     {
       "id": "selection-capture",
       "file": "modules/selection-capture.js",
       "injectionTime": "documentEnd",
       "mainFrameOnly": false,
-      "matches": ["*"]
+      "matches": [
+        "*"
+      ]
     },
     {
       "id": "youtube-transcript",
       "file": "modules/youtube-transcript.js",
       "injectionTime": "documentEnd",
       "mainFrameOnly": true,
-      "matches": ["youtube.com", "*.youtube.com"]
+      "matches": [
+        "youtube.com",
+        "*.youtube.com"
+      ]
     }
   ]
 }

@@ -12,6 +12,13 @@ public enum Preferences {
         public static let ollamaPins = "OllamaPinnedKeys"
         /// Days of browsing history to keep; 0 keeps everything.
         public static let historyRetentionDays = "HistoryRetentionDays"
+        public static let defaultZoom = "DefaultPageZoom"
+        public static let defaultDarkMode = "DefaultWebsiteAppearance"
+        public static let httpsFirst = "HTTPSFirst"
+        public static let restoreSession = "RestoreTabsOnLaunch"
+        public static let newTabsNextToCurrent = "OpenNewTabsNextToCurrent"
+        public static let clearHistoryOnQuit = "ClearHistoryOnQuit"
+        public static let clearWebsiteDataOnQuit = "ClearWebsiteDataOnQuit"
     }
 
     public enum SearchEngine: String, CaseIterable, Identifiable, Sendable {
@@ -41,6 +48,15 @@ public enum Preferences {
     }
 
     public static let defaultHomepage = "https://www.youtube.com"
+
+    /// Bool preferences that default to on when never set.
+    static func flag(_ key: String, default value: Bool) -> Bool {
+        UserDefaults.standard.object(forKey: key) as? Bool ?? value
+    }
+
+    public static var httpsFirstEnabled: Bool { flag(Key.httpsFirst, default: true) }
+    public static var restoresSession: Bool { flag(Key.restoreSession, default: true) }
+    public static var opensTabsNextToCurrent: Bool { flag(Key.newTabsNextToCurrent, default: true) }
 
     public static var searchEngine: SearchEngine {
         UserDefaults.standard.string(forKey: Key.searchEngine).flatMap(SearchEngine.init(rawValue:)) ?? .google

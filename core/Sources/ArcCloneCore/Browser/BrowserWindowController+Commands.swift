@@ -1,10 +1,17 @@
 import AppKit
+import SwiftUI
 
 /// Menu / keyboard actions. NSWindowController sits in the responder chain after its window,
 /// so these are reached from MainMenu items with a nil target.
 extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation {
     public func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
         switch item.action {
+        case #selector(toggleSiteDarkMode(_:)):
+            let mode = factory.siteSettings?.darkMode(for: tabs.active?.webView.url) ?? .standard
+            item.image = NSImage(systemSymbolName: mode == .standard || mode == .light ? "moon" : "moon.fill", accessibilityDescription: item.label)
+            return SiteSettings.key(for: tabs.active?.webView.url) != nil
+        case #selector(showSiteSettings(_:)):
+            return SiteSettings.key(for: tabs.active?.webView.url) != nil
         case #selector(goBack(_:)): return tabs.active?.webView.canGoBack ?? false
         case #selector(goForward(_:)): return tabs.active?.webView.canGoForward ?? false
         case #selector(reloadPage(_:)): return tabs.active != nil
@@ -79,11 +86,54 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
 
     @objc public func zoomIn(_ sender: Any?) { adjustZoom(by: 0.1) }
     @objc public func zoomOut(_ sender: Any?) { adjustZoom(by: -0.1) }
-    @objc public func actualSize(_ sender: Any?) { tabs.active?.webView.pageZoom = 1 }
+    @objc public func actualSize(_ sender: Any?) { setZoom(SiteSettings.defaultZoom) }
 
     private func adjustZoom(by delta: CGFloat) {
         guard let web = tabs.active?.webView else { return }
-        web.pageZoom = min(3, max(0.3, web.pageZoom + delta))
+        let next = Double(min(3, max(0.3, web.pageZoom + delta)))
+        setZoom((next * 100).rounded() / 100)
+    }
+
+    /// Applies a zoom level and remembers it for the site (except in private windows).
+    func setZoom(_ zoom: Double) {
+        guard let tab = tabs.active else { return }
+        tab.webView.pageZoom = zoom
+        if factory.savesSiteChanges, let settings = factory.siteSettings {
+            settings.update(tab.webView.url) { $0.zoom = abs(zoom - SiteSettings.defaultZoom) < 0.001 ? nil : zoom }
+        }
+        model.showToast("Zoom \(Int((zoom * 100).rounded()))%")
+        Haptics.perform(.alignment)
+    }
+
+    /// Toolbar → Site Settings: a popover for the current site.
+    @objc public func showSiteSettings(_ sender: Any?) {
+        guard let settings = factory.siteSettings, let url = tabs.active?.webView.url, SiteSettings.key(for: url) != nil else { return }
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = NSHostingController(rootView: SiteSettingsView(settings: settings, url: url, isPrivate: isPrivate, controller: self))
+        if let item = sender as? NSToolbarItem {
+            popover.show(relativeTo: item)
+        } else if let view = window?.contentView {
+            popover.show(relativeTo: NSRect(x: view.bounds.maxX - 60, y: view.bounds.maxY - 10, width: 1, height: 1), of: view, preferredEdge: .minY)
+        }
+    }
+
+    @objc public func toggleSiteDarkMode(_ sender: Any?) {
+        guard let tab = tabs.active, let settings = factory.siteSettings else { return }
+        let next: SiteSettings.DarkMode = settings.darkMode(for: tab.webView.url) == .standard ? .forced : .standard
+        setDarkMode(next)
+    }
+
+    func setDarkMode(_ mode: SiteSettings.DarkMode) {
+        guard let tab = tabs.active, let settings = factory.siteSettings else { return }
+        if factory.savesSiteChanges {
+            settings.update(tab.webView.url) { $0.darkMode = mode == SiteSettings.defaultDarkMode ? nil : mode }
+            tabs.tabs.filter { SiteSettings.key(for: $0.webView.url) == SiteSettings.key(for: tab.webView.url) }.forEach { $0.siteSettingsDidChange() }
+        } else {
+            tab.webView.appearance = mode == .standard ? nil : NSAppearance(named: mode == .light ? .aqua : .darkAqua)
+            Task { _ = try? await tab.callInjection("darkMode.apply", ["mode": .string(mode.rawValue)], timeout: 5) }
+        }
+        model.showToast("Appearance: \(mode.title)")
     }
 
 

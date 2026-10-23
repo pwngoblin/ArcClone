@@ -133,6 +133,9 @@ enum MainMenu {
         m.addItem(item("Zoom In", #selector(BrowserWindowController.zoomIn(_:)), "+"))
         m.addItem(item("Zoom Out", #selector(BrowserWindowController.zoomOut(_:)), "-"))
         m.addItem(.separator())
+        m.addItem(item("Dark Mode for This Site", #selector(BrowserWindowController.toggleSiteDarkMode(_:)), "d", [.command, .option]))
+        m.addItem(item("Site Settings…", #selector(BrowserWindowController.showSiteSettings(_:)), ",", [.command, .option]))
+        m.addItem(.separator())
         m.addItem(item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]))
         return m
     }

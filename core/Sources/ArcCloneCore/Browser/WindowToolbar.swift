@@ -8,6 +8,8 @@ final class WindowToolbar: NSObject, NSToolbarDelegate {
     static let forward = NSToolbarItem.Identifier("ArcClone.forward")
     static let reload = NSToolbarItem.Identifier("ArcClone.reload")
     static let newTab = NSToolbarItem.Identifier("ArcClone.newTab")
+    static let siteSettings = NSToolbarItem.Identifier("ArcClone.siteSettings")
+    static let darkMode = NSToolbarItem.Identifier("ArcClone.darkMode")
 
     let toolbar: NSToolbar
 
@@ -20,7 +22,7 @@ final class WindowToolbar: NSObject, NSToolbarDelegate {
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.toggleSidebar, .flexibleSpace, Self.back, Self.forward, Self.reload, .sidebarTrackingSeparator, .flexibleSpace, Self.newTab]
+        [.toggleSidebar, .flexibleSpace, Self.back, Self.forward, Self.reload, .sidebarTrackingSeparator, .flexibleSpace, Self.darkMode, Self.siteSettings, Self.newTab]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -33,6 +35,8 @@ final class WindowToolbar: NSObject, NSToolbarDelegate {
         case Self.forward: return button(id, "Forward", "chevron.right", #selector(BrowserWindowController.goForward(_:)))
         case Self.reload: return button(id, "Reload", "arrow.clockwise", #selector(BrowserWindowController.reloadPage(_:)))
         case Self.newTab: return button(id, "New Tab", "plus", #selector(BrowserWindowController.newTab(_:)))
+        case Self.darkMode: return button(id, "Dark Mode for This Site", "moon", #selector(BrowserWindowController.toggleSiteDarkMode(_:)))
+        case Self.siteSettings: return button(id, "Site Settings", "slider.horizontal.3", #selector(BrowserWindowController.showSiteSettings(_:)))
         default: return nil
         }
     }

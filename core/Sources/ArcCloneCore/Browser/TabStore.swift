@@ -33,7 +33,9 @@ public final class TabStore {
     public func tab(_ id: UUID) -> Tab? { tabs.first { $0.id == id } }
 
     @discardableResult
-    public func create(url: URL?, activate: Bool = true, pinned: Bool = false, nextToActive: Bool = true) -> Tab {
+    /// `nextToActive: nil` follows Settings → Tabs ("Open new tabs next to the current tab").
+    public func create(url: URL?, activate: Bool = true, pinned: Bool = false, nextToActive: Bool? = nil) -> Tab {
+        let nextToActive = nextToActive ?? Preferences.opensTabsNextToCurrent
         let tab = Tab(factory: factory, router: router, url: url, pinned: pinned)
         tab.delegate = tabDelegate
         let index: Int
