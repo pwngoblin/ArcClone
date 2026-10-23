@@ -35,6 +35,7 @@ Browsing works without Ollama. Only the assistant needs it.
 | ⌘Y | History |
 | ⌃⌘1–⌃⌘5 / ⌃⌘0 | Split view: 2 side by side, 2 stacked, 3 columns, 3 rows, 2×2 grid / exit |
 | ⌥⌘D / ⌥⌘, | Dark mode for this site / site settings |
+| ⌥⌘] / ⌥⌘[ or two-finger swipe on the sidebar | Next / previous space |
 | ⌘, | Settings |
 
 Under **Settings** you can choose a search engine and homepage, make ArcClone your default browser, and set the Ollama host and model.

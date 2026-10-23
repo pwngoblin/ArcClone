@@ -160,6 +160,9 @@ enum MainMenu {
         m.addItem(item("Next Tab", #selector(BrowserWindowController.selectNextTab(_:)), "\t", .control))
         m.addItem(item("Previous Tab", #selector(BrowserWindowController.selectPreviousTab(_:)), "\t", [.control, .shift]))
         m.addItem(.separator())
+        m.addItem(item("Next Space", #selector(BrowserWindowController.nextSpace(_:)), "]", [.command, .option]))
+        m.addItem(item("Previous Space", #selector(BrowserWindowController.previousSpace(_:)), "[", [.command, .option]))
+        m.addItem(.separator())
         for n in 1...9 {
             m.addItem(item(n == 9 ? "Last Tab" : "Tab \(n)", #selector(BrowserWindowController.selectTabByNumber(_:)), "\(n)", tag: n))
         }

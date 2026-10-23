@@ -1,6 +1,25 @@
 import Foundation
 
-/// Ordered tab collection for one window. Pinned tabs always sort before unpinned ones.
+/// A named group of tabs (Arc's Spaces): each has its own pinned and regular tabs, icon and color.
+public struct Space: Codable, Identifiable, Equatable, Sendable {
+    public var id: UUID
+    public var name: String
+    public var symbol: String
+    public var color: String
+
+    public init(id: UUID = UUID(), name: String, symbol: String = "circle.fill", color: String = "#5B4CF5") {
+        self.id = id
+        self.name = name
+        self.symbol = symbol
+        self.color = color
+    }
+
+    static let symbols = ["circle.fill", "house.fill", "briefcase.fill", "book.fill", "gamecontroller.fill", "music.note",
+                          "paintbrush.fill", "graduationcap.fill", "cart.fill", "airplane", "heart.fill", "star.fill"]
+}
+
+/// Ordered tab collection for one window, divided into spaces. `tabs` holds every space's tabs;
+/// `visibleTabs` is the current space. Pinned tabs always sort before unpinned ones.
 @MainActor
 public final class TabStore {
     public struct ClosedTab: Sendable {
@@ -21,6 +40,15 @@ public final class TabStore {
     }
     public var onSplitChange: (@MainActor () -> Void)?
 
+    public private(set) var spaces: [Space] = [Space(name: "Personal", symbol: "house.fill")]
+    public private(set) var currentSpaceID: UUID
+    /// Last active tab per space, restored when switching back.
+    private var lastActive: [UUID: UUID] = [:]
+    public var onSpaceChange: (@MainActor (_ forward: Bool) -> Void)?
+
+    public var currentSpace: Space { spaces.first { $0.id == currentSpaceID } ?? spaces[0] }
+    public var visibleTabs: [Tab] { tabs.filter { $0.spaceID == currentSpaceID } }
+
     public var onChange: (@MainActor () -> Void)?
     public var onActiveChange: (@MainActor (Tab?) -> Void)?
     public weak var tabDelegate: TabDelegate?
@@ -32,6 +60,7 @@ public final class TabStore {
     public init(factory: WebViewFactory, router: IPCRouter) {
         self.factory = factory
         self.router = router
+        self.currentSpaceID = spaces[0].id
     }
 
     public var active: Tab? { activeID.flatMap(tab) }
@@ -43,6 +72,7 @@ public final class TabStore {
     public func create(url: URL?, activate: Bool = true, pinned: Bool = false, nextToActive: Bool? = nil) -> Tab {
         let nextToActive = nextToActive ?? Preferences.opensTabsNextToCurrent
         let tab = Tab(factory: factory, router: router, url: url, pinned: pinned)
+        tab.spaceID = currentSpaceID
         tab.delegate = tabDelegate
         let index: Int
         if pinned {
@@ -67,8 +97,8 @@ public final class TabStore {
         }
         tab.tearDown()
         if activeID == id {
-            // Arc-like: fall back to the most recently used remaining tab.
-            let next = tabs.max(by: { $0.lastActivated < $1.lastActivated })
+            // Arc-like: fall back to the most recently used remaining tab in this space.
+            let next = visibleTabs.max(by: { $0.lastActivated < $1.lastActivated })
             setActive(next?.id)
         } else {
             onChange?()
@@ -83,25 +113,83 @@ public final class TabStore {
         return tab
     }
 
+    /// Activating a tab from another space switches to that space.
     public func activate(_ id: UUID) {
-        guard tab(id) != nil else { return }
+        guard let tab = tab(id) else { return }
+        if tab.spaceID != currentSpaceID, let index = spaces.firstIndex(where: { $0.id == tab.spaceID }) {
+            let forward = index > (spaces.firstIndex { $0.id == currentSpaceID } ?? 0)
+            lastActive[currentSpaceID] = activeID
+            currentSpaceID = tab.spaceID
+            onSpaceChange?(forward)
+        }
         setActive(id)
     }
 
     public func activate(index: Int) {
-        guard tabs.indices.contains(index) else { return }
-        setActive(tabs[index].id)
+        let visible = visibleTabs
+        guard visible.indices.contains(index) else { return }
+        setActive(visible[index].id)
     }
 
     public func activateLast() {
-        if let last = tabs.last { setActive(last.id) }
+        if let last = visibleTabs.last { setActive(last.id) }
     }
 
     public func cycle(by offset: Int) {
-        guard !tabs.isEmpty else { return }
-        let current = tabs.firstIndex { $0.id == activeID } ?? 0
-        let next = (current + offset % tabs.count + tabs.count) % tabs.count
-        setActive(tabs[next].id)
+        let visible = visibleTabs
+        guard !visible.isEmpty else { return }
+        let current = visible.firstIndex { $0.id == activeID } ?? 0
+        let next = (current + offset % visible.count + visible.count) % visible.count
+        setActive(visible[next].id)
+    }
+
+    // MARK: Spaces
+
+    public func switchSpace(to id: UUID) {
+        guard id != currentSpaceID, let target = spaces.firstIndex(where: { $0.id == id }) else { return }
+        let forward = target > (spaces.firstIndex { $0.id == currentSpaceID } ?? 0)
+        lastActive[currentSpaceID] = activeID
+        currentSpaceID = id
+        let remembered = lastActive[id].flatMap(tab).flatMap { $0.spaceID == id ? $0 : nil }
+        onSpaceChange?(forward)
+        setActive((remembered ?? visibleTabs.max { $0.lastActivated < $1.lastActivated })?.id)
+    }
+
+    /// Next/previous space, wrapping around.
+    public func switchSpace(by offset: Int) {
+        guard spaces.count > 1, let index = spaces.firstIndex(where: { $0.id == currentSpaceID }) else { return }
+        switchSpace(to: spaces[(index + offset % spaces.count + spaces.count) % spaces.count].id)
+    }
+
+    @discardableResult
+    public func addSpace(name: String, symbol: String, color: String) -> Space {
+        let space = Space(name: name.isEmpty ? "Space \(spaces.count + 1)" : String(name.prefix(40)), symbol: symbol, color: color)
+        spaces.append(space)
+        switchSpace(to: space.id)
+        return space
+    }
+
+    public func updateSpace(_ space: Space) {
+        guard let index = spaces.firstIndex(where: { $0.id == space.id }) else { return }
+        spaces[index] = space
+        onChange?()
+    }
+
+    /// Deletes a space and closes its tabs; the last space can't be deleted.
+    public func deleteSpace(_ id: UUID) {
+        guard spaces.count > 1, let index = spaces.firstIndex(where: { $0.id == id }) else { return }
+        if id == currentSpaceID { switchSpace(to: spaces[index == 0 ? 1 : index - 1].id) }
+        tabs.filter { $0.spaceID == id }.forEach { close($0.id) }
+        spaces.remove(at: index)
+        lastActive[id] = nil
+        onChange?()
+    }
+
+    public func moveTab(_ id: UUID, toSpace space: UUID) {
+        guard let tab = tab(id), tab.spaceID != space, spaces.contains(where: { $0.id == space }) else { return }
+        if let split, split.tabIDs.contains(id) { self.split = split.removing(id) }
+        tab.spaceID = space
+        if activeID == id { setActive(visibleTabs.max { $0.lastActivated < $1.lastActivated }?.id) } else { onChange?() }
     }
 
     public func setPinned(_ id: UUID, _ pinned: Bool) {
@@ -140,17 +228,17 @@ public final class TabStore {
     // MARK: Session
 
     public var session: SessionStore.Session {
-        SessionStore.Session(
-            tabs: tabs.compactMap { tab in
-                guard let url = tab.url else { return nil }
-                if url.isFileURL {
-                    guard let bookmark = tab.fileBookmark else { return nil }
-                    return .init(url: url, title: tab.title, pinned: tab.isPinned, bookmark: bookmark)
-                }
-                guard url.scheme == "http" || url.scheme == "https" else { return nil }
-                return .init(url: url, title: tab.title, pinned: tab.isPinned)
+        let saved: [Tab] = tabs.filter { tab in
+            guard let url = tab.url else { return false }
+            return url.isFileURL ? tab.fileBookmark != nil : (url.scheme == "http" || url.scheme == "https")
+        }
+        return SessionStore.Session(
+            tabs: saved.map { tab in
+                .init(url: tab.url!, title: tab.title, pinned: tab.isPinned, bookmark: tab.url!.isFileURL ? tab.fileBookmark : nil, space: tab.spaceID)
             },
-            activeIndex: tabs.firstIndex { $0.id == activeID })
+            activeIndex: saved.firstIndex { $0.id == activeID },
+            spaces: spaces,
+            currentSpace: currentSpaceID)
     }
 
     // MARK: Split view
@@ -161,7 +249,7 @@ public final class TabStore {
     public func makeSplit(_ layout: SplitLayout, with requested: [UUID] = []) -> SplitGroup? {
         guard let active else { return nil }
         var ids = [active.id] + requested.filter { $0 != active.id && tab($0) != nil }
-        let others = tabs.filter { !$0.isPinned && !ids.contains($0.id) }
+        let others = tabs.filter { !$0.isPinned && !ids.contains($0.id) && $0.spaceID == currentSpaceID }
         let start = others.firstIndex { tab in tabs.firstIndex(of: tab)! > tabs.firstIndex(of: active)! } ?? 0
         for tab in (others[start...] + others[..<start]) where ids.count < layout.paneCount { ids.append(tab.id) }
         while ids.count < layout.paneCount {
@@ -194,7 +282,14 @@ public final class TabStore {
     }
 
     public func restore(_ session: SessionStore.Session) {
+        if let saved = session.spaces, !saved.isEmpty {
+            spaces = saved
+            currentSpaceID = session.currentSpace.flatMap { id in saved.first { $0.id == id }?.id } ?? saved[0].id
+        }
+        let known = Set(spaces.map(\.id))
+        let restoring = currentSpaceID
         for entry in session.tabs {
+            currentSpaceID = entry.space.flatMap { known.contains($0) ? $0 : nil } ?? spaces[0].id
             if entry.url.isFileURL {
                 guard let bookmark = entry.bookmark else { continue }
                 var stale = false
@@ -204,7 +299,8 @@ public final class TabStore {
                 create(url: entry.url, activate: false, pinned: entry.pinned, nextToActive: false)
             }
         }
-        if let i = session.activeIndex, tabs.indices.contains(i) { setActive(tabs[i].id) }
-        else if let first = tabs.first { setActive(first.id) }
+        currentSpaceID = restoring
+        if let i = session.activeIndex, tabs.indices.contains(i), tabs[i].spaceID == currentSpaceID { setActive(tabs[i].id) }
+        else { setActive(visibleTabs.first?.id) }
     }
 }

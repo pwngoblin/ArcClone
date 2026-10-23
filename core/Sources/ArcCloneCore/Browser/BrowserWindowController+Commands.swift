@@ -118,6 +118,9 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
         tabs.makeSplit(layout)
     }
 
+    @objc public func nextSpace(_ sender: Any?) { tabs.switchSpace(by: 1) }
+    @objc public func previousSpace(_ sender: Any?) { tabs.switchSpace(by: -1) }
+
     @objc public func exitSplitView(_ sender: Any?) {
         tabs.exitSplit()
         Haptics.perform(.generic)
@@ -210,6 +213,7 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
             item.title = tabs.active?.isPinned == true ? "Unpin Tab" : "Pin Tab"
             return tabs.active != nil
         case #selector(exitSplitView(_:)): return tabs.split != nil
+        case #selector(nextSpace(_:)), #selector(previousSpace(_:)): return tabs.spaces.count > 1
         case #selector(splitView(_:)):
             item.state = (item.representedObject as? String) == tabs.split?.layout.rawValue ? .on : .off
             return true

@@ -21,6 +21,8 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     private var overlayHost: NSHostingView<CommandBarOverlay>?
     private let windowToolbar = WindowToolbar()
     private weak var sidebarHost: NSView?
+    private var swipeMonitor: Any?
+    private var swipeDelta = CGSize.zero
     private var commandBarObservation: Task<Void, Never>?
     var onClose: (@MainActor (BrowserWindowController) -> Void)?
     var onSessionChange: (@MainActor () -> Void)?
@@ -64,8 +66,38 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         tabs.onChange = { [weak self] in self?.scheduleSnapshot() }
         tabs.onActiveChange = { [weak self] tab in self?.showTab(tab) }
         tabs.onSplitChange = { [weak self] in self?.showTab(self?.tabs.active) }
+        tabs.onSpaceChange = { [weak self] forward in self?.model.spaceForward = forward }
         contentController.onFocus = { [weak self] id in self?.tabs.activate(id) }
         registerPageHandlers()
+        if !isPrivate { installSpaceSwipe() }
+    }
+
+    /// Two-finger horizontal swipes over the sidebar switch spaces (left: next, right: previous).
+    private func installSpaceSwipe() {
+        swipeMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            MainActor.assumeIsolated { self?.trackSwipe(event) }
+            return event
+        }
+    }
+
+    private func trackSwipe(_ event: NSEvent) {
+        guard event.window === window, event.hasPreciseScrollingDeltas, event.momentumPhase.isEmpty,
+              let host = sidebarHost, host.bounds.contains(host.convert(event.locationInWindow, from: nil)) else { return }
+        switch event.phase {
+        case .began:
+            swipeDelta = .zero
+        case .changed:
+            swipeDelta.width += event.scrollingDeltaX
+            swipeDelta.height += event.scrollingDeltaY
+        case .ended:
+            let dx = swipeDelta.width, dy = swipeDelta.height
+            swipeDelta = .zero
+            guard abs(dx) > 70, abs(dx) > abs(dy) * 1.5 else { return }
+            tabs.switchSpace(by: dx < 0 ? 1 : -1)
+            Haptics.perform(.alignment)
+        default:
+            break
+        }
     }
 
     @available(*, unavailable)
@@ -207,6 +239,7 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         onClose = nil
         onSessionChange = nil
         commandBarObservation?.cancel()
+        if let swipeMonitor { NSEvent.removeMonitor(swipeMonitor) }
         contentController.tearDown()
         model.assistant.detach()
         tabs.tabs.forEach { assistant.context.ingest(tabID: $0.id, type: "tab.closed", payload: .null) }

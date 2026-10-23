@@ -10,17 +10,21 @@ public actor SessionStore {
             public var pinned: Bool
             /// Security-scoped bookmark for file:// tabs; without it the sandbox can't reopen them.
             public var bookmark: Data?
+            public var space: UUID?
 
-            public init(url: URL, title: String, pinned: Bool, bookmark: Data? = nil) {
+            public init(url: URL, title: String, pinned: Bool, bookmark: Data? = nil, space: UUID? = nil) {
                 self.url = url
                 self.title = title
                 self.pinned = pinned
                 self.bookmark = bookmark
+                self.space = space
             }
         }
 
         public var tabs: [Entry]
         public var activeIndex: Int?
+        public var spaces: [Space]?
+        public var currentSpace: UUID?
     }
 
     private let file: SealedFile

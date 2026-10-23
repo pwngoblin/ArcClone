@@ -19,6 +19,11 @@ public final class WindowModel {
 
     var hasSplit = false
     var splitCanGrow = false
+    var spaces: [Space] = []
+    var currentSpaceID: UUID?
+    /// Direction of the last space switch, for the slide transition.
+    var spaceForward = true
+    var currentSpace: Space? { spaces.first { $0.id == currentSpaceID } }
     var splitLayout: SplitLayout?
     var splitIDs: [UUID] = []
 
@@ -88,7 +93,7 @@ public final class WindowModel {
 
     /// Rebuilds the snapshot from the tab store; called once per coalesced change.
     func refresh(from store: TabStore) {
-        let items = store.tabs.map { tab in
+        let items = store.visibleTabs.map { tab in
             TabItem(id: tab.id, title: tab.title.isEmpty ? (tab.url?.host ?? "New Tab") : tab.title, url: tab.url,
                     favicon: tab.faviconURL, isLoading: tab.isLoading, progress: tab.progress, isPinned: tab.isPinned,
                     isYouTubeVideo: tab.youtubeVideoID != nil, inSplit: store.split?.tabIDs.contains(tab.id) ?? false)
@@ -102,6 +107,8 @@ public final class WindowModel {
         canGoBack = store.active?.webView.canGoBack ?? false
         canGoForward = store.active?.webView.canGoForward ?? false
         canReopenClosed = !store.recentlyClosed.isEmpty
+        if spaces != store.spaces { spaces = store.spaces }
+        if currentSpaceID != store.currentSpaceID { currentSpaceID = store.currentSpaceID }
     }
 
     func showToast(_ message: String) {
@@ -180,6 +187,18 @@ public final class WindowModel {
         Haptics.perform(.alignment)
     }
 
+    // MARK: Spaces
+
+    func switchSpace(to id: UUID) { controller?.tabs.switchSpace(to: id) }
+    func switchSpace(by offset: Int) { controller?.tabs.switchSpace(by: offset) }
+    func addSpace(name: String, symbol: String, color: String) {
+        controller?.tabs.addSpace(name: name, symbol: symbol, color: color)
+        Haptics.perform(.levelChange)
+    }
+    func updateSpace(_ space: Space) { controller?.tabs.updateSpace(space) }
+    func deleteSpace(_ id: UUID) { controller?.tabs.deleteSpace(id) }
+    func moveTab(_ id: UUID, toSpace space: UUID) { controller?.tabs.moveTab(id, toSpace: space) }
+
     // MARK: Split view
 
     /// Splits the active tab side by side with `id`.
@@ -222,13 +241,15 @@ public final class WindowModel {
 
     func closeOthers(_ id: UUID) {
         guard let store = controller?.tabs else { return }
-        store.tabs.filter { $0.id != id && !$0.isPinned }.forEach { store.close($0.id) }
+        store.visibleTabs.filter { $0.id != id && !$0.isPinned }.forEach { store.close($0.id) }
         Haptics.perform(.generic)
     }
 
     func closeBelow(_ id: UUID) {
-        guard let store = controller?.tabs, let index = store.tabs.firstIndex(where: { $0.id == id }) else { return }
-        store.tabs[(index + 1)...].filter { !$0.isPinned }.forEach { store.close($0.id) }
+        guard let store = controller?.tabs else { return }
+        let visible = store.visibleTabs
+        guard let index = visible.firstIndex(where: { $0.id == id }) else { return }
+        visible[(index + 1)...].filter { !$0.isPinned }.forEach { store.close($0.id) }
         Haptics.perform(.generic)
     }
 }

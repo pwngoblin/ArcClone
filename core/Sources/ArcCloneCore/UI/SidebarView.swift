@@ -9,11 +9,15 @@ struct SidebarView: View {
             AddressPill(window: window)
                 .padding(.horizontal, 10)
                 .padding(.top, 6)
-                .padding(.bottom, 8)
+                .padding(.bottom, 6)
             switch window.panel {
             case .tabs:
-                TabListView(window: window)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
+                VStack(spacing: 0) {
+                    if !window.isPrivate, let space = window.currentSpace { SpaceHeader(space: space, window: window) }
+                    TabListView(window: window)
+                }
+                .id(window.currentSpaceID)
+                .transition(.push(from: window.spaceForward ? .trailing : .leading))
             case .assistant:
                 AssistantPanelView(chat: window.assistant, window: window)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -26,7 +30,8 @@ struct SidebarView: View {
                 .padding(.vertical, 8)
         }
         .animation(.smooth(duration: 0.25), value: window.panel)
-        .background(SidebarBackground())
+        .animation(.spring(response: 0.35, dampingFraction: 0.86), value: window.currentSpaceID)
+        .background(SidebarBackground(spaceColor: window.isPrivate ? nil : window.currentSpace?.color))
         .appAccent()
         .overlay(alignment: .bottom) {
             if let toast = window.toast {
@@ -307,6 +312,13 @@ struct TabContextMenu: View {
         Divider()
         Button { window.openInNewWindow(tab.id) } label: { Label("Open in New Window", systemImage: "macwindow.badge.plus") }
             .disabled(tab.url == nil)
+        if window.spaces.count > 1 {
+            Menu {
+                ForEach(window.spaces.filter { $0.id != window.currentSpaceID }) { space in
+                    Button { window.moveTab(tab.id, toSpace: space.id) } label: { Label(space.name, systemImage: space.symbol) }
+                }
+            } label: { Label("Move to Space", systemImage: "square.stack") }
+        }
         if tab.inSplit {
             Button { window.removeFromSplit(tab.id) } label: { Label("Remove from Split View", systemImage: "rectangle.split.2x1.slash") }
         } else {
@@ -330,9 +342,9 @@ private struct SidebarFooter: View {
     var body: some View {
         HStack(spacing: 2) {
             Button { window.showsAssistant.toggle() } label: {
-                Label("Assistant", systemImage: "sparkles")
+                Image(systemName: "sparkles")
                     .font(.system(size: 12, weight: .medium))
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(width: 30)
                     .padding(.horizontal, 8).frame(height: 28)
                     .background(window.showsAssistant ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear),
                                 in: RoundedRectangle(cornerRadius: 7, style: .continuous))
@@ -340,6 +352,7 @@ private struct SidebarFooter: View {
             .buttonStyle(.plain)
             .foregroundStyle(window.showsAssistant ? .primary : .secondary)
             .help("Assistant (⌘E)")
+            if !window.isPrivate { SpaceSwitcher(window: window).frame(maxWidth: .infinity) } else { Spacer() }
             if window.controller?.history != nil {
                 NavButton(symbol: "clock", help: "History") { window.panel = window.panel == .history ? .tabs : .history }
                     .foregroundStyle(window.panel == .history ? .primary : .secondary)
@@ -350,5 +363,105 @@ private struct SidebarFooter: View {
             }
             NavButton(symbol: "plus", help: "New Tab (⌘T)") { window.newTab() }
         }
+    }
+}
+
+// MARK: - Spaces
+
+/// The current space's name above its tabs, with a menu to rename, restyle or delete it.
+private struct SpaceHeader: View {
+    let space: Space
+    let window: WindowModel
+    @State private var editing = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: space.symbol).foregroundStyle(Color(hex: space.color)).font(.system(size: 11, weight: .semibold))
+            Text(space.name).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+            Spacer()
+            Menu {
+                Button { editing = true } label: { Label("Edit Space…", systemImage: "pencil") }
+                Button(role: .destructive) { window.deleteSpace(space.id) } label: { Label("Delete Space and Its Tabs", systemImage: "trash") }
+                    .disabled(window.spaces.count < 2)
+            } label: { Image(systemName: "ellipsis") }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        }
+        .padding(.horizontal, 16).padding(.vertical, 4)
+        .popover(isPresented: $editing) { SpaceEditor(space: space, title: "Edit Space") { window.updateSpace($0) } }
+    }
+}
+
+/// Space icons in the footer; click to switch, + to add. Two-finger swipes on the sidebar also switch.
+private struct SpaceSwitcher: View {
+    let window: WindowModel
+    @State private var adding = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(window.spaces) { space in
+                let current = space.id == window.currentSpaceID
+                Button { window.switchSpace(to: space.id) } label: {
+                    Image(systemName: space.symbol)
+                        .font(.system(size: current ? 12 : 9, weight: .semibold))
+                        .foregroundStyle(current ? Color(hex: space.color) : .secondary)
+                        .frame(width: 20, height: 20)
+                        .background(current ? Color(hex: space.color).opacity(0.18) : .clear, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help(space.name)
+                .contextMenu {
+                    Button(role: .destructive) { window.deleteSpace(space.id) } label: { Label("Delete Space", systemImage: "trash") }
+                        .disabled(window.spaces.count < 2)
+                }
+            }
+            Button { adding = true } label: { Image(systemName: "plus").font(.system(size: 10, weight: .bold)).frame(width: 20, height: 20) }
+                .buttonStyle(.plain).foregroundStyle(.secondary).help("New Space")
+                .popover(isPresented: $adding) {
+                    SpaceEditor(space: Space(name: "", symbol: Space.symbols.randomElement() ?? "circle.fill",
+                                             color: AppearanceStyle.presets.randomElement() ?? AppearanceStyle.defaultAccent),
+                                title: "New Space") { window.addSpace(name: $0.name, symbol: $0.symbol, color: $0.color) }
+                }
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.75), value: window.currentSpaceID)
+    }
+}
+
+private struct SpaceEditor: View {
+    @State var space: Space
+    let title: String
+    let save: (Space) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title).font(.headline)
+            TextField("Name", text: $space.name).textFieldStyle(.roundedBorder).onSubmit(commit)
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(28)), count: 6), spacing: 6) {
+                ForEach(Space.symbols, id: \.self) { symbol in
+                    Image(systemName: symbol)
+                        .frame(width: 28, height: 28)
+                        .background(space.symbol == symbol ? Color(hex: space.color).opacity(0.25) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                        .onTapGesture { space.symbol = symbol }
+                }
+            }
+            HStack(spacing: 8) {
+                ForEach(AppearanceStyle.presets, id: \.self) { hex in
+                    Circle().fill(Color(hex: hex)).frame(width: 18, height: 18)
+                        .overlay(Circle().strokeBorder(.primary.opacity(space.color == hex ? 0.8 : 0), lineWidth: 2).padding(-3))
+                        .onTapGesture { space.color = hex }
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button("Save", action: commit).keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(16).frame(width: 260)
+    }
+
+    private func commit() {
+        save(space)
+        dismiss()
     }
 }
