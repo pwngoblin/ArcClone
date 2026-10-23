@@ -87,14 +87,16 @@ For quick UI work, `cd ui && npm run dev` serves the sidebar in a browser agains
 
 ## Releases
 
-DMGs are built by GitHub Actions ([`.github/workflows/dmg.yml`](.github/workflows/dmg.yml)):
+[`.github/workflows/dmg.yml`](.github/workflows/dmg.yml) builds and publishes DMGs. The version comes from [`VERSION`](VERSION) (`MAJOR.MINOR.PATCH`).
 
-| Open a pull request into | You get |
+| Action | Result |
 |---|---|
-| `testing` | a test build: `ArcClone-<version>-testing.<run>-<sha>.dmg`, kept 14 days |
-| `release` | a release candidate: `ArcClone-<version>-release.<run>-<sha>.dmg`, kept 90 days |
+| Open a PR into `testing` | Tests run and a DMG is attached to the run (**Actions → run → Artifacts**) |
+| Merge it | Tag `vX.Y.Z-testing.N` and a GitHub **pre-release** with the DMG and its SHA-256 |
+| Open a PR into `release` | Same build, as a release candidate. The PR fails if `vX.Y.Z` already exists, which reminds you to bump `VERSION` |
+| Merge it | Annotated tag `vX.Y.Z` and a GitHub **Release** (marked latest) with the DMG, its SHA-256 and generated notes |
 
-Every run tests the project, builds a universal app, and attaches the DMG to the workflow run (**Actions → run → Artifacts**). The marketing version comes from [`VERSION`](VERSION).
+To ship a release: bump `VERSION` on `main`, open a PR from `main` into `release`, check the DMG from the PR run, then merge.
 
 **Signing and notarization** are optional and turn on when these repository secrets are set:
 

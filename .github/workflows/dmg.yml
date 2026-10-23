@@ -1,5 +1,10 @@
-# Builds a distributable ArcClone.dmg for every pull request into `release` or `testing`.
-# The DMG is attached to the workflow run as an artifact (see the run's Summary page).
+# Builds, versions and publishes ArcClone.dmg.
+#
+#   Pull request into `release` / `testing`  -> test, build the DMG, attach it to the run (Artifacts)
+#   Merge (push) into `release`              -> tag vX.Y.Z (from ./VERSION) and publish a GitHub Release
+#   Merge (push) into `testing`              -> tag vX.Y.Z-testing.N and publish a pre-release
+#
+# A release must bump ./VERSION: PRs into `release` fail early when tag vX.Y.Z already exists.
 #
 # Optional signing + notarization (otherwise the app is ad-hoc signed). Repository secrets:
 #   MACOS_CERTIFICATE_P12        base64 of a "Developer ID Application" .p12
@@ -11,25 +16,64 @@ name: Build DMG
 on:
   pull_request:
     branches: [release, testing]
+  push:
+    branches: [release, testing]
   workflow_dispatch:
 
 concurrency:
   group: dmg-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
-  dmg:
+  build:
     runs-on: macos-26
     timeout-minutes: 45
     env:
-      CHANNEL: ${{ github.base_ref || 'manual' }}
+      CHANNEL: ${{ github.base_ref || (github.event_name == 'push' && github.ref_name) || 'manual' }}
       MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
       APPLE_ID: ${{ secrets.APPLE_ID }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      dmg: ${{ steps.version.outputs.dmg }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Compute version
+        id: version
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error file=VERSION::VERSION must be MAJOR.MINOR.PATCH, got '$version'"; exit 1
+          fi
+          sha="$(echo "${{ github.event.pull_request.head.sha || github.sha }}" | cut -c1-7)"
+          case "$CHANNEL" in
+            release) tag="v$version"; prerelease=false
+                     if [ "${{ github.event_name }}" = push ]; then dmg="ArcClone-$version.dmg"
+                     else dmg="ArcClone-$version-rc.${{ github.run_number }}-$sha.dmg"; fi ;;
+            testing) tag="v$version-testing.${{ github.run_number }}"; prerelease=true
+                     dmg="ArcClone-$version-testing.${{ github.run_number }}-$sha.dmg" ;;
+            *)       tag=""; prerelease=true; dmg="ArcClone-$version-dev.${{ github.run_number }}-$sha.dmg" ;;
+          esac
+          {
+            echo "version=$version"; echo "tag=$tag"; echo "dmg=$dmg"; echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "VERSION=$version"; echo "BUILD_NUMBER=${{ github.run_number }}"; echo "DMG_NAME=$dmg"
+          } >> "$GITHUB_ENV"
+
+      - name: Require a new version for releases
+        if: env.CHANNEL == 'release'
+        run: |
+          tag="${{ steps.version.outputs.tag }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
+            echo "::error file=VERSION::$tag is already released. Bump VERSION (e.g. $(awk -F. '{print $1"."$2"."$3+1}' VERSION)) in this PR."
+            exit 1
+          fi
 
       - uses: actions/setup-node@v4
         with:
@@ -45,16 +89,6 @@ jobs:
 
       - name: Test
         run: make test-bridge test-ui test-core
-
-      - name: Compute version
-        run: |
-          version="$(cat VERSION)"
-          sha="$(echo "${{ github.event.pull_request.head.sha || github.sha }}" | cut -c1-7)"
-          {
-            echo "VERSION=$version"
-            echo "BUILD_NUMBER=${{ github.run_number }}"
-            echo "DMG_NAME=ArcClone-$version-$CHANNEL.${{ github.run_number }}-$sha.dmg"
-          } >> "$GITHUB_ENV"
 
       - name: Import signing certificate
         if: env.MACOS_CERTIFICATE_P12 != ''
@@ -78,7 +112,9 @@ jobs:
         run: UNIVERSAL=1 make app
 
       - name: Build DMG
-        run: ./scripts/make-dmg.sh "build/$DMG_NAME"
+        run: |
+          ./scripts/make-dmg.sh "build/$DMG_NAME"
+          (cd build && shasum -a 256 "$DMG_NAME" > "$DMG_NAME.sha256")
 
       - name: Notarize
         if: env.MACOS_CERTIFICATE_P12 != '' && env.APPLE_ID != ''
@@ -89,11 +125,14 @@ jobs:
           xcrun notarytool submit "build/$DMG_NAME" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_APP_PASSWORD" --wait
           xcrun stapler staple "build/$DMG_NAME"
+          (cd build && shasum -a 256 "$DMG_NAME" > "$DMG_NAME.sha256")
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.DMG_NAME }}
-          path: build/${{ env.DMG_NAME }}
+          path: |
+            build/${{ env.DMG_NAME }}
+            build/${{ env.DMG_NAME }}.sha256
           if-no-files-found: error
           compression-level: 0
           retention-days: ${{ env.CHANNEL == 'release' && 90 || 14 }}
@@ -108,11 +147,48 @@ jobs:
             echo "- Channel: \`$CHANNEL\` · Version: \`$VERSION\` (build $BUILD_NUMBER)"
             echo "- Architectures: $(lipo -archs build/ArcClone.app/Contents/MacOS/ArcClone)"
             echo "- Signing: $signed"
-            echo "- Size: $(du -h "build/$DMG_NAME" | cut -f1)"
+            echo "- Size: $(du -h "build/$DMG_NAME" | cut -f1) · SHA-256: \`$(cut -d' ' -f1 "build/$DMG_NAME.sha256")\`"
             echo
-            echo "Download it from **Artifacts** below."
+            if [ "${{ github.event_name }}" = push ]; then
+              echo "Publishing as **${{ steps.version.outputs.tag }}**."
+            else
+              echo "Download it from **Artifacts** below. Merging this PR publishes it as **${{ steps.version.outputs.tag || 'n/a' }}**."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Clean up keychain
         if: always() && env.MACOS_CERTIFICATE_P12 != ''
         run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
+
+  publish:
+    needs: build
+    if: github.event_name == 'push' && needs.build.outputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.build.outputs.tag }}
+      VERSION: ${{ needs.build.outputs.version }}
+      DMG: ${{ needs.build.outputs.dmg }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.dmg }}
+          path: dist
+
+      - name: Tag ${{ needs.build.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "ArcClone $TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG"
+
+      - name: Publish GitHub release
+        run: |
+          flags=(--verify-tag --generate-notes --title "ArcClone ${TAG#v}")
+          if [ "${{ needs.build.outputs.prerelease }}" = true ]; then flags+=(--prerelease); else flags+=(--latest); fi
+          gh release create "$TAG" "${flags[@]}" "dist/$DMG" "dist/$DMG.sha256"
+          echo "Published [$TAG]($(gh release view "$TAG" --json url -q .url))" >> "$GITHUB_STEP_SUMMARY"
