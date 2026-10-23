@@ -16,7 +16,9 @@ public final class ChromeHost: NSObject, WKNavigationDelegate {
         schemeHandler = UISchemeHandler(root: uiRoot)
         bridge = ScriptMessageBridge(name: Self.messageHandlerName, contentWorld: .page, router: router) { message in
             // Accept only messages from our own UI origin, never from anything navigated into this view.
-            guard message.frameInfo.isMainFrame, message.frameInfo.request.url?.scheme == UISchemeHandler.scheme else { return nil }
+            // WebKit's security origin, not the request URL: only the bundled UI at arc-ui://app.
+            let origin = message.frameInfo.securityOrigin
+            guard message.frameInfo.isMainFrame, origin.protocol == UISchemeHandler.scheme, origin.host == "app" else { return nil }
             return .chrome
         }
         let config = WKWebViewConfiguration()

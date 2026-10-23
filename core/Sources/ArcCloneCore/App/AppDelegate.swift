@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 import WebKit
 
 @MainActor
@@ -70,7 +71,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     /// The encrypted session save is async, so quitting waits for it.
     public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         assistant?.cancelAll()
-        guard let primary = windows.first, let sessionStore else { return .terminateNow }
+        guard let primary = primaryWindow, let sessionStore else { return .terminateNow }
         let session = primary.tabs.session
         Task {
             await sessionStore.save(session)
@@ -108,8 +109,33 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     }
 
     public func application(_ application: NSApplication, open urls: [URL]) {
-        let target = windows.first ?? makeWindow()
-        urls.forEach { target.tabs.create(url: $0) }
+        let target = primaryWindow ?? makeWindow()
+        for url in urls {
+            if url.isFileURL { target.tabs.openFile(url) } else { target.tabs.create(url: url) }
+        }
+        target.showWindow(nil)
+    }
+
+    /// The saved session belongs to the first regular (non-private) window.
+    private var primaryWindow: BrowserWindowController? { windows.first { !$0.isPrivate } }
+
+    @objc public func newPrivateWindow(_ sender: Any?) {
+        let controller = makeWindow(isPrivate: true)
+        controller.tabs.create(url: nil)
+        controller.showWindowCentered()
+        controller.newTab(nil)
+    }
+
+    /// File > Open File…: the panel grants sandbox access to exactly the chosen files.
+    @objc public func openDocument(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.html, UTType("public.xhtml") ?? .html, .webArchive, .pdf, .plainText, .svg, .image]
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.message = "Choose files to open in ArcClone"
+        guard panel.runModal() == .OK else { return }
+        let target = (NSApp.keyWindow?.windowController as? BrowserWindowController) ?? primaryWindow ?? makeWindow()
+        panel.urls.forEach { target.tabs.openFile($0) }
         target.showWindow(nil)
     }
 
@@ -137,11 +163,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         NSWorkspace.shared.open(AppInfo.helpURL)
     }
 
-    private func makeWindow() -> BrowserWindowController {
-        let controller = BrowserWindowController(factory: factory, assistant: assistant, paths: paths)
+    private func makeWindow(isPrivate: Bool = false) -> BrowserWindowController {
+        // Each private window gets its own in-memory data store: no cookies or caches touch disk,
+        // and private windows can't see each other's sessions.
+        let factory = isPrivate ? WebViewFactory(registry: registry, dataStore: .nonPersistent()) : self.factory!
+        let controller = BrowserWindowController(factory: factory, assistant: assistant, paths: paths, isPrivate: isPrivate)
         controller.onClose = { [weak self] closed in
             guard let self else { return }
-            if self.windows.first === closed {
+            if self.primaryWindow === closed {
                 let session = closed.tabs.session
                 Task { await self.sessionStore.save(session) }
             }
@@ -160,7 +189,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
             try? await Task.sleep(for: .seconds(2))
             guard let self else { return }
             self.saveScheduled = false
-            guard let primary = self.windows.first, let sessionStore = self.sessionStore else { return }
+            guard let primary = self.primaryWindow, let sessionStore = self.sessionStore else { return }
             await sessionStore.save(primary.tabs.session)
         }
     }

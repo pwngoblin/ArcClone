@@ -19,7 +19,11 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     var onClose: (@MainActor (BrowserWindowController) -> Void)?
     var onSessionChange: (@MainActor () -> Void)?
 
-    public init(factory: WebViewFactory, assistant: Assistant, paths: AppPaths) {
+    /// Private windows use their own non-persistent data store, are never saved, and never feed the assistant.
+    public let isPrivate: Bool
+
+    public init(factory: WebViewFactory, assistant: Assistant, paths: AppPaths, isPrivate: Bool = false) {
+        self.isPrivate = isPrivate
         self.factory = factory
         self.assistant = assistant
         self.tabs = TabStore(factory: factory, router: router)
@@ -58,6 +62,8 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         let sidebarVC = NSViewController()
         let effect = NSVisualEffectView()
         effect.material = .sidebar
+        // A dark sidebar marks private windows at a glance.
+        if isPrivate { effect.appearance = NSAppearance(named: .darkAqua) }
         effect.blendingMode = .behindWindow
         effect.state = .followsWindowActiveState
         chrome.webView.translatesAutoresizingMaskIntoConstraints = false
@@ -119,15 +125,13 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     func scheduleSnapshot() {
         guard !snapshotScheduled else { return }
         snapshotScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.snapshotScheduled = false
-                self.chrome.events.send("tabs.state", self.stateSnapshot)
-                self.window?.title = self.tabs.active?.title ?? "ArcClone"
-                self.updateHandoff()
-                self.onSessionChange?()
-            }
+        Task { [weak self] in
+            guard let self else { return }
+            self.snapshotScheduled = false
+            self.chrome.events.send("tabs.state", self.stateSnapshot)
+            self.window?.title = self.tabs.active?.title ?? (self.isPrivate ? "Private" : "ArcClone")
+            self.updateHandoff()
+            self.onSessionChange?()
         }
     }
 
@@ -153,7 +157,7 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
 
     /// Advertises the active tab so it can be continued in Safari on another device.
     private func updateHandoff() {
-        guard window?.isKeyWindow == true else { return }
+        guard window?.isKeyWindow == true, !isPrivate else { return }
         guard let tab = tabs.active, let url = tab.url, url.scheme == "http" || url.scheme == "https" else {
             browsingActivity?.resignCurrent()
             return

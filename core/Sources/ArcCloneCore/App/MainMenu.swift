@@ -58,6 +58,8 @@ enum MainMenu {
         let m = NSMenu(title: "File")
         m.addItem(item("New Tab", #selector(BrowserWindowController.newTab(_:)), "t"))
         m.addItem(item("New Window", #selector(AppDelegate.newWindow(_:)), "n"))
+        m.addItem(item("New Private Window", #selector(AppDelegate.newPrivateWindow(_:)), "n", [.command, .shift]))
+        m.addItem(item("Open File…", #selector(AppDelegate.openDocument(_:)), "o"))
         m.addItem(item("Open Location…", #selector(BrowserWindowController.focusAddressBar(_:)), "l"))
         m.addItem(.separator())
         m.addItem(item("Close Tab", #selector(BrowserWindowController.closeTab(_:)), "w"))

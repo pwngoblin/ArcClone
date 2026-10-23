@@ -8,7 +8,7 @@ extension BrowserWindowController {
         router.on("chrome.ready", from: chromeOnly) { [weak self] _, _ in
             guard let self else { throw IPCError.unavailable("Window closed") }
             // Reply first, then flush queued events on the next pass so the UI has its listeners up.
-            DispatchQueue.main.async { MainActor.assumeIsolated { self.chrome.events.markReady() } }
+            Task { await Task.yield(); self.chrome.events.markReady() }
             return [
                 "state": self.stateSnapshot,
                 "agent": ["state": "ready"],
