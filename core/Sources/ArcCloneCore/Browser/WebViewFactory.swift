@@ -60,7 +60,7 @@ public final class WebViewFactory {
     }
 
     public func makeWebView(bridge: ScriptMessageBridge) -> WKWebView {
-        let webView = WKWebView(frame: .zero, configuration: makeConfiguration(bridge: bridge))
+        let webView = BrowserWebView(frame: .zero, configuration: makeConfiguration(bridge: bridge))
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = true
         webView.isInspectable = inspectable

@@ -367,6 +367,22 @@ extension BrowserWindowController: TabDelegate {
         tabs.create(url: url, activate: !inBackground)
     }
 
+    /// The link opens beside the tab it came from: added to that tab's split if it has room,
+    /// otherwise the two start a new split.
+    public func tab(_ tab: Tab, requestsSplitWith request: URLRequest) {
+        guard let url = request.url else { return }
+        tabs.activate(tab.id)
+        let opened = tabs.create(url: url, activate: false)
+        if let split = tabs.split, split.layout.grown != nil {
+            tabs.addToSplit(opened.id)
+        } else if tabs.split == nil {
+            tabs.makeSplit(.twoColumns, with: [opened.id])
+        } else {
+            tabs.activate(opened.id) // the split is full (four panes): open it as a tab
+        }
+        Haptics.step()
+    }
+
     public func tabRequestsClose(_ tab: Tab) {
         tabs.close(tab.id)
     }

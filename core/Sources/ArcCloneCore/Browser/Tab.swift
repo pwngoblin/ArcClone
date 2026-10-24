@@ -4,6 +4,8 @@ import WebKit
 public protocol TabDelegate: AnyObject {
     func tabDidChange(_ tab: Tab)
     func tab(_ tab: Tab, requestsNewTabWith request: URLRequest, inBackground: Bool)
+    /// Context menu → Open Link in Split View.
+    func tab(_ tab: Tab, requestsSplitWith request: URLRequest)
     func tabRequestsClose(_ tab: Tab)
     func tabDidStartDownload(_ tab: Tab)
 }
@@ -64,6 +66,7 @@ public final class Tab: NSObject {
         super.init()
         webView.navigationDelegate = self
         webView.uiDelegate = self
+        (webView as? BrowserWebView)?.willOpenLinkInSplit = { [weak self] in self?.splitRequestedAt = Date() }
         observe()
         if let url { load(url) }
     }
@@ -106,6 +109,9 @@ public final class Tab: NSObject {
     // MARK: Page change detection
 
     private var recheckTask: Task<Void, Never>?
+    /// Set when the context menu's Open Link in Split View hands the link to WebKit; the
+    /// new-window request that follows (within a moment) opens in split view.
+    fileprivate var splitRequestedAt: Date?
 
     /// The page scripts no longer poll for single-page-app navigations; when WebKit reports a URL
     /// change we ask them, once, to re-read the page (debounced to coalesce redirect bursts).
@@ -486,8 +492,11 @@ extension Tab: WKUIDelegate {
     /// target=_blank and window.open: open as a foreground tab instead of a popup window.
     public func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                         for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        let split = splitRequestedAt.map { Date().timeIntervalSince($0) < 2 } ?? false
+        splitRequestedAt = nil
         if navigationAction.request.url != nil {
-            delegate?.tab(self, requestsNewTabWith: navigationAction.request, inBackground: false)
+            if split { delegate?.tab(self, requestsSplitWith: navigationAction.request) }
+            else { delegate?.tab(self, requestsNewTabWith: navigationAction.request, inBackground: false) }
         }
         return nil
     }
