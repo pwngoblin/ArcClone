@@ -172,13 +172,23 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     @objc public func clearBrowsingData(_ sender: Any?) {
         let alert = NSAlert()
         alert.messageText = "Clear all browsing data?"
-        alert.informativeText = "This removes your browsing history, cookies, caches, site storage, the saved session, saved typed text and the assistant's context. Open tabs stay open, and you'll be signed out of websites."
+        alert.informativeText = "This removes your browsing history (and the site icons kept from it), cookies, caches, site storage, the saved session, saved typed text, the downloads list and the assistant's context. Open tabs stay open, and you'll be signed out of websites. Downloaded files stay in your Downloads folder."
+        // Site settings are kept per site, so they're also a list of sites you've been to.
+        let forgetSites = NSButton(checkboxWithTitle: "Also forget site settings (zoom, permissions, dark mode)", target: nil, action: nil)
+        forgetSites.state = .on
+        alert.accessoryView = forgetSites
         alert.addButton(withTitle: "Clear")
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
         guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let alsoSites = forgetSites.state == .on
         Task {
             await factory.removeAllWebsiteData()
+            DownloadManager.shared.clearFinished()
+            if alsoSites {
+                siteSettings.removeAll()
+                await siteSettings.flush()
+            }
             await sessionStore.clear()
             history.clear()
             await history.flush()
