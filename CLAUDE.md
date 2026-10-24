@@ -97,3 +97,10 @@ When given any task, feature implementation, or bug fix, you MUST follow this gi
    - Once a feature or fix is complete and pushed, automatically create a Pull Request back to `main` using the GitHub CLI (`gh pr create --title "..." --body "..."`).
 5. **Releases**:
    - When explicitly instructed to "create a release", tag the current commit following Semantic Versioning (e.g., `git tag -a v1.0.0 -m "Release v1.0.0"`), push the tag (`git push origin --tags`), and generate a GitHub release using `gh release create v1.0.0 --generate-notes`.
+
+---
+
+### PR & Performance Gate Rule
+- Before finalizing a feature or running `gh pr create` for any code changes touching `core/tabs/`, memory, or UI virtualization:
+- Automatically check if the tab virtualization or memory constraints could be impacted.
+- Prompt to run (or verify) the `TabManagerPerformanceTests` suite to ensure 5,000+ tab memory overhead and search speed meet performance targets before the PR is created.
