@@ -23,12 +23,13 @@ struct ExtensionsSettingsView: View {
                 TextField("Chrome Web Store link or extension ID", text: $storeLink)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit(addFromStore)
-                    .disabled(library.downloading)
-                if library.downloading {
+                    .disabled(library.storeStatus != nil)
+                if let status = library.storeStatus {
                     ProgressView().controlSize(.small)
+                    Text(status).font(.caption).foregroundStyle(.secondary).fixedSize()
                 }
                 Button("Add from Store", action: addFromStore)
-                    .disabled(library.downloading || ChromeWebStore.extensionID(from: storeLink) == nil)
+                    .disabled(library.storeStatus != nil || ChromeWebStore.extensionID(from: storeLink) == nil)
                     .help("Downloads the extension from Google, checks its signature, then reviews it before it's added")
             }
             if let error = library.lastError {
@@ -73,7 +74,7 @@ struct ExtensionsSettingsView: View {
     }
 
     private func addFromStore() {
-        guard ChromeWebStore.extensionID(from: storeLink) != nil, !library.downloading else { return }
+        guard ChromeWebStore.extensionID(from: storeLink) != nil, library.storeStatus == nil else { return }
         let input = storeLink
         Task {
             await library.install(fromStore: input)

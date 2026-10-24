@@ -27,6 +27,8 @@ final class ExtensionLibrary {
     struct Entry: Identifiable {
         let id: String
         let manifest: ExtensionManifest
+        /// The manifest and content-script files only: compatibility mode injects those from
+        /// memory; everything else (WebKit's runtime included) reads the pinned folder.
         let package: ExtensionPackage
         let folder: URL
         let icon: NSImage?
@@ -39,8 +41,8 @@ final class ExtensionLibrary {
     private(set) var installed: [InstalledExtension] = []
     private(set) var ready: [Entry] = []
     private(set) var lastError: String?
-    /// A Chrome Web Store download is in progress.
-    private(set) var downloading = false
+    /// What a Chrome Web Store install is doing ("Downloading…"), nil when none is running.
+    private(set) var storeStatus: String?
     /// The runtime listens here to load and unload extensions.
     @ObservationIgnored var onReadyChange: (@MainActor () -> Void)?
     @ObservationIgnored let storage: ExtensionStorage
@@ -109,15 +111,17 @@ final class ExtensionLibrary {
     /// Adds an extension from a Chrome Web Store link or 32-letter ID: downloads its CRX3, verifies
     /// the signatures and that it's the extension asked for, then audits, asks and pins it as usual.
     func install(fromStore input: String) async {
-        guard !downloading else { return }
+        guard storeStatus == nil else { return }
         guard let id = ChromeWebStore.extensionID(from: input) else {
             lastError = "Paste a Chrome Web Store link (chromewebstore.google.com/detail/…) or a 32-letter extension ID."
             return
         }
-        downloading = true
-        defer { downloading = false }
+        lastError = nil
+        storeStatus = "Downloading…"
+        defer { storeStatus = nil }
         await install(storeID: id) {
             let data = try await ChromeWebStore.download(id)
+            self.storeStatus = "Checking signature and code…"
             return try await ExtensionLoader.inspect(crx: data, expectedID: id)
         }
     }
@@ -130,12 +134,28 @@ final class ExtensionLibrary {
             guard !inspected.audit.isBlocked else { showBlocked(inspected.audit); return }
             guard let manifest = inspected.manifest else { throw ExtensionPackage.Invalid(reason: "manifest.json isn't valid.") }
             let hash = inspected.package.contentHash
-            guard confirmInstall(manifest, package: inspected.package, audit: inspected.audit, hash: hash) else { return }
+            guard !installed.contains(where: { $0.contentHash == hash }) else {
+                lastError = "“\(manifest.name)” \(manifest.version) is already installed."
+                return
+            }
+            // A newer copy of a store extension replaces the old one and keeps its data.
+            let previous = storeID.flatMap { id in installed.first { $0.storeID == id } }
+            guard confirmInstall(manifest, package: inspected.package, audit: inspected.audit, hash: hash,
+                                 replacing: previous.map { displayVersion($0.id) }) else { return }
             try await ExtensionLoader.pin(inspected.package, to: folder)
-            let record = InstalledExtension(id: UUID().uuidString, bookmark: nil, pinnedFolder: folder.lastPathComponent, contentHash: hash,
-                                            enabled: true, grantedPermissions: manifest.permissions,
+            let record = InstalledExtension(id: previous?.id ?? UUID().uuidString, bookmark: nil, pinnedFolder: folder.lastPathComponent,
+                                            contentHash: hash, enabled: true, grantedPermissions: manifest.permissions,
                                             grantedPatterns: Self.requestedPatterns(manifest), storeID: storeID)
-            installed.append(record)
+            if let previous, let index = installed.firstIndex(where: { $0.id == previous.id }) {
+                ready.removeAll { $0.id == previous.id }
+                onReadyChange?()
+                if let old = previous.pinnedFolder, let pinnedRoot = self.pinnedRoot {
+                    try? FileManager.default.removeItem(at: pinnedRoot.appendingPathComponent(old, isDirectory: true))
+                }
+                installed[index] = record
+            } else {
+                installed.append(record)
+            }
             save()
             lastError = nil
             await prepare(record)
@@ -196,7 +216,9 @@ final class ExtensionLibrary {
         let icon = manifest.iconPath(for: 64).flatMap { package.files[$0] }.flatMap(NSImage.init(data:))
         info[record.id] = (manifest.name, manifest.version, manifest.description ?? "", icon)
         guard record.enabled, installed.contains(where: { $0.id == record.id && $0.enabled }), !ready.contains(where: { $0.id == record.id }) else { return }
-        ready.append(Entry(id: record.id, manifest: manifest, package: package, folder: folder, icon: icon))
+        let scripts = Set(manifest.contentScripts.flatMap { ($0.js ?? []) + ($0.css ?? []) } + ["manifest.json"])
+        let resident = (try? ExtensionPackage(files: package.files.filter { scripts.contains($0.key) })) ?? package
+        ready.append(Entry(id: record.id, manifest: manifest, package: resident, folder: folder, icon: icon))
         onReadyChange?()
     }
 
@@ -252,9 +274,10 @@ final class ExtensionLibrary {
         alert.runModal()
     }
 
-    private func confirmInstall(_ manifest: ExtensionManifest, package: ExtensionPackage, audit: ExtensionAudit, hash: String) -> Bool {
+    private func confirmInstall(_ manifest: ExtensionManifest, package: ExtensionPackage, audit: ExtensionAudit, hash: String,
+                                replacing oldVersion: String? = nil) -> Bool {
         let alert = NSAlert()
-        alert.messageText = "Add “\(manifest.name)”?"
+        alert.messageText = oldVersion.map { "Update “\(manifest.name)” from \($0) to \(manifest.version)?" } ?? "Add “\(manifest.name)”?"
         var lines: [String] = []
         if let description = manifest.description, !description.isEmpty { lines.append(description) }
         let hosts = Self.requestedPatterns(manifest)
@@ -277,7 +300,7 @@ final class ExtensionLibrary {
         lines.append("\nThis exact copy is pinned (SHA-256 \(hash.prefix(12))…) and never updates on its own. Extensions run in regular windows only, never in private windows.")
         alert.informativeText = lines.joined(separator: "\n")
         alert.icon = manifest.iconPath(for: 64).flatMap { package.files[$0] }.flatMap(NSImage.init(data:))
-        alert.addButton(withTitle: "Add Extension")
+        alert.addButton(withTitle: oldVersion == nil ? "Add Extension" : "Update")
         alert.addButton(withTitle: "Cancel")
         return alert.runModal() == .alertFirstButtonReturn
     }
