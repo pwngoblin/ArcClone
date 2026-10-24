@@ -47,6 +47,15 @@ struct ExtensionAudit: Sendable, Equatable {
         (.info, "Writes HTML into pages (innerHTML / document.write)", #"\.innerHTML\s*=|\.outerHTML\s*=|document\.write\s*\("#),
         (.info, "Runs WebAssembly", #"WebAssembly\.(instantiate|compile)"#),
     ]
+    /// Compiled once: compiling a pattern per file (or per line) was most of an audit's time.
+    private static let compiledChecks = codeChecks.map { severity, title, pattern in
+        (severity, title, try! NSRegularExpression(pattern: pattern, options: [.caseInsensitive]))
+    }
+    private static let hostPattern = try! NSRegularExpression(pattern: #"https?://([a-z0-9-]+(?:\.[a-z0-9-]+)+)"#, options: [.caseInsensitive])
+    /// Lines that send something: fetch, beacons, XHR, pixels.
+    private static let sendPattern = try! NSRegularExpression(pattern: #"fetch\s*\(|sendBeacon|XMLHttpRequest|\.open\s*\(|\.src\s*=|axios|\$\.(ajax|get|post)|new\s+Image\s*\("#)
+    /// Hosts kept per file for the "Mentions these servers" note; telemetry is checked on every URL.
+    private static let maxHostsPerFile = 2_000
 
     static func scan(_ package: ExtensionPackage) -> ExtensionAudit {
         var findings: [Finding] = []
@@ -60,12 +69,15 @@ struct ExtensionAudit: Sendable, Equatable {
         var telemetry = Set<String>()
         for (path, contents) in package.files.sorted(by: { $0.key < $1.key }) {
             guard let ext = path.split(separator: ".").last.map({ $0.lowercased() }), codeExtensions.contains(ext) else { continue }
-            let text = String(decoding: contents, as: UTF8.self)
-            for (_, title, pattern) in codeChecks where text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil {
+            // One UTF-16 string per file, shared by every pattern (Swift strings are re-bridged per call).
+            let text = NSString(data: contents, encoding: NSUTF8StringEncoding) ?? String(decoding: contents, as: UTF8.self) as NSString
+            let all = NSRange(location: 0, length: text.length)
+            for (_, title, regex) in compiledChecks where regex.firstMatch(in: text as String, range: all) != nil {
                 hits[title, default: []].append(path)
             }
-            hosts.formUnion(remoteHosts(in: text))
-            telemetry.formUnion(telemetryCalls(in: text))
+            let found = urls(in: text)
+            hosts.formUnion(found.hosts)
+            telemetry.formUnion(found.telemetry)
         }
         for (severity, title, _) in codeChecks {
             if let files = hits[title] { findings.append(Finding(severity: severity, title: title, detail: list(files))) }
@@ -144,22 +156,26 @@ struct ExtensionAudit: Sendable, Equatable {
 
     /// Telemetry hosts on lines that actually send something (fetch, beacons, XHR, pixels). Ad
     /// blockers list the same hosts as things to block; those lines don't make requests.
-    static func telemetryCalls(in text: String) -> Set<String> {
-        let sends = #"fetch\s*\(|sendBeacon|XMLHttpRequest|\.open\s*\(|\.src\s*=|axios|\$\.(ajax|get|post)|new\s+Image\s*\("#
-        var found = Set<String>()
-        for line in text.split(whereSeparator: \.isNewline) where line.range(of: sends, options: .regularExpression) != nil {
-            found.formUnion(remoteHosts(in: String(line)).filter(isTelemetry))
-        }
-        return found
-    }
+    static func telemetryCalls(in text: String) -> Set<String> { urls(in: text as NSString).telemetry }
 
-    static func remoteHosts(in text: String) -> Set<String> {
-        guard let regex = try? NSRegularExpression(pattern: #"https?://([a-z0-9-]+(?:\.[a-z0-9-]+)+)"#, options: [.caseInsensitive]) else { return [] }
-        var hosts = Set<String>()
-        for match in regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).prefix(2_000) {
-            if let range = Range(match.range(at: 1), in: text) { hosts.insert(text[range].lowercased()) }
+    static func remoteHosts(in text: String) -> Set<String> { urls(in: text as NSString).hosts }
+
+    /// One pass over the URLs in `text`: the hosts it mentions (the first `maxHostsPerFile`), and
+    /// the telemetry hosts on lines that send something.
+    private static func urls(in text: NSString) -> (hosts: Set<String>, telemetry: Set<String>) {
+        var hosts = Set<String>(), telemetry = Set<String>()
+        var count = 0
+        hostPattern.enumerateMatches(in: text as String, range: NSRange(location: 0, length: text.length)) { match, _, _ in
+            guard let match else { return }
+            let host = text.substring(with: match.range(at: 1)).lowercased()
+            count += 1
+            if count <= maxHostsPerFile { hosts.insert(host) }
+            if isTelemetry(host), !telemetry.contains(host),
+               sendPattern.firstMatch(in: text as String, range: text.lineRange(for: match.range)) != nil {
+                telemetry.insert(host)
+            }
         }
-        return hosts
+        return (hosts, telemetry)
     }
 
     private static func list(_ items: [String], limit: Int = 4) -> String {
