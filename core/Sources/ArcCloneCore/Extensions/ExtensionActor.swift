@@ -16,17 +16,23 @@ struct InspectedExtension: Sendable {
 }
 
 enum ExtensionLoader {
-    /// Reads a folder, .zip or .crx and audits it.
+    /// Reads a folder, .zip or .crx, adds the worker shim (`ExtensionCompat`) and audits it.
     @ExtensionActor
-    static func inspect(_ url: URL) throws -> InspectedExtension {
-        let package = try ExtensionPackage.read(url)
-        return InspectedExtension(package: package, manifest: ExtensionManifest.parse(package), audit: ExtensionAudit.scan(package))
+    static func inspect(_ url: URL, compat: Data? = nil) throws -> InspectedExtension {
+        inspected(try ExtensionPackage.read(url), compat: compat)
     }
 
     /// A CRX3 downloaded from the Chrome Web Store: signatures and ID verified, then unpacked and audited.
     @ExtensionActor
-    static func inspect(crx data: Data, expectedID: String, publisherKeyHash: Data = CRX3.webStorePublisherKeyHash) throws -> InspectedExtension {
-        let package = try ExtensionPackage(files: ExtensionPackage.unzip(CRX3.verifiedPayload(data, expectedID: expectedID, publisherKeyHash: publisherKeyHash)))
+    static func inspect(crx data: Data, expectedID: String, publisherKeyHash: Data = CRX3.webStorePublisherKeyHash,
+                        compat: Data? = nil) throws -> InspectedExtension {
+        let payload = try CRX3.verifiedPayload(data, expectedID: expectedID, publisherKeyHash: publisherKeyHash)
+        return inspected(try ExtensionPackage(files: ExtensionPackage.unzip(payload)), compat: compat)
+    }
+
+    /// The shim goes in before the audit and the hash, so it's part of what's reviewed and pinned.
+    private static func inspected(_ package: ExtensionPackage, compat: Data?) -> InspectedExtension {
+        let package = compat.map { ExtensionCompat.apply(to: package, shim: $0) } ?? package
         return InspectedExtension(package: package, manifest: ExtensionManifest.parse(package), audit: ExtensionAudit.scan(package))
     }
 

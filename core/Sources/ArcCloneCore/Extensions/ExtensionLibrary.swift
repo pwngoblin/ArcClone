@@ -50,11 +50,14 @@ final class ExtensionLibrary {
     /// Keychain key) rather than kept in UserDefaults, where another process could add an "extension".
     @ObservationIgnored private let file: SealedFile?
     @ObservationIgnored private let pinnedRoot: URL?
+    /// `injections/extension-worker-compat.js`, added to each extension's background (`ExtensionCompat`).
+    @ObservationIgnored private let workerShim: Data?
     /// Names, versions and icons of disabled extensions too, for Settings.
     @ObservationIgnored private var info: [String: (name: String, version: String, summary: String, icon: NSImage?)] = [:]
 
-    init(directory: URL?, keys: KeyStore = KeychainKeyStore()) {
+    init(directory: URL?, keys: KeyStore = KeychainKeyStore(), workerShim: Data? = nil) {
         pinnedRoot = directory?.appendingPathComponent("Extensions", isDirectory: true)
+        self.workerShim = workerShim
         file = directory.map {
             SealedFile(url: $0.appendingPathComponent("extensions.sealed"), keyName: "extensions", purpose: "dev.arcclone.extensions.v1", keys: keys)
         }
@@ -105,7 +108,8 @@ final class ExtensionLibrary {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        await install(storeID: nil) { try await ExtensionLoader.inspect(url) }
+        let shim = workerShim
+        await install(storeID: nil) { try await ExtensionLoader.inspect(url, compat: shim) }
     }
 
     /// Adds an extension from a Chrome Web Store link or 32-letter ID: downloads its CRX3, verifies
@@ -122,7 +126,7 @@ final class ExtensionLibrary {
         await install(storeID: id) {
             let data = try await ChromeWebStore.download(id)
             self.storeStatus = "Checking signature and code…"
-            return try await ExtensionLoader.inspect(crx: data, expectedID: id)
+            return try await ExtensionLoader.inspect(crx: data, expectedID: id, compat: self.workerShim)
         }
     }
 
@@ -236,7 +240,7 @@ final class ExtensionLibrary {
         defer { if scoped { source.stopAccessingSecurityScopedResource() } }
         let folder = pinnedRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
         do {
-            let inspected = try await ExtensionLoader.inspect(source)
+            let inspected = try await ExtensionLoader.inspect(source, compat: workerShim)
             guard !inspected.audit.isBlocked else {
                 lastError = "An extension can run code from outside itself, so it was turned off. Remove it."
                 return nil
@@ -277,7 +281,11 @@ final class ExtensionLibrary {
     private func confirmInstall(_ manifest: ExtensionManifest, package: ExtensionPackage, audit: ExtensionAudit, hash: String,
                                 replacing oldVersion: String? = nil) -> Bool {
         let alert = NSAlert()
-        alert.messageText = oldVersion.map { "Update “\(manifest.name)” from \($0) to \(manifest.version)?" } ?? "Add “\(manifest.name)”?"
+        switch oldVersion {
+        case nil: alert.messageText = "Add “\(manifest.name)”?"
+        case manifest.version?: alert.messageText = "Reinstall “\(manifest.name)” \(manifest.version)?"
+        case let old?: alert.messageText = "Update “\(manifest.name)” from \(old) to \(manifest.version)?"
+        }
         var lines: [String] = []
         if let description = manifest.description, !description.isEmpty { lines.append(description) }
         let hosts = Self.requestedPatterns(manifest)
@@ -294,13 +302,16 @@ final class ExtensionLibrary {
             lines += notable.map { "⚠︎ \($0.title) (\($0.detail))" }
         }
         for info in audit.findings where info.severity == .info { lines.append("• \(info.title) (\(info.detail))") }
+        if package.files[ExtensionCompat.shimPath] != nil {
+            lines.append("\nArcClone adds stand-ins for Chrome features WebKit doesn't have (notifications, privacy settings and similar), so its background can start. They do nothing outside the extension.")
+        }
         if #unavailable(macOS 15.4) {
             lines.append("\nOn this version of macOS only its page scripts run; popups and background features need macOS 15.4 or later.")
         }
         lines.append("\nThis exact copy is pinned (SHA-256 \(hash.prefix(12))…) and never updates on its own. Extensions run in regular windows only, never in private windows.")
         alert.informativeText = lines.joined(separator: "\n")
         alert.icon = manifest.iconPath(for: 64).flatMap { package.files[$0] }.flatMap(NSImage.init(data:))
-        alert.addButton(withTitle: oldVersion == nil ? "Add Extension" : "Update")
+        alert.addButton(withTitle: oldVersion == nil ? "Add Extension" : oldVersion == manifest.version ? "Reinstall" : "Update")
         alert.addButton(withTitle: "Cancel")
         return alert.runModal() == .alertFirstButtonReturn
     }
