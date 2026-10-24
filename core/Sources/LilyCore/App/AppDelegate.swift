@@ -29,6 +29,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     /// wait here until the windows can be made.
     private var launched = false
     private var pendingLinks: [URL] = []
+    /// Pages continued from another device (Handoff) while Lily was still starting.
+    private var pendingContinued: [URL] = []
     /// Where the next Little Lily window goes, so several cascade instead of stacking.
     private var littleCascade: NSPoint?
     private var settingsWindow: SettingsWindowController?
@@ -143,6 +145,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         let waiting = pendingLinks
         pendingLinks = []
         if !waiting.isEmpty { open(waiting) }
+        let continued = pendingContinued
+        pendingContinued = []
+        continued.forEach(continueBrowsing)
     }
 
     /// The encrypted session save is async, so quitting waits for it.
@@ -209,6 +214,45 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     public func validateMenuItem(_ item: NSMenuItem) -> Bool {
         guard item.action == #selector(makeDefaultBrowser(_:)) else { return true }
         return DefaultBrowser.isAvailable && !DefaultBrowser.isDefault
+    }
+
+    // MARK: Handoff (receiving)
+
+    /// A page continued from another device. Info.plist declares NSUserActivityTypeBrowsingWeb,
+    /// so macOS offers Lily for it; this is where the page arrives. Receiving shares nothing, so it
+    /// works whatever Settings → Privacy → Handoff (which is about sending) says.
+    public func application(_ application: NSApplication, willContinueUserActivityWithType type: String) -> Bool {
+        type == NSUserActivityTypeBrowsingWeb
+    }
+
+    public func application(_ application: NSApplication, continue userActivity: NSUserActivity,
+                            restorationHandler: @escaping ([any NSUserActivityRestoring]) -> Void) -> Bool {
+        guard userActivity.activityType == NSUserActivityTypeBrowsingWeb, let url = Self.continuable(userActivity.webpageURL) else { return false }
+        guard launched else {
+            pendingContinued.append(url)
+            return true
+        }
+        continueBrowsing(url)
+        return true
+    }
+
+    public func application(_ application: NSApplication, didFailToContinueUserActivityWithType type: String, error: any Error) {
+        Log.app.error("Couldn't continue a page from another device: \(error.localizedDescription, privacy: .private)")
+    }
+
+    /// Only web pages: an activity from another device never opens a file or runs a script.
+    nonisolated static func continuable(_ url: URL?) -> URL? {
+        guard let url, let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http", url.host?.isEmpty == false else { return nil }
+        return url
+    }
+
+    /// Like Safari: the page opens as a new, active tab in the main window, which comes forward.
+    func continueBrowsing(_ url: URL) {
+        let main = primaryWindow ?? makeWindow()
+        main.tabs.create(url: url)
+        main.showWindow(nil)
+        main.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate()
     }
 
     public func application(_ application: NSApplication, open urls: [URL]) {

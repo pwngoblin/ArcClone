@@ -66,7 +66,7 @@ Lily is written in Swift with AppKit and SwiftUI and renders pages with WebKit (
 - Native toolbar, a trimmed menu bar (no Spelling, Substitutions, Speech, Dictation or Emoji items: WebKit's text-field menu and Fn/Globe cover them; macOS window tabbing is off since Lily has its own tabs), printing, and a Settings window (⌘,) with General, Tabs, Appearance, Websites, Privacy, Extensions and Assistant panes.
 - A page context menu with icons, including Open Link in New Tab and Open Link in Split View.
 - Can be the default browser; opens `http`/`https` links and HTML files.
-- Handoff of the current tab to your other Apple devices, if you turn it on (Settings → Privacy; off by default, since it shares each page's address and title).
+- Handoff: pages you continue from your iPhone, iPad or another Mac open as a tab in Lily (always). Sending Lily's current page to your other devices is off by default, since it shares each page's address and title (Settings → Privacy).
 - Haptic feedback on Force Touch trackpads for reordering and dragging tabs, pinning, splitting, switching spaces and crossing the space-swipe threshold (Settings → General).
 - Appearance: accent color, sidebar color and strength, a paper-like grain, and System / Light / Dark.
 - Release DMGs are universal binaries (arm64 + x86_64).
