@@ -3,7 +3,7 @@ import Testing
 @testable import ArcCloneCore
 
 /// Builds zip archives in memory (stored or deflated entries) for the reader tests.
-private struct ZipBuilder {
+struct ZipBuilder {
     struct Entry { var name: String; var data: Data; var deflate = true; var unixMode: UInt32 = 0o100644; var flags: UInt16 = 0; var crc: UInt32? = nil }
     var entries: [Entry] = []
 

@@ -48,11 +48,14 @@ For anything else, add a module. The pattern every existing module follows:
 
 Settings → Extensions → **Add Extension…** accepts an unpacked folder (with `manifest.json`), a `.zip`, or a Chrome Web Store `.crx`.
 
-**Getting a `.crx` for a store extension.** Take the 32-letter ID from the store URL and download:
+**Adding straight from the Chrome Web Store.** Paste a store link (`https://chromewebstore.google.com/detail/<name>/<id>`) or the 32-letter ID into the field in Settings → Extensions and choose **Add from Store** (`ChromeWebStore.swift`, `CRX3.swift`):
 
-```
-https://clients2.google.com/service/update2/crx?response=redirect&prodversion=131.0&acceptformat=crx2,crx3&x=id%3D<ID>%26uc
-```
+1. ArcClone downloads the package from Google's update service, with no cookies, cache or stored credentials, at most 200 MB, and only over HTTPS from Google's hosts:
+   ```
+   https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130.0&acceptformat=crx3&x=id%3D<ID>%26installsource%3Dondemand%26uc
+   ```
+2. **Verify the signature.** Only CRX3 is accepted. Every RSA (2048-bit or larger) and P-256 signature in the header must verify over the signed header and the zip. One of the signing keys must hash to the requested ID. So a download that was swapped, damaged or is a different extension is refused before it's unpacked.
+3. From there it's the same as adding a file: unpack, audit, approve, pin. The record remembers the store ID.
 
 **What happens when you add it** (`ExtensionPackage.swift`, `ExtensionAudit.swift`, `ExtensionManager.swift`):
 
@@ -76,7 +79,7 @@ https://clients2.google.com/service/update2/crx?response=redirect&prodversion=13
 
 Extensions installed before pinning existed (loaded from your folder) are copied, audited and pinned once on their next load. If one would now be blocked, it's turned off.
 
-**Limits of the scan.** It's a static review. It catches the ways an extension can pull in outside code and the common telemetry endpoints, but minified or obfuscated code can hide behavior. Read the code of anything that handles sensitive pages. The store's CRX signature isn't verified; the audit and the pinned hash are what's trusted. To confirm you have the same copy as someone else, compare the hash shown in Settings → Extensions.
+**Limits of the scan.** It's a static review. It catches the ways an extension can pull in outside code and the common telemetry endpoints, but minified or obfuscated code can hide behavior. Read the code of anything that handles sensitive pages. For store downloads the CRX3 signatures are checked against the requested ID (a `.crx` file you add yourself isn't, since there's no ID to check it against). Google's own publisher signature isn't pinned. The audit and the pinned hash are what's trusted after that. To confirm you have the same copy as someone else, compare the hash shown in Settings → Extensions.
 
 ## Architecture
 
@@ -87,6 +90,7 @@ The modules `CLAUDE.md` names live in the Swift package (`core/Sources/ArcCloneC
 | Manifest model | `Extensions/ExtensionManifest.swift` | `Codable`, `Sendable` model of MV2/MV3 manifests: content scripts, background, action, permissions, CSP, icons, `__MSG_…__` localization. Lenient: a field with an unexpected shape is treated as absent. |
 | Isolated loading | `Extensions/ExtensionActor.swift` | `@globalActor ExtensionActor`. Reading, auditing, pinning and hash checks all run here, off the main thread. |
 | Installed extensions | `Extensions/ExtensionLibrary.swift` | Install, audit, approval, pinning, sealed list and integrity checks, on every macOS version. |
+| Store ingestion | `Extensions/ChromeWebStore.swift`, `Extensions/CRX3.swift` | Store link or ID → CRX3 download → signature and ID verification, before the usual audit. |
 | Runtime, macOS 15.4+ | `Extensions/ExtensionManager.swift` | WebKit's `WKWebExtensionController`: content scripts, background, popups, `chrome.*` APIs and extension storage. It stays on the main actor because WebKit's extension types are main-thread only. |
 | Script injection, macOS 14–15.3 | `Extensions/ExtensionScriptInjector.swift` | Content scripts as `WKUserScript`s, each extension in its own content world (`ArcExtension.<id>`), chosen by match patterns when a page starts loading. |
 | Message bridge, macOS 14–15.3 | `Extensions/ExtensionMessageBridge.swift`, `injections/extension-compat.js` | A first-party shim gives content scripts `chrome.storage.local` / `sync` (sealed, 10 MB quota per extension) and `storage.onChanged`. It talks to native code through a handler that accepts only schema-validated `{ action, payload }` JSON from its own world. |

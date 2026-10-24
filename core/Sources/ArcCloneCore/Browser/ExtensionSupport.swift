@@ -10,7 +10,10 @@ extension Tab: WKWebExtensionTab {
     public func indexInWindow(for context: WKWebExtensionContext) -> Int {
         (delegate as? BrowserWindowController)?.tabs.tabs.firstIndex { $0 === self } ?? 0
     }
-    public func webView(for context: WKWebExtensionContext) -> WKWebView? { webView }
+    /// nil for tabs that haven't been opened (restored, imported, asleep): asking about a tab must
+    /// not create a web view, or extensions would undo tab virtualization.
+    public func webView(for context: WKWebExtensionContext) -> WKWebView? { hasWebView ? webView : nil }
+    public func size(for context: WKWebExtensionContext) -> CGSize { hasWebView ? webView.bounds.size : .zero }
     public func title(for context: WKWebExtensionContext) -> String? { title }
     public func url(for context: WKWebExtensionContext) -> URL? { url }
     public func isPinned(for context: WKWebExtensionContext) -> Bool { isPinned }
@@ -18,6 +21,18 @@ extension Tab: WKWebExtensionTab {
     public func zoomFactor(for context: WKWebExtensionContext) -> Double { hasWebView ? webView.pageZoom : 1 }
     public func isSelected(for context: WKWebExtensionContext) -> Bool {
         (delegate as? BrowserWindowController)?.tabs.activeID == id
+    }
+
+    public func setPinned(_ pinned: Bool, for context: WKWebExtensionContext) async throws {
+        (delegate as? BrowserWindowController)?.tabs.setPinned(id, pinned)
+    }
+
+    public func setSelected(_ selected: Bool, for context: WKWebExtensionContext) async throws {
+        if selected { (delegate as? BrowserWindowController)?.tabs.activate(id) }
+    }
+
+    public func setZoomFactor(_ zoomFactor: Double, for context: WKWebExtensionContext) async throws {
+        webView.pageZoom = min(3, max(0.3, zoomFactor))
     }
 
     public func activate(for context: WKWebExtensionContext) async throws {
@@ -35,6 +50,8 @@ extension Tab: WKWebExtensionTab {
     }
 
     public func reload(fromOrigin: Bool, for context: WKWebExtensionContext) async throws {
+        // An unopened tab loads its address rather than reloading an empty web view.
+        guard hasWebView else { if let url { load(url) }; return }
         if fromOrigin { webView.reloadFromOrigin() } else { reload() }
     }
 
@@ -54,6 +71,22 @@ extension BrowserWindowController: WKWebExtensionWindow {
     }
     public func isPrivate(for context: WKWebExtensionContext) -> Bool { isPrivate }
     public func frame(for context: WKWebExtensionContext) -> CGRect { window?.frame ?? .null }
+    public func screenFrame(for context: WKWebExtensionContext) -> CGRect { window?.screen?.frame ?? NSScreen.main?.frame ?? .null }
+    public func setFrame(_ frame: CGRect, for context: WKWebExtensionContext) async throws {
+        guard let window, frame.width >= 200, frame.height >= 200 else { return }
+        window.setFrame(frame, display: true, animate: false)
+    }
+    public func setWindowState(_ state: WKWebExtension.WindowState, for context: WKWebExtensionContext) async throws {
+        guard let window else { return }
+        switch state {
+        case .minimized: window.miniaturize(nil)
+        case .fullscreen: if !window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
+        case .maximized: window.zoom(nil)
+        default:
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            if window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
+        }
+    }
     public func focus(for context: WKWebExtensionContext) async throws { window?.makeKeyAndOrderFront(nil) }
     public func close(for context: WKWebExtensionContext) async throws { window?.performClose(nil) }
 }
