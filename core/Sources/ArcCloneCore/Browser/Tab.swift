@@ -45,6 +45,8 @@ public final class Tab: NSObject {
     private var isDiscarded = false
     let siteSettings: SiteSettings?
     let adBlocker: AdBlocker?
+    private let extensionScripts: ExtensionScriptInjector?
+    private let registry: ScriptRegistry
 
     public init(id: UUID = UUID(), factory: WebViewFactory, router: IPCRouter, url: URL?, pinned: Bool = false) {
         self.id = id
@@ -52,6 +54,8 @@ public final class Tab: NSObject {
         self.contentWorld = factory.registry.contentWorld
         self.siteSettings = factory.siteSettings
         self.adBlocker = factory.adBlocker
+        self.extensionScripts = factory.extensionScripts
+        self.registry = factory.registry
         let tabID = id
         self.bridge = ScriptMessageBridge(name: ScriptRegistry.messageHandlerName,
                                           contentWorld: factory.registry.contentWorld,
@@ -74,6 +78,7 @@ public final class Tab: NSObject {
     /// Breaks the WKUserContentController -> bridge retain and stops the page.
     public func tearDown() {
         adBlocker?.forget(webView.configuration.userContentController)
+        extensionScripts?.forget(webView.configuration.userContentController)
         securityScopedURL?.stopAccessingSecurityScopedResource()
         securityScopedURL = nil
         observations.removeAll()
@@ -368,6 +373,7 @@ extension Tab: WKNavigationDelegate {
             let target = navigationAction.request.url
             if let siteSettings { preferences.allowsContentJavaScript = siteSettings.allowsJavaScript(for: target) }
             adBlocker?.configure(webView.configuration.userContentController, adsAllowed: siteSettings?.adsAllowed(for: target) ?? false)
+            extensionScripts?.configure(webView.configuration.userContentController, for: target, registry: registry)
         }
         return (.allow, preferences)
     }

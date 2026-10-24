@@ -50,8 +50,8 @@ struct ExtensionAudit: Sendable, Equatable {
 
     static func scan(_ package: ExtensionPackage) -> ExtensionAudit {
         var findings: [Finding] = []
-        guard let data = package.manifest, let manifest = parseManifest(data) else {
-            return ExtensionAudit(findings: [Finding(severity: .blocked, title: "manifest.json isn't valid JSON", detail: "manifest.json")])
+        guard let manifest = ExtensionManifest.parse(package) else {
+            return ExtensionAudit(findings: [Finding(severity: .blocked, title: "manifest.json isn't valid", detail: "manifest.json")])
         }
         findings += review(manifest: manifest)
 
@@ -80,24 +80,17 @@ struct ExtensionAudit: Sendable, Equatable {
 
     // MARK: Manifest
 
-    static func parseManifest(_ data: Data) -> [String: Any]? {
-        var bytes = data
-        if bytes.starts(with: [0xEF, 0xBB, 0xBF]) { bytes.removeFirst(3) } // UTF-8 BOM
-        return (try? JSONSerialization.jsonObject(with: bytes)) as? [String: Any]
-    }
-
-    static func review(manifest: [String: Any]) -> [Finding] {
+    static func review(manifest: ExtensionManifest) -> [Finding] {
         var findings: [Finding] = []
-        let version = manifest["manifest_version"] as? Int ?? 0
-        if version < 3 { findings.append(Finding(severity: .info, title: "Uses the older Manifest V2 format", detail: "manifest_version \(version)")) }
+        if manifest.manifestVersion < 3 {
+            findings.append(Finding(severity: .info, title: "Uses the older Manifest V2 format", detail: "manifest_version \(manifest.manifestVersion)"))
+        }
 
         // A content security policy that allows eval or remote scripts lets the extension run code
         // that was never part of what's audited and pinned here.
         var policies: [(String, String)] = []
-        if let csp = manifest["content_security_policy"] as? String { policies.append(("extension pages", csp)) }
-        if let csp = manifest["content_security_policy"] as? [String: Any] {
-            for (key, value) in csp { if let value = value as? String { policies.append((key == "sandbox" ? "sandbox" : "extension pages", value)) } }
-        }
+        if let pages = manifest.contentSecurityPolicy?.extensionPages { policies.append(("extension pages", pages)) }
+        if let sandbox = manifest.contentSecurityPolicy?.sandbox { policies.append(("sandbox", sandbox)) }
         for (scope, policy) in policies {
             let scripts = directive("script-src", in: policy) ?? directive("default-src", in: policy) ?? ""
             let remote = scripts.split(separator: " ").filter { source in
@@ -114,17 +107,16 @@ struct ExtensionAudit: Sendable, Equatable {
                                     detail: (unsafe + remote.map(String.init)).joined(separator: ", ")))
         }
 
-        let permissions = (manifest["permissions"] as? [String] ?? []) + (manifest["optional_permissions"] as? [String] ?? [])
-        let hostPermissions = (manifest["host_permissions"] as? [String] ?? []) + permissions.filter { $0.contains("://") || $0 == "<all_urls>" }
-        let sensitive = permissions.filter(sensitivePermissions.contains)
+        let sensitive = (manifest.permissions + manifest.optionalPermissions).filter(sensitivePermissions.contains)
         if !sensitive.isEmpty { findings.append(Finding(severity: .warning, title: "Asks for sensitive permissions", detail: list(sensitive.sorted()))) }
-        if hostPermissions.contains(where: { $0 == "<all_urls>" || $0.hasPrefix("*://*/") || $0.hasPrefix("http://*/") || $0.hasPrefix("https://*/") }) {
+        let hosts = manifest.allHostPatterns + manifest.contentScripts.flatMap(\.matches)
+        if hosts.contains(where: { $0 == "<all_urls>" || $0.hasPrefix("*://*/") || $0.hasPrefix("http://*/") || $0.hasPrefix("https://*/") }) {
             findings.append(Finding(severity: .warning, title: "Can read and change every website", detail: "host permissions"))
         }
-        if let connectable = manifest["externally_connectable"] as? [String: Any], connectable["matches"] != nil {
-            findings.append(Finding(severity: .warning, title: "Websites can send it messages", detail: list(connectable["matches"] as? [String] ?? [])))
+        if let matches = manifest.externallyConnectable?.matches, !matches.isEmpty {
+            findings.append(Finding(severity: .warning, title: "Websites can send it messages", detail: list(matches)))
         }
-        if let update = manifest["update_url"] as? String {
+        if let update = manifest.updateURL {
             findings.append(Finding(severity: .info, title: "Has an update address; ArcClone never updates it automatically",
                                     detail: URL(string: update)?.host ?? "update_url"))
         }

@@ -12,8 +12,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     private(set) var history: History!
     private(set) var siteSettings: SiteSettings!
     private(set) var adBlocker: AdBlocker!
-    /// ExtensionManager on macOS 15.4+.
-    private(set) var extensions: AnyObject?
+    /// Installed extensions (every macOS version) and their runtime: `ExtensionManager` on macOS
+    /// 15.4+, `ExtensionScriptInjector` (page scripts only) before that.
+    private(set) var extensionLibrary: ExtensionLibrary?
+    private(set) var extensionRuntime: AnyObject?
     private var memoryPressure: DispatchSourceMemoryPressure?
     private var historyWindow: HistoryWindowController?
     private let historyMenuDelegate = HistoryMenuDelegate()
@@ -76,19 +78,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         adBlocker = AdBlocker(directory: ProcessInfo.processInfo.arguments.contains("--self-test") ? nil : paths.applicationSupport)
         await adBlocker.prepare()
         factory = WebViewFactory(registry: registry, siteSettings: siteSettings, adBlocker: adBlocker)
-        if #available(macOS 15.4, *), !ProcessInfo.processInfo.arguments.contains("--self-test") {
-            let manager = ExtensionManager(directory: paths.applicationSupport)
-            manager.windows = { [weak self] in self?.windows.filter { !$0.isPrivate } ?? [] }
-            manager.focusedWindow = { [weak self] in
-                (NSApp.keyWindow?.windowController as? BrowserWindowController).flatMap { $0.isPrivate ? nil : $0 } ?? self?.primaryWindow
-            }
-            manager.openTab = { [weak self] url, active in
-                guard let target = manager.focusedWindow() ?? self?.primaryWindow else { return nil }
-                return target.tabs.create(url: url, activate: active)
-            }
-            extensions = manager
-            factory.extensionController = manager.controller
-            Task { await manager.loadAll() }
+        if !ProcessInfo.processInfo.arguments.contains("--self-test") {
+            let library = ExtensionLibrary(directory: paths.applicationSupport)
+            extensionLibrary = library
+            startExtensionRuntime(library)
+            Task { await library.loadAll() }
         }
         assistant = Assistant(configuration: .fromPreferences())
         sessionStore = SessionStore(directory: paths.applicationSupport)
@@ -211,6 +205,30 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         controller.newTab(nil)
     }
 
+    private func startExtensionRuntime(_ library: ExtensionLibrary) {
+        if #available(macOS 15.4, *) {
+            let manager = ExtensionManager(library: library)
+            manager.windows = { [weak self] in self?.windows.filter { !$0.isPrivate } ?? [] }
+            manager.focusedWindow = { [weak self] in
+                (NSApp.keyWindow?.windowController as? BrowserWindowController).flatMap { $0.isPrivate ? nil : $0 } ?? self?.primaryWindow
+            }
+            manager.openTab = { [weak self] url, active in
+                guard let target = manager.focusedWindow() ?? self?.primaryWindow else { return nil }
+                return target.tabs.create(url: url, activate: active)
+            }
+            extensionRuntime = manager
+            factory.extensionController = manager.controller
+        } else {
+            do {
+                let injector = try ExtensionScriptInjector(library: library, shimURL: paths.injections.appendingPathComponent("extension-compat.js"))
+                extensionRuntime = injector
+                factory.extensionScripts = injector
+            } catch {
+                Log.extensions.error("Extension compatibility shim missing; extensions won't run")
+            }
+        }
+    }
+
     @objc public func showExtensionsSettings(_ sender: Any?) {
         showSettings(sender)
         settingsWindow?.select(pane: "Extensions")
@@ -218,7 +236,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
 
     @objc public func showSettings(_ sender: Any?) {
         if settingsWindow == nil {
-            settingsWindow = SettingsWindowController(siteSettings: siteSettings, adBlocker: adBlocker, extensions: extensions,
+            settingsWindow = SettingsWindowController(siteSettings: siteSettings, adBlocker: adBlocker, extensionLibrary: extensionLibrary, extensionRuntime: extensionRuntime,
                                                       clearBrowsingData: { [weak self] in self?.clearBrowsingData(nil) },
                                                       onAgentSettingsChanged: { [weak self] in self?.assistant.reconfigure(.fromPreferences()) })
         }
