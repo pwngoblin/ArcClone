@@ -34,6 +34,17 @@ enum PagePayload {
         var text: String
     }
 
+    /// Where a linked split pane is scrolled to, as fractions of how far it can scroll.
+    struct ScrollPosition: Decodable {
+        var x: Double
+        var y: Double
+
+        var clamped: JSONValue {
+            let fraction = { (v: Double) in v.isFinite ? min(1, max(0, v)) : 0 }
+            return ["x": .number(fraction(x)), "y": .number(fraction(y))]
+        }
+    }
+
     struct FormClear: Decodable {
         var url: String
         var field: String

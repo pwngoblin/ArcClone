@@ -16,6 +16,11 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     /// The page each tab was last offered a restore for, so a page that updates its title
     /// (page.didChange) is asked once, not on every change.
     var formRestoreOffered: [UUID: String] = [:]
+    /// Link Scrolling: panes it's on in, and per target pane the position waiting to be applied
+    /// while the previous one is still in flight (so fast scrolling never queues up calls).
+    var scrollLinkedTabs: Set<UUID> = []
+    var scrollApplying: Set<UUID> = []
+    var scrollPending: [UUID: JSONValue] = [:]
     /// Searched by the command bar (read-only, also in private windows).
     weak var bookmarks: Bookmarks?
     let model: WindowModel
@@ -79,7 +84,10 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         tabs.tabDelegate = self
         tabs.onChange = { [weak self] in self?.scheduleSnapshot() }
         tabs.onActiveChange = { [weak self] tab in self?.showTab(tab) }
-        tabs.onSplitChange = { [weak self] in self?.showTab(self?.tabs.active) }
+        tabs.onSplitChange = { [weak self] in
+            self?.showTab(self?.tabs.active)
+            self?.updateScrollLinks()
+        }
         tabs.onSpaceChange = { [weak self] forward in self?.model.spaceForward = forward }
         tabs.onTabAdded = { [weak self] tab in self?.extensionsTabOpened(tab); self?.sleeper?.reschedule() }
         tabs.onTabRemoved = { [weak self] tab in self?.extensionsTabClosed(tab, windowIsClosing: false); self?.sleeper?.reschedule() }

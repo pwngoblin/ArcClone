@@ -58,6 +58,8 @@ public enum SplitLayout: String, CaseIterable, Codable, Sendable {
 public struct SplitGroup: Equatable, Sendable {
     public var layout: SplitLayout
     public var tabIDs: [UUID]
+    /// Link Scrolling: scrolling one pane scrolls the others to the same place (`scroll-sync.js`).
+    public var scrollLinked = false
 
     /// Drops a closed tab, shrinking the layout; nil when fewer than two tabs remain.
     func removing(_ id: UUID) -> SplitGroup? {
@@ -72,7 +74,10 @@ public struct SplitGroup: Equatable, Sendable {
 
     func adding(_ id: UUID) -> SplitGroup? {
         guard !tabIDs.contains(id), let bigger = layout.grown else { return nil }
-        return SplitGroup(layout: bigger, tabIDs: tabIDs + [id])
+        var group = self
+        group.layout = bigger
+        group.tabIDs.append(id)
+        return group
     }
 }
 

@@ -321,7 +321,8 @@ public final class TabStore {
             }
             var ids = splits[index].tabIDs
             ids = Array(ids.prefix(layout.paneCount)) + fill(layout.paneCount - ids.count, after: active, excluding: ids)
-            splits[index] = SplitGroup(layout: layout, tabIDs: ids)
+            splits[index].layout = layout
+            splits[index].tabIDs = ids
             return splits[index]
         }
         requested.forEach(leaveSplit)
@@ -356,6 +357,12 @@ public final class TabStore {
     }
 
     public func removeFromSplit(_ id: UUID) { leaveSplit(id) }
+
+    /// Link Scrolling for the split on screen.
+    public func setScrollLinked(_ linked: Bool) {
+        guard let activeID, let index = splits.firstIndex(where: { $0.tabIDs.contains(activeID) }) else { return }
+        splits[index].scrollLinked = linked
+    }
 
     /// Ends the split on screen; other splits stay.
     public func exitSplit() {

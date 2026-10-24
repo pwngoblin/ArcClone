@@ -14,6 +14,8 @@ extension BrowserWindowController {
             tab.applyMetadata(metadata)
             self.history?.record(url: metadata.url, title: metadata.title)
             self.offerFormRestore(tab)
+            // A navigation resets the page's scripts; a pane of a linked split links again.
+            if self.scrollLinkedTabs.contains(tabID) { self.setScrollLink(true, in: tab) }
             self.recordForAssistant(tabID, "page.didChange", metadata.json)
             return .null
         }
@@ -50,6 +52,14 @@ extension BrowserWindowController {
             guard let drafts = self?.formDrafts, case .page(_, true, let origin) = ctx.source else { return .null }
             let url = try PagePayload.sameOrigin(p.url, origin: origin)
             drafts.clear(page: url, field: try PagePayload.formDraft(field: p.field, text: nil).field)
+            return .null
+        }
+
+        // Link Scrolling: one pane scrolled, the others in its split follow.
+        router.on("scroll.changed", from: pageOnly, as: PagePayload.ScrollPosition.self) { [weak self] ctx, p in
+            guard let self, case .page(let tabID, true, _) = ctx.source,
+                  let group = self.tabs.splitGroup(containing: tabID), group.scrollLinked else { return .null }
+            for id in group.tabIDs where id != tabID { self.applyScroll(p.clamped, to: id) }
             return .null
         }
 

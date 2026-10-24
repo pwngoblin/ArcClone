@@ -128,6 +128,40 @@ enum SelfTest {
             window.formDrafts?.removeAll()
             window.tabs.close(formTab.id)
 
+            // Link Scrolling: scrolling one pane of a linked split moves the other to the same
+            // fraction of its (different) length; unlinked, it stays put.
+            func longPage(_ height: Int) -> String { "<!doctype html><title>Long \(height)</title><div style='height:\(height)px'></div>" }
+            let left = window.tabs.create(url: nil)
+            left.webView.loadHTMLString(longPage(6000), baseURL: URL(string: "https://selftest.arcclone.test/left")!)
+            let right = window.tabs.create(url: nil, activate: false)
+            right.webView.loadHTMLString(longPage(12000), baseURL: URL(string: "https://selftest.arcclone.test/right")!)
+            _ = await waitUntil(10) { left.title == "Long 6000" && right.title == "Long 12000" }
+            window.tabs.activate(left.id)
+            window.tabs.makeSplit(.twoColumns, with: [right.id])
+            window.toggleLinkScrolling(nil)
+            try? await Task.sleep(for: .milliseconds(300))
+            @MainActor func fraction(_ tab: Tab) async -> Double {
+                let value = try? await tab.webView.evaluateJavaScript("scrollY / (document.scrollingElement.scrollHeight - innerHeight)")
+                return (value as? Double) ?? (value as? NSNumber)?.doubleValue ?? -1
+            }
+            _ = try? await left.webView.evaluateJavaScript("scrollTo(0, 0.75 * (document.scrollingElement.scrollHeight - innerHeight))")
+            var followed = -1.0
+            for _ in 0..<30 {
+                followed = await fraction(right)
+                if abs(followed - 0.75) < 0.02 { break }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            window.toggleLinkScrolling(nil)
+            try? await Task.sleep(for: .milliseconds(300))
+            _ = try? await left.webView.evaluateJavaScript("scrollTo(0, 0)")
+            try? await Task.sleep(for: .milliseconds(500))
+            let stayed = await fraction(right)
+            check("link scrolling", abs(followed - 0.75) < 0.02 && abs(stayed - followed) < 0.02,
+                  ["followed": .number(followed), "afterUnlink": .number(stayed)])
+            window.tabs.exitSplit()
+            window.tabs.close(left.id)
+            window.tabs.close(right.id)
+
             // ⌘K reads the live menus: browser commands validate through the window's responder
             // chain, text-editing commands and the palette itself stay out.
             let palette = PaletteCommands.all(in: window.model).map(\.title)

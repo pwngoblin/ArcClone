@@ -155,6 +155,44 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
         Haptics.tap()
     }
 
+    /// View → Split View → Link Scrolling.
+    @objc public func toggleLinkScrolling(_ sender: Any?) {
+        guard let split = tabs.split else { return }
+        tabs.setScrollLinked(!split.scrollLinked)
+        model.showToast(split.scrollLinked ? "Scrolling unlinked" : "Scrolling linked")
+    }
+
+    /// Turns Link Scrolling on in the panes of linked splits and off where it no longer applies.
+    func updateScrollLinks() {
+        let wanted = Set(tabs.splits.filter(\.scrollLinked).flatMap(\.tabIDs))
+        for id in wanted.symmetricDifference(scrollLinkedTabs) {
+            if let tab = tabs.tab(id) { setScrollLink(wanted.contains(id), in: tab) }
+        }
+        scrollLinkedTabs = wanted
+        scrollPending = scrollPending.filter { wanted.contains($0.key) }
+    }
+
+    func setScrollLink(_ on: Bool, in tab: Tab) {
+        guard tab.hasWebView else { return } // an unloaded pane links when its page loads
+        Task { _ = try? await tab.callInjection("scroll.link", ["on": .bool(on)], timeout: 5) }
+    }
+
+    /// One call in flight per pane; a newer position replaces any still waiting.
+    func applyScroll(_ position: JSONValue, to id: UUID) {
+        guard scrollLinkedTabs.contains(id), let tab = tabs.tab(id), tab.hasWebView else { return }
+        guard !scrollApplying.contains(id) else {
+            scrollPending[id] = position
+            return
+        }
+        scrollApplying.insert(id)
+        Task { [weak self] in
+            _ = try? await tab.callInjection("scroll.apply", position, timeout: 2)
+            guard let self else { return }
+            self.scrollApplying.remove(id)
+            if let next = self.scrollPending.removeValue(forKey: id) { self.applyScroll(next, to: id) }
+        }
+    }
+
     /// The Split View submenu, shared by the View menu and the toolbar.
     static func splitMenu() -> NSMenu {
         let menu = NSMenu(title: "Split View")
@@ -166,6 +204,10 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
             menu.addItem(item)
         }
         menu.addItem(.separator())
+        let link = NSMenuItem(title: "Link Scrolling", action: #selector(toggleLinkScrolling(_:)), keyEquivalent: "l")
+        link.keyEquivalentModifierMask = [.command, .control]
+        link.image = NSImage(systemSymbolName: "link", accessibilityDescription: "Link Scrolling")
+        menu.addItem(link)
         let exit = NSMenuItem(title: "Exit Split View", action: #selector(exitSplitView(_:)), keyEquivalent: "0")
         exit.keyEquivalentModifierMask = [.command, .control]
         menu.addItem(exit)
@@ -261,6 +303,9 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
             item.title = tabs.active?.isPinned == true ? "Unpin Tab" : "Pin Tab"
             return tabs.active != nil
         case #selector(exitSplitView(_:)): return tabs.split != nil
+        case #selector(toggleLinkScrolling(_:)):
+            item.state = tabs.split?.scrollLinked == true ? .on : .off
+            return tabs.split != nil
         case #selector(restoreTypedText(_:)):
             return tabs.active?.url.map { formDrafts?.drafts(for: $0).isEmpty == false } ?? false
         case #selector(nextSpace(_:)), #selector(previousSpace(_:)): return tabs.spaces.count > 1

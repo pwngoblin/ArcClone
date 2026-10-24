@@ -84,6 +84,15 @@
       "matches": [
         "*"
       ]
+    },
+    {
+      "id": "scroll-sync",
+      "file": "modules/scroll-sync.js",
+      "injectionTime": "documentEnd",
+      "mainFrameOnly": true,
+      "matches": [
+        "*"
+      ]
     }
   ]
 }
