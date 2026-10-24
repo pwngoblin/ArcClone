@@ -8,7 +8,10 @@ final class MigrationModel {
     enum Status: Equatable {
         case needsAccess
         case scanning
-        case notFound
+        /// Where it looked (home-relative), so a grant of the wrong folder is easy to spot.
+        case notFound(looked: String)
+        /// Its folder is there but holds no bookmarks, history or spaces.
+        case empty
         case found(BrowserScan)
         case unreadable(String)
     }
@@ -88,10 +91,14 @@ final class MigrationModel {
         await access.withAccess { roots in
             for index in cards.indices where cards[index].status == .scanning {
                 let browser = cards[index].browser
-                guard let folder = MigrationEngine.locate(browser, in: roots) else { cards[index].status = .notFound; continue }
+                guard let folder = MigrationEngine.locate(browser, in: roots) else {
+                    let granted = roots[browser.root] ?? roots.values.first
+                    cards[index].status = .notFound(looked: granted.map(Self.homeRelative) ?? browser.root.displayPath)
+                    continue
+                }
                 do {
                     let scan = try await MigrationEngine.scan(browser, folder: folder)
-                    cards[index].status = scan.bookmarks + scan.history + scan.spaces > 0 ? .found(scan) : .notFound
+                    cards[index].status = scan.bookmarks + scan.history + scan.spaces > 0 ? .found(scan) : .empty
                     cards[index].selected = cards[index].isAvailable
                     cards[index].options.spaces = browser.supportsSpaces && scan.spaces > 0
                 } catch {
@@ -171,6 +178,12 @@ final class MigrationModel {
 
     func reset() {
         phase = .idle
+    }
+
+    /// `/Users/me/Library/Application Support` → `~/Library/Application Support`.
+    static func homeRelative(_ url: URL) -> String {
+        let home = MigrationAccess.realHome.path
+        return url.path.hasPrefix(home) ? "~" + url.path.dropFirst(home.count) : url.path
     }
 
     /// Plain-language reasons; Safari's folder is protected by macOS beyond the sandbox.
