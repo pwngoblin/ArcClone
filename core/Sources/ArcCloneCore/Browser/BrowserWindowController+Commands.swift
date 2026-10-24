@@ -44,6 +44,30 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
         model.presentCommandPalette()
     }
 
+    /// History → Restore Typed Text: puts drafts for this page back into its empty fields.
+    @objc public func restoreTypedText(_ sender: Any?) {
+        guard let drafts = formDrafts, let tab = tabs.active, let url = tab.url else { return }
+        let saved = drafts.drafts(for: url)
+        guard !saved.isEmpty else { return }
+        let args: JSONValue = ["drafts": .array(saved.map { ["field": .string($0.field), "text": .string($0.text)] })]
+        Task { [weak self] in
+            let restored = (try? await tab.callInjection("form.restore", args))?["restored"]?.int ?? 0
+            self?.model.showToast(restored > 0 ? "Restored the text you typed" : "Nothing restored: those fields already have text")
+        }
+    }
+
+    /// A page with saved drafts loaded in the active tab: offer them back, once per page.
+    func offerFormRestore(_ tab: Tab) {
+        guard let drafts = formDrafts, tab.id == tabs.activeID, let url = tab.url, let page = FormDrafts.pageKey(url),
+              formRestoreOffered[tab.id] != page, !drafts.drafts(for: url).isEmpty else { return }
+        formRestoreOffered[tab.id] = page
+        Task { [weak self] in
+            // Only where there's a field to put it back into.
+            guard (try? await tab.callInjection("form.fields"))?["count"]?.int ?? 0 > 0 else { return }
+            self?.model.showToast("You typed text on this page earlier", action: "Restore") { self?.restoreTypedText(nil) }
+        }
+    }
+
     @objc public func reloadPage(_ sender: Any?) { tabs.active?.reload() }
     @objc public func hardReloadPage(_ sender: Any?) { tabs.active?.webView.reloadFromOrigin() }
     @objc public func goBack(_ sender: Any?) { tabs.active?.goBack() }
@@ -237,6 +261,8 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
             item.title = tabs.active?.isPinned == true ? "Unpin Tab" : "Pin Tab"
             return tabs.active != nil
         case #selector(exitSplitView(_:)): return tabs.split != nil
+        case #selector(restoreTypedText(_:)):
+            return tabs.active?.url.map { formDrafts?.drafts(for: $0).isEmpty == false } ?? false
         case #selector(nextSpace(_:)), #selector(previousSpace(_:)): return tabs.spaces.count > 1
         case #selector(splitView(_:)):
             item.state = (item.representedObject as? String) == tabs.split?.layout.rawValue ? .on : .off

@@ -27,6 +27,18 @@ enum PagePayload {
         var url: String
     }
 
+    /// Text typed into a long field (`form-recovery.js`).
+    struct FormSnapshot: Decodable {
+        var url: String
+        var field: String
+        var text: String
+    }
+
+    struct FormClear: Decodable {
+        var url: String
+        var field: String
+    }
+
     /// A request that carries nothing: `null` or `{}`, and nothing else.
     struct Empty: Decodable {
         private struct AnyKey: CodingKey {
@@ -109,6 +121,14 @@ enum PagePayload {
             throw IPCError("origin_mismatch", "Page URL does not match the frame's origin")
         }
         return url
+    }
+
+    /// A draft's field key and text, within FormDrafts' limits.
+    static func formDraft(field: String, text: String?) throws -> (field: String, text: String) {
+        guard !field.isEmpty, field.count <= FormDrafts.maxFieldKey else { throw IPCError.invalidParams("Bad field") }
+        let text = text ?? ""
+        guard text.count <= FormDrafts.maxCharacters else { throw IPCError.invalidParams("Text too long") }
+        return (field, text)
     }
 
     static func bounded(_ value: String?, _ max: Int) -> String? {

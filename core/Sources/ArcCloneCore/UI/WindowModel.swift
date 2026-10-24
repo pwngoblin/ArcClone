@@ -61,6 +61,10 @@ public final class WindowModel {
     struct Toast: Equatable {
         let id = UUID()
         let message: String
+        /// A button on the toast ("Restore"), which then stays up longer.
+        var action: (title: String, run: @MainActor () -> Void)?
+
+        static func == (a: Toast, b: Toast) -> Bool { a.id == b.id }
     }
 
     var tabs: [TabItem] = []
@@ -113,11 +117,11 @@ public final class WindowModel {
         if currentSpaceID != store.currentSpaceID { currentSpaceID = store.currentSpaceID }
     }
 
-    func showToast(_ message: String) {
-        let toast = Toast(message: message)
+    func showToast(_ message: String, action: String? = nil, run: (@MainActor () -> Void)? = nil) {
+        let toast = Toast(message: message, action: action.flatMap { title in run.map { (title, $0) } })
         self.toast = toast
         Task { [weak self] in
-            try? await Task.sleep(for: .seconds(2.2))
+            try? await Task.sleep(for: .seconds(toast.action == nil ? 2.2 : 8))
             if self?.toast == toast { self?.toast = nil }
         }
     }

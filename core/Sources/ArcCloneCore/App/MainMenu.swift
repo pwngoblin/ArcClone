@@ -153,6 +153,7 @@ enum MainMenu {
         m.addItem(item("Forward", #selector(BrowserWindowController.goForward(_:)), "]"))
         m.addItem(.separator())
         m.addItem(item("Show All History", #selector(AppDelegate.showHistory(_:)), "y"))
+        m.addItem(item("Restore Typed Text", #selector(BrowserWindowController.restoreTypedText(_:))))
         m.addItem(.separator())
         m.addItem(item("Clear Browsing Data…", #selector(AppDelegate.clearBrowsingData(_:)), "\u{8}", [.command, .shift]))
         return m

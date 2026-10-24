@@ -94,6 +94,40 @@ enum SelfTest {
                        "end": JSONValue(ends.first.map { "\(Int($0.x)),\(Int($0.y))" }), "bounds": .string("\(Int(bounds.width))x\(Int(bounds.height))")])
             }
 
+            // Form recovery: typing into a long field keeps a draft (never a card field, never the
+            // query string), a reload offers it back, and Restore fills the empty field.
+            let compose = """
+            <!doctype html><title>Compose</title><form>
+            <textarea id="body"></textarea><textarea id="card" autocomplete="cc-number"></textarea></form>
+            """
+            let composeURL = URL(string: "https://selftest.arcclone.test/compose?session=secret")!
+            let formTab = window.tabs.create(url: nil)
+            formTab.webView.loadHTMLString(compose, baseURL: composeURL)
+            _ = await waitUntil(10) { formTab.title == "Compose" }
+            let typed = "A long reply that would be painful to lose when the page crashes."
+            _ = try? await formTab.webView.evaluateJavaScript("""
+            for (const [id, text] of [['body', \(String(reflecting: typed))], ['card', '4111 1111 1111 1111 1111']]) {
+              const field = document.getElementById(id); field.value = text;
+              field.dispatchEvent(new InputEvent('input', { bubbles: true }));
+            }
+            """)
+            let saved = await waitUntil(5) { window.formDrafts?.drafts(for: composeURL).isEmpty == false }
+            let drafts = window.formDrafts?.drafts(for: composeURL) ?? []
+            formTab.webView.loadHTMLString(compose, baseURL: composeURL)
+            let offered = await waitUntil(10) { window.model.toast?.action?.title == "Restore" }
+            window.restoreTypedText(nil)
+            var refilled = ""
+            for _ in 0..<50 {
+                refilled = (try? await formTab.webView.evaluateJavaScript("document.getElementById('body').value")) as? String ?? ""
+                if refilled == typed { break }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            check("form recovery", saved && drafts.map(\.field) == ["textarea#body"] && drafts.first?.page == "https://selftest.arcclone.test/compose"
+                  && offered && refilled == typed,
+                  ["fields": .array(drafts.map { .string($0.field) }), "offered": .bool(offered), "restored": .bool(refilled == typed)])
+            window.formDrafts?.removeAll()
+            window.tabs.close(formTab.id)
+
             // ⌘K reads the live menus: browser commands validate through the window's responder
             // chain, text-editing commands and the palette itself stay out.
             let palette = PaletteCommands.all(in: window.model).map(\.title)

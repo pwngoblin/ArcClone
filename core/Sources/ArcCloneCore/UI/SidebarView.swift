@@ -45,7 +45,16 @@ struct SidebarView: View {
         .appAccent()
         .overlay(alignment: .bottom) {
             if let toast = window.toast {
-                Text(toast.message)
+                HStack(spacing: 10) {
+                    Text(toast.message)
+                    if let action = toast.action {
+                        Button(action.title) {
+                            window.toast = nil
+                            action.run()
+                        }
+                        .buttonStyle(.borderless).fontWeight(.semibold)
+                    }
+                }
                     .font(.callout)
                     .padding(.horizontal, 12).padding(.vertical, 7)
                     .background(.regularMaterial, in: Capsule())

@@ -75,6 +75,15 @@
       "matches": [
         "*"
       ]
+    },
+    {
+      "id": "form-recovery",
+      "file": "modules/form-recovery.js",
+      "injectionTime": "documentEnd",
+      "mainFrameOnly": true,
+      "matches": [
+        "*"
+      ]
     }
   ]
 }

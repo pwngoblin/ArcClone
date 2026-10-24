@@ -10,6 +10,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     private var assistant: Assistant!
     private var sessionStore: SessionStore!
     private(set) var history: History!
+    private(set) var formDrafts: FormDrafts!
     private(set) var siteSettings: SiteSettings!
     private(set) var adBlocker: AdBlocker!
     /// Installed extensions (every macOS version) and their runtime: `ExtensionManager` on macOS
@@ -94,6 +95,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         let isSelfTest = ProcessInfo.processInfo.arguments.contains("--self-test")
         history = History(directory: isSelfTest ? nil : paths.applicationSupport)
         await history.load()
+        formDrafts = FormDrafts(directory: isSelfTest ? nil : paths.applicationSupport)
+        await formDrafts.load()
         historyMenuDelegate.history = history
         NSApp.mainMenu?.item(withTitle: "History")?.submenu?.delegate = historyMenuDelegate
         bookmarks = Bookmarks(directory: isSelfTest ? nil : paths.applicationSupport)
@@ -129,8 +132,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         let session = primary.tabs.session
         Task {
             await sessionStore.save(session)
-            if Preferences.flag(Preferences.Key.clearHistoryOnQuit, default: false) { history?.clear() }
+            if Preferences.flag(Preferences.Key.clearHistoryOnQuit, default: false) {
+                history?.clear()
+                formDrafts?.removeAll()
+            }
             await history?.flush()
+            await formDrafts?.flush()
             await bookmarks?.flush()
             if Preferences.flag(Preferences.Key.clearWebsiteDataOnQuit, default: false) {
                 // Cookies, storage and caches are written by WebKit unencrypted; don't leave them behind
@@ -145,7 +152,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     @objc public func clearBrowsingData(_ sender: Any?) {
         let alert = NSAlert()
         alert.messageText = "Clear all browsing data?"
-        alert.informativeText = "This removes your browsing history, cookies, caches, site storage, the saved session and the assistant's context. Open tabs stay open, and you'll be signed out of websites."
+        alert.informativeText = "This removes your browsing history, cookies, caches, site storage, the saved session, saved typed text and the assistant's context. Open tabs stay open, and you'll be signed out of websites."
         alert.addButton(withTitle: "Clear")
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
@@ -155,6 +162,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
             await sessionStore.clear()
             history.clear()
             await history.flush()
+            formDrafts.removeAll()
+            await formDrafts.flush()
             assistant.context.reset()
             windows.forEach { $0.tabs.clearRecentlyClosed() }
         }
@@ -313,6 +322,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
             : self.factory!
         let controller = BrowserWindowController(factory: factory, assistant: assistant, history: isPrivate ? nil : history, isPrivate: isPrivate)
         controller.bookmarks = bookmarks
+        controller.formDrafts = isPrivate ? nil : formDrafts
         controller.onClose = { [weak self] closed in
             guard let self else { return }
             if self.primaryWindow === closed {

@@ -11,6 +11,11 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     let assistant: Assistant
     /// nil for private windows: they never record history.
     let history: History?
+    /// Long-field drafts (FormDrafts); nil in private windows, so nothing typed there is kept.
+    var formDrafts: FormDrafts?
+    /// The page each tab was last offered a restore for, so a page that updates its title
+    /// (page.didChange) is asked once, not on every change.
+    var formRestoreOffered: [UUID: String] = [:]
     /// Searched by the command bar (read-only, also in private windows).
     weak var bookmarks: Bookmarks?
     let model: WindowModel
