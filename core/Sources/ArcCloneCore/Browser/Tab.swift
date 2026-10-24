@@ -183,6 +183,8 @@ public final class Tab: NSObject {
                 continuation.resume(throwing: IPCError("timeout", "\(name) timed out"))
             }
         }
+        // Results come from a page we don't trust: refuse absurd sizes before parsing.
+        guard raw.utf8.count <= 4 * 1024 * 1024 else { throw IPCError("too_large", "\(name) returned too much data") }
         let reply = try JSONValue.parse(raw)
         if reply["ok"]?.bool == true { return reply["result"] ?? .null }
         let err = reply["error"]
@@ -278,6 +280,17 @@ public final class Tab: NSObject {
                 tab.notify()
             },
             watch(\.isLoading) { tab in guard !tab.isSleeping else { return }; tab.isLoading = tab.webView.isLoading; tab.notify() },
+            watch(\.fullscreenState) { tab in
+                switch tab.webView.fullscreenState {
+                case .inFullscreen:
+                    let origin = tab.webView.url.flatMap { $0.host } ?? "This page"
+                    FullscreenNotice.show(host: origin, on: tab.webView.window?.screen)
+                case .exitingFullscreen, .notInFullscreen:
+                    FullscreenNotice.hide()
+                default:
+                    break
+                }
+            },
             watch(\.canGoBack) { tab in tab.notify() },
             watch(\.canGoForward) { tab in tab.notify() },
         ]

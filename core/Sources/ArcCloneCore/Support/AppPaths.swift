@@ -21,6 +21,14 @@ public struct AppPaths: Sendable {
         return dir
     }
 
+    /// This file's path, used to find the repository in development builds. Release builds embed
+    /// nothing: a #filePath literal would put the builder's home folder (and username) in the binary.
+    #if DEBUG
+    public static let developmentSourceFile = #filePath
+    #else
+    public static let developmentSourceFile = ""
+    #endif
+
     public init(root: URL) {
         self.root = root.standardizedFileURL
     }
@@ -30,7 +38,7 @@ public struct AppPaths: Sendable {
     }
 
     public static func resolve(environment: [String: String] = ProcessInfo.processInfo.environment,
-                               sourceFile: String = #filePath,
+                               sourceFile: String = AppPaths.developmentSourceFile,
                                packagedResources: URL? = AppInfo.isPackaged ? Bundle.main.resourceURL : nil) -> AppPaths {
         if let packagedResources {
             let root = packagedResources.appendingPathComponent("ArcClone", isDirectory: true)

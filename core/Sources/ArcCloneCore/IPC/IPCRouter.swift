@@ -35,7 +35,13 @@ public final class IPCRouter {
         let handler: Handler
     }
 
-    public static let maxMessageBytes = 8 * 1024 * 1024
+    /// Page events are small (titles, selections ≤ 20k chars); anything larger is refused unread.
+    public static let maxMessageBytes = 256 * 1024
+    /// Per-tab token bucket: bursts up to `burst` messages, refilled at `perSecond`. A page that
+    /// churns its title or selection can't make our scripts flood native code.
+    static let burst = 60.0
+    static let perSecond = 20.0
+    private var buckets: [UUID: (tokens: Double, at: Date)] = [:]
 
     private var routes: [String: Route] = [:]
     public var onUnhandledEvent: (@MainActor (IPCContext, String, JSONValue) -> Void)?
@@ -49,6 +55,19 @@ public final class IPCRouter {
 
     public var registeredTypes: [String] { routes.keys.sorted() }
 
+    private func take(for tab: UUID, now: Date = Date()) -> Bool {
+        var bucket = buckets[tab] ?? (Self.burst, now)
+        bucket.tokens = min(Self.burst, bucket.tokens + now.timeIntervalSince(bucket.at) * Self.perSecond)
+        bucket.at = now
+        guard bucket.tokens >= 1 else { buckets[tab] = bucket; return false }
+        bucket.tokens -= 1
+        buckets[tab] = bucket
+        return true
+    }
+
+    /// Called when a tab closes so its bucket doesn't linger.
+    public func forget(tab: UUID) { buckets[tab] = nil }
+
     /// Entry point used by `ScriptMessageBridge`: raw WebKit body in, reply JSON string out.
     public func dispatch(rawBody: Any, source: IPCSource) async -> String {
         guard let body = rawBody as? String else {
@@ -56,6 +75,9 @@ public final class IPCRouter {
         }
         guard body.utf8.count <= Self.maxMessageBytes else {
             return IPCReply.failure(.malformed("Message exceeds \(Self.maxMessageBytes) bytes")).jsonString()
+        }
+        if let tab = source.tabID, !take(for: tab) {
+            return IPCReply.failure(IPCError("rate_limited", "Too many messages")).jsonString()
         }
         let envelope: IPCEnvelope
         do {

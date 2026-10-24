@@ -73,7 +73,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         await adBlocker.prepare()
         factory = WebViewFactory(registry: registry, siteSettings: siteSettings, adBlocker: adBlocker)
         if #available(macOS 15.4, *), !ProcessInfo.processInfo.arguments.contains("--self-test") {
-            let manager = ExtensionManager()
+            let manager = ExtensionManager(directory: paths.applicationSupport)
             manager.windows = { [weak self] in self?.windows.filter { !$0.isPrivate } ?? [] }
             manager.focusedWindow = { [weak self] in
                 (NSApp.keyWindow?.windowController as? BrowserWindowController).flatMap { $0.isPrivate ? nil : $0 } ?? self?.primaryWindow
