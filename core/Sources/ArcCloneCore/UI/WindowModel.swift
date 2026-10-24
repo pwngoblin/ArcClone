@@ -131,6 +131,12 @@ public final class WindowModel {
         Haptics.tap()
     }
 
+    /// ⌘K: tabs, history and bookmarks plus every browser command, space and extension.
+    func presentCommandPalette() {
+        commandBar = CommandBarModel(newTab: false, query: "", window: self, palette: true)
+        Haptics.tap()
+    }
+
     func dismissCommandBar() {
         commandBar = nil
         controller?.focusActivePage()

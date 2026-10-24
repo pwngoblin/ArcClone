@@ -62,6 +62,7 @@ enum MainMenu {
         m.addItem(item("New Private Window", #selector(AppDelegate.newPrivateWindow(_:)), "n", [.command, .shift]))
         m.addItem(item("Open File…", #selector(AppDelegate.openDocument(_:)), "o"))
         m.addItem(item("Open Location…", #selector(BrowserWindowController.focusAddressBar(_:)), "l"))
+        m.addItem(item("Command Palette…", #selector(BrowserWindowController.showCommandPalette(_:)), "k"))
         m.addItem(.separator())
         m.addItem(item("Import from Another Browser…", #selector(AppDelegate.showMigration(_:))))
         m.addItem(.separator())

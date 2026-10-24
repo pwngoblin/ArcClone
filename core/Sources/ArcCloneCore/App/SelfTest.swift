@@ -94,6 +94,14 @@ enum SelfTest {
                        "end": JSONValue(ends.first.map { "\(Int($0.x)),\(Int($0.y))" }), "bounds": .string("\(Int(bounds.width))x\(Int(bounds.height))")])
             }
 
+            // ⌘K reads the live menus: browser commands validate through the window's responder
+            // chain, text-editing commands and the palette itself stay out.
+            let palette = PaletteCommands.all(in: window.model).map(\.title)
+            // (Titles are as validation leaves them: "Toggle Sidebar" reads "Hide Sidebar" while it's shown.)
+            check("command palette", ["New Tab", "Reload Page", "Pin Tab", "Two Side by Side", "Hide Sidebar"].allSatisfy(palette.contains)
+                  && !palette.contains("Copy") && !palette.contains("Command Palette…"),
+                  ["count": .number(Double(palette.count)), "sample": .array(palette.prefix(8).map(JSONValue.string))])
+
             // ArcClone's own pages run without page JavaScript, keep the tab's address and stay out of history.
             let internalTab = window.tabs.create(url: nil, activate: false)
             internalTab.showInternalPage("<!doctype html><title>internal</title><script>document.title = 'scripts ran'</script>", for: nil)

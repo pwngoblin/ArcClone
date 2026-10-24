@@ -40,6 +40,10 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
         model.presentCommandBar(newTab: false)
     }
 
+    @objc public func showCommandPalette(_ sender: Any?) {
+        model.presentCommandPalette()
+    }
+
     @objc public func reloadPage(_ sender: Any?) { tabs.active?.reload() }
     @objc public func hardReloadPage(_ sender: Any?) { tabs.active?.webView.reloadFromOrigin() }
     @objc public func goBack(_ sender: Any?) { tabs.active?.goBack() }
