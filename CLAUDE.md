@@ -60,6 +60,28 @@ All code written for this project must strictly comply with Apple’s platform s
 
 ---
 
+## WebExtension & Native Messaging Architecture (`core/`, `injections/`, `agent-bridge/`)
+To enable official WebExtensions (such as 1Password, Bitwarden, or standard Manifest V3 extensions) directly within the native Swift/WebKit architecture, the codebase must conform to the following module contracts:
+
+1. **Manifest V3 Specification & Metadata Parsing (`core/ExtensionManifest.swift` & `core/ExtensionManager.swift`)**:
+   - `ExtensionManifest` must be fully `Codable` and `Sendable`, supporting `manifest_version`, background scripts/service workers, permissions, and content script matchers.
+   - `ExtensionManager` must operate inside an `@globalActor` or isolated `actor` context (`ExtensionActor`), loading extensions asynchronously from local directory URLs inside sandboxed paths without blocking the UI thread.
+
+2. **WebKit Script Injections & Schema-Validated Bridge (`injections/ExtensionScriptInjector.swift` & `injections/ExtensionMessageBridge.swift`)**:
+   - Inject extension content scripts into `WKWebView` instances via `WKUserScript` bound to `WKUserContentController`.
+   - Implement `ExtensionMessageBridge` as a `WKScriptMessageHandler` that accepts schema-validated JSON payloads (`action`, `payload`).
+   - Block dynamic string evaluation (`eval`, string-based `setTimeout`) and enforce `os.Logger` for event tracing.
+
+3. **Secure Native Messaging IPC Host (`agent-bridge/NativeMessagingHostManager.swift`)**:
+   - 1Password integration requires IPC communication with the 1Password desktop companion via `chrome.runtime.connectNative()`.
+   - `NativeMessagingHostManager` must be an `actor` that locates native messaging host JSON manifests in standard system locations (`~/Library/Application Support/Google/Chrome/NativeMessagingHosts/`).
+   - Spawn host binaries via `Process()` directly using absolute paths and strict array arguments (`arguments: [String]`). **Never** route through `/bin/sh` or system shells. Connect standard input and output pipes (`stdin`/`stdout`) for length-prefixed JSON IPC messaging.
+
+4. **UI Action Integration (`ui/ExtensionToolbarView.swift`)**:
+   - Provide clean SwiftUI controls for extension toolbar buttons, popup anchors, and badges using SF Symbols and native macOS layout paradigms.
+
+---
+
 ## Git & GitHub Automation Workflow
 When given any task, feature implementation, or bug fix, you MUST follow this git discipline automatically:
 
