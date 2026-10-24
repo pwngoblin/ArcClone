@@ -51,7 +51,7 @@ private, so they don't appear in Console or crash reports.
 | Ad blocking with filter lists on | a weekly download of each list | the list's maintainer (EasyList, uBlock, AdGuard, Peter Lowe), who sees your IP address | Settings → Privacy → filter lists (the built-in list needs no download) |
 | You add an extension from the store | the extension's ID, without cookies or stored logins | Google (Chrome Web Store) | only when you ask |
 | Fraudulent-site warnings | parts of hashes of addresses, checked against lists of known fraud sites | Apple, which relays the lookups to its Safe Browsing providers | Settings → Privacy → *Warn about fraudulent websites* (on by default, as in Safari) |
-| Handoff | the current page's address and title | your devices on your Apple account | **off by default**; Settings → Privacy → *Continue pages on other devices* |
+| Handoff (sending) | the current page's address and title | your devices on your Apple account | **off by default**; Settings → Privacy → *Continue pages on other devices*. Receiving a page from your other devices sends nothing. |
 | You use the assistant | the page's text and your question | Ollama on your Mac, or the Ollama host you set (HTTPS, optionally pinned) | the assistant's server setting |
 | Links from other apps | nothing extra: they open in Little Lily or a tab | — | — |
 
