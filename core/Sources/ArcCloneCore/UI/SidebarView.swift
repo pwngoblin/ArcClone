@@ -179,7 +179,7 @@ private struct TabListView: View {
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
         .animation(.smooth(duration: 0.2), value: window.tabs.map(\.id))
-        .animation(.smooth(duration: 0.25), value: window.splitIDs)
+        .animation(.smooth(duration: 0.25), value: window.splitGroups)
     }
 }
 

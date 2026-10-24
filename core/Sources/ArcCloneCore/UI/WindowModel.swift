@@ -26,8 +26,8 @@ public final class WindowModel {
     /// Horizontal offset of the tab list while a space swipe is in progress.
     var spaceDragOffset: CGFloat = 0
     var currentSpace: Space? { spaces.first { $0.id == currentSpaceID } }
-    var splitLayout: SplitLayout?
-    var splitIDs: [UUID] = []
+    /// Every split group, in pane order; the active tab's group is the one on screen.
+    var splitGroups: [SplitGroup] = []
 
     /// One row of the sidebar's tab list: a tab, or a split group drawn as a single pill.
     enum ListItem: Identifiable {
@@ -42,15 +42,15 @@ public final class WindowModel {
         }
     }
 
-    /// Regular tabs, with split members folded into one group at the first member's position.
+    /// Regular tabs, with each split's members folded into one item at its first member's position.
     var regularItems: [ListItem] {
         var items: [ListItem] = []
-        var placedSplit = false
+        var placed = Set<Int>()
         for tab in regularTabs {
-            if let layout = splitLayout, splitIDs.contains(tab.id) {
-                guard !placedSplit else { continue }
-                placedSplit = true
-                items.append(.split(layout, splitIDs.compactMap { id in tabs.first { $0.id == id } }))
+            if let index = splitGroups.firstIndex(where: { $0.tabIDs.contains(tab.id) }) {
+                guard placed.insert(index).inserted else { continue }
+                let group = splitGroups[index]
+                items.append(.split(group.layout, group.tabIDs.compactMap { id in tabs.first { $0.id == id } }))
             } else {
                 items.append(.tab(tab))
             }
@@ -98,13 +98,12 @@ public final class WindowModel {
         let items = store.visibleTabs.map { tab in
             TabItem(id: tab.id, title: tab.title.isEmpty ? (tab.url?.host ?? "New Tab") : tab.title, url: tab.url,
                     favicon: tab.faviconURL, isLoading: tab.isLoading, isPinned: tab.isPinned,
-                    isYouTubeVideo: tab.youtubeVideoID != nil, inSplit: store.split?.tabIDs.contains(tab.id) ?? false,
+                    isYouTubeVideo: tab.youtubeVideoID != nil, inSplit: store.splitGroup(containing: tab.id) != nil,
                     isSleeping: tab.isSleeping)
         }
         hasSplit = store.split != nil
         splitCanGrow = store.split?.layout.grown != nil
-        splitLayout = store.split?.layout
-        splitIDs = store.split?.tabIDs ?? []
+        if splitGroups != store.splits { splitGroups = store.splits }
         if items != tabs { tabs = items }
         if activeID != store.activeID { activeID = store.activeID }
         canGoBack = store.active?.webView.canGoBack ?? false
