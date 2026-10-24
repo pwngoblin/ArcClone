@@ -46,7 +46,7 @@ final class CommandBarModel: Identifiable {
         let tabs = window.tabs.filter { $0.id != window.activeID || newTab }
             .filter { $0.title.lowercased().contains(needle) || ($0.url?.absoluteString.lowercased().contains(needle) ?? false) }
         out += tabs.prefix(4).map { .tab(id: $0.id, title: $0.title, url: $0.url) }
-        if let bookmarks = (NSApp.delegate as? AppDelegate)?.bookmarks {
+        if let bookmarks = window.controller?.bookmarks {
             let open = Set(out.compactMap { if case .tab(_, _, let url) = $0 { url } else { nil } })
             for link in bookmarks.search(q, limit: 3) where !open.contains(link.url!) {
                 out.append(.bookmark(title: link.title.isEmpty ? link.url!.absoluteString : link.title, url: link.url!))

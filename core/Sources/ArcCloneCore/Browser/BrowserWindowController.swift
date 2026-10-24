@@ -11,6 +11,8 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     let assistant: Assistant
     /// nil for private windows: they never record history.
     let history: History?
+    /// Searched by the command bar (read-only, also in private windows).
+    weak var bookmarks: Bookmarks?
     let model: WindowModel
     var urlResolver: URLResolver { Preferences.urlResolver }
     let factory: WebViewFactory

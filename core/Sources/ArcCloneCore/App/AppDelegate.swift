@@ -311,6 +311,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
             ? WebViewFactory(registry: registry, dataStore: .nonPersistent(), siteSettings: siteSettings, savesSiteChanges: false, adBlocker: adBlocker)
             : self.factory!
         let controller = BrowserWindowController(factory: factory, assistant: assistant, history: isPrivate ? nil : history, isPrivate: isPrivate)
+        controller.bookmarks = bookmarks
         controller.onClose = { [weak self] closed in
             guard let self else { return }
             if self.primaryWindow === closed {
