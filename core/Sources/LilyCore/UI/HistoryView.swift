@@ -116,7 +116,7 @@ struct HistoryView: View {
                 if !sites.isEmpty {
                     Section("Most Visited") {
                         ForEach(sites, id: \.host) { site in
-                            Label { Text(site.host).lineLimit(1) } icon: { FaviconView(url: URL(string: "https://\(site.host)/favicon.ico"), size: 16) }
+                            Label { Text(site.host).lineLimit(1) } icon: { FaviconView(page: URL(string: "https://\(site.host)/"), size: 16) }
                                 .badge(site.count)
                                 .tag(HistoryFilter.site(site.host))
                         }
@@ -229,7 +229,7 @@ private struct HistoryRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            FaviconView(url: visit.url.faviconGuess, size: 20)
+            FaviconView(page: visit.url, size: 20) // kept icons only: a list must not contact the sites in it
             VStack(alignment: .leading, spacing: 2) {
                 Text(visit.title.isEmpty ? (visit.url.host ?? visit.url.absoluteString) : visit.title)
                     .font(.system(size: 13, weight: .medium)).lineLimit(1)

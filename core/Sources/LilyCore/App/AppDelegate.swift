@@ -105,6 +105,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         // The self-test must not leave its fixture pages in the user's real history.
         let isSelfTest = ProcessInfo.processInfo.arguments.contains("--self-test")
         history = History(directory: isSelfTest ? nil : paths.applicationSupport)
+        // Kept site icons follow history: whatever history forgets, its icons go too.
+        await FaviconLoader.shared.load(directory: isSelfTest ? nil : paths.applicationSupport)
+        history.onForget = { FaviconLoader.shared.forget($0) }
         await history.load()
         formDrafts = FormDrafts(directory: isSelfTest ? nil : paths.applicationSupport)
         await formDrafts.load()

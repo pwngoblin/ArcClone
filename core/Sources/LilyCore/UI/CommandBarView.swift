@@ -237,7 +237,7 @@ private struct SuggestionRow: View {
         switch suggestion {
         case .open: Image(systemName: "globe").foregroundStyle(.secondary)
         case .search: Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-        case .tab(_, _, let url): FaviconView(url: url?.faviconGuess, size: 18)
+        case .tab(_, _, let url): FaviconView(page: url, size: 18) // may be asleep: kept icons only
         case .history: Image(systemName: "clock.arrow.circlepath").foregroundStyle(.secondary)
         case .bookmark: Image(systemName: "bookmark.fill").foregroundStyle(.tint)
         case .command(let command): Image(systemName: command.symbol).foregroundStyle(.secondary)

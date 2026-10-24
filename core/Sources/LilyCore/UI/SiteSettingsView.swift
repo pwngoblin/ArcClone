@@ -15,7 +15,7 @@ struct SiteSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
-                FaviconView(url: url.faviconGuess, size: 22)
+                FaviconView(page: url, fetch: url.faviconGuess, remember: !isPrivate, size: 22)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(host).font(.headline).lineLimit(1)
                     Label(url.scheme == "https" ? "Connection is secure" : "Connection is not secure",
