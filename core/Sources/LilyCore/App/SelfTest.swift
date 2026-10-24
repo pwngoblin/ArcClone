@@ -343,6 +343,20 @@ enum SelfTest {
                   ["sameWebView": .bool(moved), "littleClosed": .bool(closed), "notReloaded": .bool(sameStamp),
                    "textAndScroll": JSONValue(kept), "messagesReachMain": .bool(routed), "menu": .bool(canMove && mainHidesIt)])
             window.tabs.close(littlePage.id)
+            // Link tracking protection: a clicked link's click and campaign identifiers are gone
+            // from the address the tab goes to; its other parameters stay.
+            let trackedTab = window.tabs.create(url: nil)
+            trackedTab.webView.loadHTMLString("""
+                <!doctype html><title>Links</title>
+                <a id="go" href="https://selftest.lily.test/landing?id=7&utm_source=newsletter&fbclid=IwAR123">go</a>
+                """, baseURL: URL(string: "https://selftest.lily.test/links")!)
+            _ = await waitUntil(10) { trackedTab.title == "Links" }
+            _ = try? await trackedTab.webView.evaluateJavaScript("document.getElementById('go').click()")
+            _ = await waitUntil(5) { trackedTab.webView.url?.path == "/landing" }
+            let landed = trackedTab.webView.url?.absoluteString ?? ""
+            check("link tracking protection", landed == "https://selftest.lily.test/landing?id=7",
+                  ["navigatedTo": .string(landed)])
+            window.tabs.close(trackedTab.id)
 
             // ⌘K reads the live menus: browser commands validate through the window's responder
             // chain, text-editing commands and the palette itself stay out.

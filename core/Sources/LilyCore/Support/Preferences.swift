@@ -25,6 +25,8 @@ public enum Preferences {
         public static let sleepTabsAfter = "SleepTabsAfterMinutes"
         /// Links from other apps open in Little Lily (on by default, as in Arc) or as tabs.
         public static let linksOpenInLittleLily = "LinksOpenInLittleLily"
+        /// Link tracking protection (LinkTracking); on by default.
+        public static let removeLinkTracking = "RemoveLinkTracking"
         /// Web Inspector, Inspect Element and the Develop menu (WebInspector); off by default.
         public static let webDeveloperFeatures = "WebDeveloperFeatures"
         /// Minutes before a split pane you aren't using is paused (PaneFreezer); 0 = never.

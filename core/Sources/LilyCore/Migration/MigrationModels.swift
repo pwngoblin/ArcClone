@@ -128,11 +128,6 @@ public struct BrowserScan: Equatable, Sendable {
 
 /// Address handling for imports and de-duplication.
 public enum URLNormalizer {
-    /// Query parameters that only track where a click came from.
-    static let trackingParameters: Set<String> = [
-        "fbclid", "gclid", "dclid", "gbraid", "wbraid", "msclkid", "mc_cid", "mc_eid", "igshid", "yclid", "_hsenc", "_hsmi",
-        "mkt_tok", "ref_src", "twclid", "ttclid", "li_fat_id", "_ga", "_gl", "oly_anon_id", "oly_enc_id", "vero_id",
-    ]
     static let maxLength = 4_096
 
     /// Only web pages are imported; `javascript:` bookmarklets, `file:` and browser-internal pages aren't.
@@ -149,10 +144,7 @@ public enum URLNormalizer {
         parts.host = parts.host?.lowercased()
         if (parts.scheme == "https" && parts.port == 443) || (parts.scheme == "http" && parts.port == 80) { parts.port = nil }
         if let items = parts.queryItems {
-            let kept = items.filter { item in
-                let name = item.name.lowercased()
-                return !name.hasPrefix("utm_") && !trackingParameters.contains(name)
-            }
+            let kept = items.filter { !LinkTracking.isTracking($0.name) }
             parts.queryItems = kept.isEmpty ? nil : kept
         }
         if parts.path.count > 1, parts.path.hasSuffix("/") { parts.path.removeLast() }
