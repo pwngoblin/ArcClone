@@ -177,6 +177,11 @@ enum SelfTest {
                 let value = try? await idlePane.webView.evaluateJavaScript("frames_")
                 return (value as? Double) ?? (value as? NSNumber)?.doubleValue ?? -1
             }
+            // Animation frames only run in a visible window: measure with Lily in front, so another
+            // window covering it doesn't read as "paused" (it did, once, on a busy desktop).
+            NSApp.activate()
+            window.window?.makeKeyAndOrderFront(nil)
+            _ = await waitUntil(3) { window.window?.isKeyWindow == true && window.window?.occlusionState.contains(.visible) == true }
             try? await Task.sleep(for: .milliseconds(300))
             let start = await frames()
             try? await Task.sleep(for: .milliseconds(1500))
