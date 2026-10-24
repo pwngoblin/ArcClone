@@ -1,15 +1,15 @@
-// ArcClone ad blocking for YouTube. Network rules can't separate YouTube's ads from its videos
+// Lily ad blocking for YouTube. Network rules can't separate YouTube's ads from its videos
 // (same servers), so this works in the page: it hides ad slots and, when the player shows an ad,
 // mutes it, fast-forwards to the end and presses Skip. Runs in the isolated injection world, so
 // YouTube's own scripts can't see or tamper with it.
 (() => {
   "use strict";
-  const arc = window.__arc;
-  if (!arc || window.__arcYouTubeAdBlock) return;
-  window.__arcYouTubeAdBlock = true;
+  const lily = window.__lily;
+  if (!lily || window.__lilyYouTubeAdBlock) return;
+  window.__lilyYouTubeAdBlock = true;
 
   let enabled = true;
-  const STYLE_ID = "arcclone-youtube-adblock";
+  const STYLE_ID = "lily-youtube-adblock";
   const HIDE = [
     "ytd-ad-slot-renderer", "ytd-in-feed-ad-layout-renderer", "ytd-display-ad-renderer", "ytd-promoted-sparkles-web-renderer",
     "ytd-promoted-video-renderer", "ytd-banner-promo-renderer", "ytd-statement-banner-renderer", "ytd-companion-slot-renderer",
@@ -85,7 +85,7 @@
     document.addEventListener("yt-navigate-finish", findPlayer);
   }
 
-  arc.register("adblock.configure", ({ enabled: on } = {}) => {
+  lily.register("adblock.configure", ({ enabled: on } = {}) => {
     enabled = on !== false;
     setStyle(enabled);
     if (enabled) handlePlayer();

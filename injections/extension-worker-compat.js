@@ -1,7 +1,7 @@
-// ArcClone: inert stand-ins for chrome.* namespaces that WebKit's extension runtime doesn't
+// Lily: inert stand-ins for chrome.* namespaces that WebKit's extension runtime doesn't
 // provide, for extensions built for Chrome that use them as soon as their background starts
 // (1Password's worker calls chrome.notifications.onClicked.addListener at startup and dies
-// without it). ArcClone adds this file in front of the extension's background when it installs
+// without it). Lily adds this file in front of the extension's background when it installs
 // the extension; it's part of the audited, pinned copy.
 //
 // - Only namespaces the manifest asks for and WebKit lacks. A real API is never replaced.
@@ -13,12 +13,12 @@
 (() => {
   'use strict';
   const api = globalThis.chrome;
-  if (!api || !api.runtime || globalThis.__arcWorkerCompat) return;
+  if (!api || !api.runtime || globalThis.__lilyWorkerCompat) return;
   // WebKit's namespace objects are wrappers it may discard when nothing references them, and a
   // re-created wrapper loses what was added to the old one. Holding every patched object from
   // the global keeps its wrapper, and so its additions, alive.
   const patched = [];
-  Object.defineProperty(globalThis, '__arcWorkerCompat', { value: patched });
+  Object.defineProperty(globalThis, '__lilyWorkerCompat', { value: patched });
   const add = (target, name, value) => {
     try {
       Object.defineProperty(target, name, { value, configurable: true, enumerable: true });
@@ -28,7 +28,7 @@
 
   const manifest = api.runtime.getManifest();
   const requested = new Set([...(manifest.permissions || []), ...(manifest.optional_permissions || [])]);
-  const unsupported = (name) => new Error(`${name} isn't supported in ArcClone`);
+  const unsupported = (name) => new Error(`${name} isn't supported in Lily`);
 
   const event = () => {
     const listeners = new Set();
@@ -84,7 +84,7 @@
       let counter = 0;
       return {
         // Accepted so callers continue, but nothing is shown.
-        create: (...args) => settle(args, ([id]) => (typeof id === 'string' && id) || `arcclone-${++counter}`),
+        create: (...args) => settle(args, ([id]) => (typeof id === 'string' && id) || `lily-${++counter}`),
         update: returns(false),
         clear: returns(false),
         getAll: returns({}),
@@ -147,7 +147,7 @@
     }),
   };
 
-  // `storage.managed` holds enterprise policy, which ArcClone has none of: always empty, read-only.
+  // `storage.managed` holds enterprise policy, which Lily has none of: always empty, read-only.
   const managedStorage = () => ({
     get: returns({}),
     getBytesInUse: returns(0),

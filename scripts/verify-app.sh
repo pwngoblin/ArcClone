@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Audits a built ArcClone.app against the project's security baseline. Run by bundle.sh and CI;
-# any failure exits non-zero. Usage: scripts/verify-app.sh [path/to/ArcClone.app]
+# Audits a built Lily.app against the project's security baseline. Run by bundle.sh and CI;
+# any failure exits non-zero. Usage: scripts/verify-app.sh [path/to/Lily.app]
 set -euo pipefail
 # Never trust an inherited PATH: only the system tool directories (Xcode tools are shims in /usr/bin).
 export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
 
-APP="${1:-$(cd "$(dirname "$0")/.." && pwd)/build/ArcClone.app}"
-BIN="$APP/Contents/MacOS/ArcClone"
+APP="${1:-$(cd "$(dirname "$0")/.." && pwd)/build/Lily.app}"
+BIN="$APP/Contents/MacOS/Lily"
 PLIST="$APP/Contents/Info.plist"
 failures=0
 fail() { echo "✘ $*" >&2; failures=$((failures + 1)); }

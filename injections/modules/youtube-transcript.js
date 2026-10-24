@@ -6,9 +6,9 @@
 // Runs in the isolated content world; same-origin fetches carry the user's YouTube cookies.
 (() => {
   "use strict";
-  const arc = window.__arc;
-  if (!arc || window.__arcYouTubeTranscript) return;
-  window.__arcYouTubeTranscript = true;
+  const lily = window.__lily;
+  if (!lily || window.__lilyYouTubeTranscript) return;
+  window.__lilyYouTubeTranscript = true;
 
   const cache = new Map(); // key `${videoId}:${lang}` -> transcript
 
@@ -196,7 +196,7 @@
         }
       }
     } catch (e) {
-      if (arc.debug) console.debug("[arc] caption track path failed", e);
+      if (lily.debug) console.debug("[lily] caption track path failed", e);
     }
     if (!segments.length) {
       source = "transcript-panel";
@@ -219,9 +219,9 @@
     return result;
   }
 
-  arc.register("youtube.transcript", transcript);
-  arc.register("youtube.videoInfo", () => ({ videoId: videoIdFrom(location.href), url: location.href }));
-  arc.register("youtube.seek", ({ seconds }) => {
+  lily.register("youtube.transcript", transcript);
+  lily.register("youtube.videoInfo", () => ({ videoId: videoIdFrom(location.href), url: location.href }));
+  lily.register("youtube.seek", ({ seconds }) => {
     const video = document.querySelector("video");
     if (!video) return { ok: false };
     video.currentTime = Math.max(0, Number(seconds) || 0);
@@ -233,13 +233,13 @@
     const id = videoIdFrom(location.href);
     if (id === lastVideo) return;
     lastVideo = id;
-    arc.emit("youtube.videoChanged", { videoId: id, url: location.href });
+    lily.emit("youtube.videoChanged", { videoId: id, url: location.href });
   }
   announce();
   document.addEventListener("yt-navigate-finish", () => setTimeout(announce, 100));
   window.addEventListener("popstate", announce);
   // Also nudged by native code on URL changes (no polling timer).
-  arc.register("youtube.recheck", () => {
+  lily.register("youtube.recheck", () => {
     announce();
     return null;
   });

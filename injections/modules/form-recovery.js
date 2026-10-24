@@ -7,9 +7,9 @@
 // or emptying the field forgets it. Restoring only fills fields that are empty, as plain text.
 (() => {
   "use strict";
-  const arc = window.__arc;
-  if (!arc || window.__arcFormRecovery) return;
-  window.__arcFormRecovery = true;
+  const lily = window.__lily;
+  if (!lily || window.__lilyFormRecovery) return;
+  window.__lilyFormRecovery = true;
 
   const MIN_CHARS = 20;
   const MAX_CHARS = 40000; // fits the 256 KB message limit even for 4-byte characters
@@ -56,9 +56,9 @@
   function send(key, element) {
     const text = textOf(element) || "";
     if (text.trim().length < MIN_CHARS) {
-      arc.emit("form.clear", { url: location.href, field: key });
+      lily.emit("form.clear", { url: location.href, field: key });
     } else {
-      arc.emit("form.snapshot", { url: location.href, field: key, text: text.slice(0, MAX_CHARS) });
+      lily.emit("form.snapshot", { url: location.href, field: key, text: text.slice(0, MAX_CHARS) });
     }
   }
 
@@ -93,7 +93,7 @@
       const entry = pending.get(key);
       if (entry) clearTimeout(entry.timer);
       pending.delete(key);
-      arc.emit("form.clear", { url: location.href, field: key });
+      lily.emit("form.clear", { url: location.href, field: key });
     }
   }, { capture: true });
 
@@ -113,7 +113,7 @@
   }
 
   // Native asks after the user chose Restore. Fills empty fields only; returns how many.
-  arc.register("form.restore", ({ drafts } = {}) => {
+  lily.register("form.restore", ({ drafts } = {}) => {
     if (!Array.isArray(drafts)) return { restored: 0 };
     const fields = candidates();
     const empty = fields.filter((element) => textOf(element).trim() === "");
@@ -131,5 +131,5 @@
   });
 
   // Whether this page has fields a draft could go back into (native offers Restore only then).
-  arc.register("form.fields", () => ({ count: candidates().length }));
+  lily.register("form.fields", () => ({ count: candidates().length }));
 })();

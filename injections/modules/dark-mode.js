@@ -1,12 +1,12 @@
-// ArcClone dark mode for websites.
+// Lily dark mode for websites.
 // "forced": if the page is still light after WebKit asked for its dark theme, invert it with a
 // CSS filter and re-invert media so photos and video keep their real colours.
 (() => {
   "use strict";
-  const arc = window.__arc;
-  if (!arc) return;
+  const lily = window.__lily;
+  if (!lily) return;
 
-  const STYLE_ID = "arcclone-force-dark";
+  const STYLE_ID = "lily-force-dark";
   const CSS = `
     html { filter: invert(0.92) hue-rotate(180deg) !important; background: #0f0f10 !important; }
     img, video, picture, canvas, iframe, embed, object, svg image,
@@ -47,5 +47,5 @@
     return { applied: true };
   }
 
-  arc.register("darkMode.apply", ({ mode } = {}) => apply(mode));
+  lily.register("darkMode.apply", ({ mode } = {}) => apply(mode));
 })();

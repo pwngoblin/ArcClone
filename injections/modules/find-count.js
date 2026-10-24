@@ -3,14 +3,14 @@
 // page's visible text, up to MAX.
 (() => {
   "use strict";
-  const arc = window.__arc;
-  if (!arc || !arc.isMainFrame || window.__arcFindCount) return;
-  window.__arcFindCount = true;
+  const lily = window.__lily;
+  if (!lily || !lily.isMainFrame || window.__lilyFindCount) return;
+  window.__lilyFindCount = true;
 
   const MAX = 1000;
   const MAX_QUERY = 500;
 
-  arc.register("find.count", ({ query } = {}) => {
+  lily.register("find.count", ({ query } = {}) => {
     if (typeof query !== "string" || !query || query.length > MAX_QUERY || !document.body) return { count: 0 };
     const needle = query.toLocaleLowerCase();
     const text = document.body.innerText.toLocaleLowerCase();

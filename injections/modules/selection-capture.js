@@ -1,9 +1,9 @@
 // Reports meaningful text selections to core so the assistant can offer "ask about selection".
 (() => {
   "use strict";
-  const arc = window.__arc;
-  if (!arc || window.__arcSelectionCapture) return;
-  window.__arcSelectionCapture = true;
+  const lily = window.__lily;
+  if (!lily || window.__lilySelectionCapture) return;
+  window.__lilySelectionCapture = true;
 
   const MIN_CHARS = 3;
   const MAX_CHARS = 20000;
@@ -26,15 +26,15 @@
       if (text === last) return;
       last = text;
       if (!text) {
-        arc.emit("selection.cleared", { url: location.href });
+        lily.emit("selection.cleared", { url: location.href });
         return;
       }
       if (text.length < MIN_CHARS) return;
-      arc.emit("selection.changed", {
+      lily.emit("selection.changed", {
         url: location.href,
         text: text.slice(0, MAX_CHARS),
         truncated: text.length > MAX_CHARS,
-        mainFrame: arc.isMainFrame,
+        mainFrame: lily.isMainFrame,
       });
     }, 350);
   });

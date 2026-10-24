@@ -1,4 +1,4 @@
-# Builds, versions and publishes ArcClone.dmg.
+# Builds, versions and publishes Lily.dmg.
 #
 #   Pull request into `release` / `testing`  -> test, build the DMG, attach it to the run (Artifacts)
 #   Merge (push) into `release`              -> tag vX.Y.Z (from ./VERSION) and publish a GitHub Release
@@ -78,11 +78,11 @@ jobs:
           sha="$(echo "$COMMIT_SHA" | cut -c1-7)"
           case "$CHANNEL" in
             release) tag="v$version"; prerelease=false
-                     if [ "${{ github.event_name }}" = push ]; then dmg="ArcClone-$version.dmg"
-                     else dmg="ArcClone-$version-rc.${{ github.run_number }}-$sha.dmg"; fi ;;
+                     if [ "${{ github.event_name }}" = push ]; then dmg="Lily-$version.dmg"
+                     else dmg="Lily-$version-rc.${{ github.run_number }}-$sha.dmg"; fi ;;
             testing) tag="v$version-testing.${{ github.run_number }}"; prerelease=true
-                     dmg="ArcClone-$version-testing.${{ github.run_number }}-$sha.dmg" ;;
-            *)       tag=""; prerelease=true; dmg="ArcClone-$version-dev.${{ github.run_number }}-$sha.dmg" ;;
+                     dmg="Lily-$version-testing.${{ github.run_number }}-$sha.dmg" ;;
+            *)       tag=""; prerelease=true; dmg="Lily-$version-dev.${{ github.run_number }}-$sha.dmg" ;;
           esac
           {
             echo "version=$version"; echo "tag=$tag"; echo "dmg=$dmg"; echo "prerelease=$prerelease"
@@ -160,7 +160,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ env.DMG_NAME }}.dSYM
-          path: build/ArcClone.app.dSYM
+          path: build/Lily.app.dSYM
           if-no-files-found: warn
           retention-days: 90
 
@@ -172,7 +172,7 @@ jobs:
           {
             echo "### 📦 $DMG_NAME"
             echo "- Channel: \`$CHANNEL\` · Version: \`$VERSION\` (build $BUILD_NUMBER)"
-            echo "- Architectures: $(lipo -archs build/ArcClone.app/Contents/MacOS/ArcClone)"
+            echo "- Architectures: $(lipo -archs build/Lily.app/Contents/MacOS/Lily)"
             echo "- Signing: $signed"
             echo "- Size: $(du -h "build/$DMG_NAME" | cut -f1) · SHA-256: \`$(cut -d' ' -f1 "build/$DMG_NAME.sha256")\`"
             echo
@@ -210,12 +210,12 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "ArcClone $TAG" "$GITHUB_SHA"
+          git tag -a "$TAG" -m "Lily $TAG" "$GITHUB_SHA"
           git push origin "refs/tags/$TAG"
 
       - name: Publish GitHub release
         run: |
-          flags=(--verify-tag --generate-notes --title "ArcClone ${TAG#v}")
+          flags=(--verify-tag --generate-notes --title "Lily ${TAG#v}")
           if [ "${{ needs.build.outputs.prerelease }}" = true ]; then flags+=(--prerelease); else flags+=(--latest); fi
           gh release create "$TAG" "${flags[@]}" "dist/$DMG" "dist/$DMG.sha256"
           echo "Published [$TAG]($(gh release view "$TAG" --json url -q .url))" >> "$GITHUB_STEP_SUMMARY"
