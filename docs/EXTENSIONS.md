@@ -98,6 +98,11 @@ The modules `CLAUDE.md` names live in the Swift package (`core/Sources/ArcCloneC
 | Native messaging | `Extensions/NativeMessagingHostManager.swift` | See below. Never starts a process. |
 | Toolbar | `UI/ExtensionToolbarView.swift` | SwiftUI popover: each extension's icon and action badge, Add and Manage. |
 
+**Chrome APIs WebKit doesn't have.** WebKit's runtime provides `action`, `alarms`, `commands`, `contextMenus`, `declarativeNetRequest`, `dom`, `extension`, `i18n`, `permissions`, `runtime`, `scripting`, `storage`, `tabs`, `webNavigation`, `webRequest` and `windows`. Extensions built for Chrome may call others as soon as their background starts and die without them. 1Password's worker, for example, throws on `chrome.notifications.onClicked` and its popup never gets an answer. So when an extension is added, `ExtensionCompat` puts ArcClone's worker shim (`injections/extension-worker-compat.js`) in front of its background:
+- It adds inert stand-ins for `notifications`, `privacy`, `management`, `idle` and `downloads` (only those the manifest asks for and WebKit lacks), for missing events (`webNavigation.onCreatedNavigationTarget` and others), and an empty `storage.managed`. Events never fire, queries return defaults, and actions that need the browser (a download, a notification) report that they aren't supported.
+- A real API is never replaced. The extension's own files are unchanged; the manifest's background points to a two-line entry that loads the shim, then the original.
+- It's added before the audit and the hash, so it's part of the reviewed, pinned copy, and the approve dialog says it's there. Extensions added before this need to be added again (Settings offers "Reinstall").
+
 **Compatibility mode (macOS 14–15.3)** runs page scripts only. Popups, background scripts and service workers, `runtime.sendMessage` and most `chrome.*` APIs need WebKit's extension controller, so they return a clear error instead.
 
 ### Native messaging and password managers
