@@ -198,7 +198,7 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
         guard let tab = tabs.active, let settings = factory.siteSettings else { return }
         if factory.savesSiteChanges {
             settings.update(tab.webView.url) { $0.darkMode = mode == SiteSettings.defaultDarkMode ? nil : mode }
-            tabs.tabs.filter { SiteSettings.key(for: $0.webView.url) == SiteSettings.key(for: tab.webView.url) }.forEach { $0.siteSettingsDidChange() }
+            tabs.tabs.filter { SiteSettings.key(for: $0.url) == SiteSettings.key(for: tab.webView.url) }.forEach { $0.siteSettingsDidChange() }
         } else {
             tab.webView.appearance = mode == .standard ? nil : NSAppearance(named: mode == .light ? .aqua : .darkAqua)
             Task { _ = try? await tab.callInjection("darkMode.apply", ["mode": .string(mode.rawValue)], timeout: 5) }
@@ -211,7 +211,7 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
     @objc public func reloadInjections(_ sender: Any?) {
         do {
             try factory.registry.reload()
-            for tab in tabs.tabs { factory.registry.install(into: tab.webView.configuration.userContentController) }
+            for tab in tabs.tabs where tab.hasWebView { factory.registry.install(into: tab.webView.configuration.userContentController) }
             tabs.active?.reload()
             model.showToast("Injections reloaded")
         } catch {

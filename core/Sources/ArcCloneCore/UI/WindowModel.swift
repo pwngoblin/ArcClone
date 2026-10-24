@@ -246,7 +246,8 @@ public final class WindowModel {
     }
 
     func pauseMedia(_ id: UUID) {
-        controller?.tabs.tab(id)?.webView.pauseAllMediaPlayback()
+        guard let tab = controller?.tabs.tab(id), tab.hasWebView else { return }
+        tab.webView.pauseAllMediaPlayback()
     }
 
     func openInNewWindow(_ id: UUID) {

@@ -12,10 +12,10 @@ extension Tab: WKWebExtensionTab {
     }
     public func webView(for context: WKWebExtensionContext) -> WKWebView? { webView }
     public func title(for context: WKWebExtensionContext) -> String? { title }
-    public func url(for context: WKWebExtensionContext) -> URL? { webView.url }
+    public func url(for context: WKWebExtensionContext) -> URL? { url }
     public func isPinned(for context: WKWebExtensionContext) -> Bool { isPinned }
-    public func isLoadingComplete(for context: WKWebExtensionContext) -> Bool { !webView.isLoading }
-    public func zoomFactor(for context: WKWebExtensionContext) -> Double { webView.pageZoom }
+    public func isLoadingComplete(for context: WKWebExtensionContext) -> Bool { !isLoading }
+    public func zoomFactor(for context: WKWebExtensionContext) -> Double { hasWebView ? webView.pageZoom : 1 }
     public func isSelected(for context: WKWebExtensionContext) -> Bool {
         (delegate as? BrowserWindowController)?.tabs.activeID == id
     }

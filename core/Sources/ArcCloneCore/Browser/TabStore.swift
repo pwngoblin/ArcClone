@@ -28,7 +28,9 @@ public final class TabStore {
         let index: Int
     }
 
-    public private(set) var tabs: [Tab] = []
+    public private(set) var tabs: [Tab] = [] { didSet { byID = nil } }
+    /// id → tab, rebuilt lazily after the list changes; lookups happen far more often than changes.
+    private var byID: [UUID: Tab]?
     public private(set) var activeID: UUID?
     public private(set) var recentlyClosed: [ClosedTab] = []
 
@@ -79,7 +81,10 @@ public final class TabStore {
 
     public var active: Tab? { activeID.flatMap(tab) }
 
-    public func tab(_ id: UUID) -> Tab? { tabs.first { $0.id == id } }
+    public func tab(_ id: UUID) -> Tab? {
+        if byID == nil { byID = Dictionary(tabs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }) }
+        return byID?[id]
+    }
 
     @discardableResult
     /// `nextToActive: nil` follows Settings → Tabs ("Open new tabs next to the current tab").
@@ -362,7 +367,8 @@ public final class TabStore {
                 guard let file = try? URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope], bookmarkDataIsStale: &stale) else { continue }
                 openFile(file, activate: false, pinned: entry.pinned)
             } else {
-                create(url: entry.url, activate: false, pinned: entry.pinned, nextToActive: false)
+                // Restored tabs load when first opened, not all at launch.
+                createAsleep(url: entry.url, title: entry.title, pinned: entry.pinned, in: currentSpaceID)
             }
         }
         currentSpaceID = restoring
