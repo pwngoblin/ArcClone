@@ -56,6 +56,10 @@ public final class Tab: NSObject {
     private var dialogsSuppressed = false
     /// A data: URL this app chose to load (typed, history); pages may not navigate the tab to data: URLs.
     private var allowedDataURL: URL?
+    /// The local file this app was asked to show; pages may not navigate a tab to any other file.
+    private var allowedFileURL: URL?
+    /// The next navigation is ArcClone's own page (an error page), which runs without page JavaScript.
+    private var internalPagePending = false
     private var isDiscarded = false
     let siteSettings: SiteSettings?
     let adBlocker: AdBlocker?
@@ -118,6 +122,7 @@ public final class Tab: NSObject {
 
     public func load(_ url: URL) {
         if url.scheme == "data" { allowedDataURL = url }
+        if url.isFileURL { allowedFileURL = url }
         if url.isFileURL {
             // Least privilege: WebContent may read this file only, not its whole folder.
             webView.loadFileURL(url, allowingReadAccessTo: url)
@@ -311,7 +316,8 @@ public final class Tab: NSObject {
             watch(\.url) { tab in
                 guard !tab.isSleeping else { return }
                 tab.scheduleRecheck()
-                if let u = tab.webView.url {
+                // An internal page keeps showing the address that failed.
+                if let u = tab.webView.url, !ErrorPage.isInternal(u) {
                     if tab.url?.host != u.host { tab.faviconURL = nil }
                     tab.url = u
                 }
@@ -349,10 +355,7 @@ public final class Tab: NSObject {
         }
         if nsError.domain == "WebKitErrorDomain" && (nsError.code == 102 || nsError.code == 204) { return } // policy change / plug-in handled
         let target = failingURL ?? (nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL)
-        webView.loadHTMLString(ErrorPage.html(title: "Can't open this page",
-                                              message: Sanitize.errorMessage(nsError),
-                                              url: target),
-                               baseURL: target)
+        showInternalPage(ErrorPage.html(title: "Can't open this page", message: Sanitize.errorMessage(nsError), url: target), for: target)
     }
 }
 
@@ -362,10 +365,15 @@ extension Tab: WKNavigationDelegate {
     public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                         preferences: WKWebpagePreferences) async -> (WKNavigationActionPolicy, WKWebpagePreferences) {
         if navigationAction.shouldPerformDownload { return (.download, preferences) }
-        // Top-level data: URLs from pages are a phishing vector (a fake login page with no real origin).
-        if navigationAction.request.url?.scheme == "data", navigationAction.targetFrame?.isMainFrame ?? true,
-           navigationAction.request.url != allowedDataURL {
-            Log.web.info("Blocked a page-initiated top-level data: navigation")
+        let isMainFrame = navigationAction.targetFrame?.isMainFrame ?? true
+        if internalPagePending, isMainFrame, navigationAction.navigationType == .other {
+            internalPagePending = false
+            preferences.allowsContentJavaScript = false // our own pages need no page scripts
+            return (.allow, preferences)
+        }
+        if let url = navigationAction.request.url,
+           !Self.isAllowedNavigation(url, isMainFrame: isMainFrame, allowedData: allowedDataURL, allowedFile: allowedFileURL) {
+            Log.web.info("Blocked a page-initiated \(url.scheme ?? "?", privacy: .public): navigation")
             return (.cancel, preferences)
         }
         let isLink = navigationAction.navigationType == .linkActivated
@@ -419,8 +427,7 @@ extension Tab: WKNavigationDelegate {
                 HTTPSFirst.allowedHTTPHosts.insert(host)
                 self.load(url)
             } else {
-                self.webView.loadHTMLString(ErrorPage.html(title: "Secure connection unavailable", message: Sanitize.errorMessage(error), url: url),
-                                            baseURL: nil)
+                self.showInternalPage(ErrorPage.html(title: "Secure connection unavailable", message: Sanitize.errorMessage(error), url: url), for: url)
             }
         }
         if let window = webView.window, window.attachedSheet == nil {
@@ -428,6 +435,24 @@ extension Tab: WKNavigationDelegate {
         } else {
             finish(alert.runModal())
         }
+    }
+
+    /// Schemes a page may not navigate to on its own: top-level `data:` (a phishing page with no real
+    /// origin) and `file:` (reading the Mac's files), except the one file or data URL ArcClone loaded.
+    nonisolated static func isAllowedNavigation(_ url: URL, isMainFrame: Bool, allowedData: URL?, allowedFile: URL?) -> Bool {
+        switch url.scheme?.lowercased() {
+        case "data": return !isMainFrame || url == allowedData
+        case "file": return allowedFile.map { $0.standardizedFileURL.path == url.standardizedFileURL.path } ?? false
+        default: return true
+        }
+    }
+
+    /// Shows one of ArcClone's own pages (errors). Its base URL is the page that failed when that's a
+    /// web address, otherwise an internal one that can never resolve: never nil (about:blank) and
+    /// never a file URL. It runs without page JavaScript, and its CSP allows no scripts or loads.
+    func showInternalPage(_ html: String, for url: URL?) {
+        internalPagePending = true
+        webView.loadHTMLString(html, baseURL: ErrorPage.baseURL(for: url))
     }
 
     nonisolated static func opensExternally(_ url: URL) -> Bool {
@@ -508,9 +533,9 @@ extension Tab: WKNavigationDelegate {
         if crashTimes.count <= 3 {
             if webView.url != nil { webView.reload() } else if let url { load(url) }
         } else {
-            webView.loadHTMLString(ErrorPage.html(title: "This page keeps crashing",
-                                                  message: "The page's web content process terminated repeatedly. Reload to try again.",
-                                                  url: url), baseURL: nil)
+            showInternalPage(ErrorPage.html(title: "This page keeps crashing",
+                                            message: "The page's web content process terminated repeatedly. Reload to try again.",
+                                            url: url), for: url)
         }
     }
 
@@ -618,6 +643,16 @@ final class OnceGate {
 }
 
 enum ErrorPage {
+    /// Never resolves (`.invalid` is reserved), so an internal page can't reach or impersonate a site.
+    static let internalBaseURL = URL(string: "https://internal.arcclone.invalid/")!
+
+    static func baseURL(for url: URL?) -> URL {
+        guard let url, url.scheme == "https" || url.scheme == "http", url.host?.isEmpty == false else { return internalBaseURL }
+        return url
+    }
+
+    static func isInternal(_ url: URL?) -> Bool { url?.host == internalBaseURL.host }
+
     static func html(title: String, message: String, url: URL?) -> String {
         func esc(_ s: String) -> String {
             Sanitize.html(s)
