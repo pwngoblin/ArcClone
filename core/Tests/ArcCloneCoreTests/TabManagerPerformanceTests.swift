@@ -139,3 +139,34 @@ import Testing
         #expect(store.tabs[7].title == "Saved 7" && store.tabs[7].isSleeping)
     }
 }
+
+/// Zero background wake-ups: the sleeper only schedules a wake-up when some tab could sleep.
+@Suite(.serialized) @MainActor struct TabSleeperSchedulingTests {
+    private static let root = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+
+    @Test func wakesOnlyWhenATabCouldSleep() throws {
+        UserDefaults.standard.removeObject(forKey: Preferences.Key.sleepTabsAfter)
+        let registry = try ScriptRegistry(manifestURL: Self.root.appendingPathComponent("injections/manifest.json"))
+        let store = TabStore(factory: WebViewFactory(registry: registry, dataStore: .nonPersistent()), router: IPCRouter())
+        let sleeper = TabSleeper(store: store)
+        defer { sleeper.stop() }
+        #expect(sleeper.nextCheck == nil) // no tabs: nothing scheduled
+
+        let first = store.create(url: URL(string: "https://a.example/")!)
+        sleeper.reschedule()
+        #expect(sleeper.nextCheck == nil) // only the active tab: it never sleeps
+
+        let started = Date()
+        _ = store.create(url: URL(string: "https://b.example/")!) // becomes active; `first` is now in the background
+        sleeper.reschedule()
+        let threshold = try #require(TabSleeper.threshold)
+        let due = try #require(sleeper.nextCheck)
+        #expect(abs(due.timeIntervalSince(first.lastActivated.addingTimeInterval(threshold))) < 1)
+        #expect(due.timeIntervalSince(started) > threshold - 5) // not a minute-by-minute poll
+
+        first.sleep()
+        sleeper.reschedule()
+        #expect(sleeper.nextCheck == nil) // the only background tab is already asleep
+    }
+}

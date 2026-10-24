@@ -21,7 +21,7 @@ lint:
 
 # The PR performance gate (CLAUDE.md): 5,000+ tabs' memory and search speed, tab virtualization.
 perf:
-	cd core && swift test --filter "TabManagerPerformanceTests|TabVirtualizationTests"
+	cd core && swift test --filter "TabManagerPerformanceTests|TabVirtualizationTests|TabSleeperSchedulingTests"
 
 # Runs the lint before every commit in this clone.
 hooks:

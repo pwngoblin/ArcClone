@@ -76,9 +76,12 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         tabs.onActiveChange = { [weak self] tab in self?.showTab(tab) }
         tabs.onSplitChange = { [weak self] in self?.showTab(self?.tabs.active) }
         tabs.onSpaceChange = { [weak self] forward in self?.model.spaceForward = forward }
-        tabs.onTabAdded = { [weak self] tab in self?.extensionsTabOpened(tab) }
-        tabs.onTabRemoved = { [weak self] tab in self?.extensionsTabClosed(tab, windowIsClosing: false) }
-        tabs.onActiveTabSwitched = { [weak self] new, previous in self?.extensionsTabActivated(new, previous: previous) }
+        tabs.onTabAdded = { [weak self] tab in self?.extensionsTabOpened(tab); self?.sleeper?.reschedule() }
+        tabs.onTabRemoved = { [weak self] tab in self?.extensionsTabClosed(tab, windowIsClosing: false); self?.sleeper?.reschedule() }
+        tabs.onActiveTabSwitched = { [weak self] new, previous in
+            self?.extensionsTabActivated(new, previous: previous)
+            self?.sleeper?.reschedule()
+        }
         contentController.onFocus = { [weak self] id in self?.tabs.activate(id) }
         registerPageHandlers()
         if !isPrivate { installSpaceSwipe() }
