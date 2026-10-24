@@ -159,11 +159,12 @@ private struct AddressPill: View {
 /// laid out like the split itself.
 private struct TabListView: View {
     @Bindable var window: WindowModel
+    @AppStorage(AppearanceStyle.Key.accent) private var accent = AppearanceStyle.defaultAccent
 
     var body: some View {
         List {
             if !window.pinnedTabs.isEmpty {
-                PinnedGrid(window: window)
+                PinnedTabsGrid(window: window, tabs: window.pinnedTabs, activeID: window.activeID, accent: accent)
                     .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 8, trailing: 8))
                     .listRowBackground(Color.clear)
                     .selectionDisabled()
@@ -199,50 +200,6 @@ private struct TabListView: View {
         .scrollContentBackground(.hidden)
         .animation(.smooth(duration: 0.2), value: window.tabs.map(\.id))
         .animation(.smooth(duration: 0.25), value: window.splitGroups)
-    }
-}
-
-/// Arc-style pinned tabs: a grid of rounded tiles showing each site's icon.
-private struct PinnedGrid: View {
-    let window: WindowModel
-    private let columns = [GridItem(.adaptive(minimum: 52, maximum: 120), spacing: 8)]
-
-    var body: some View {
-        LazyVGrid(columns: columns, spacing: 8) {
-            ForEach(window.pinnedTabs) { tab in PinnedTile(tab: tab, window: window) }
-        }
-    }
-}
-
-private struct PinnedTile: View {
-    let tab: WindowModel.TabItem
-    let window: WindowModel
-    @State private var hovering = false
-    @State private var dropTargeted = false
-    @AppStorage(AppearanceStyle.Key.accent) private var accent = AppearanceStyle.defaultAccent
-
-    var body: some View {
-        let active = tab.id == window.activeID
-        ZStack {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(active ? AnyShapeStyle(Color(hex: accent).opacity(0.28)) : AnyShapeStyle(.quaternary.opacity(hovering ? 1 : 0.65)))
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(active ? Color(hex: accent).opacity(0.7) : (dropTargeted ? Color.accentColor : .clear), lineWidth: 1.5)
-            FaviconView(url: tab.favicon ?? tab.url?.faviconGuess, size: 20)
-            if tab.isLoading {
-                ProgressView().controlSize(.mini).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing).padding(4)
-            }
-        }
-        .frame(height: 44)
-        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .onTapGesture { window.activate(tab.id) }
-        .onHover { hovering = $0 }
-        .help(tab.title)
-        .contextMenu { TabContextMenu(tab: tab, window: window) }
-        .onDrag { TabDrag.provider(for: tab) }
-        .tabDropTarget($dropTargeted) { window.dropOnPinned($0, before: tab.id) }
-        .scaleEffect(hovering ? 1.03 : 1)
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: hovering)
     }
 }
 
@@ -351,48 +308,6 @@ private struct ActiveRowBackground: View {
 }
 
 /// Right-click menu for a tab.
-struct TabContextMenu: View {
-    let tab: WindowModel.TabItem
-    let window: WindowModel
-
-    var body: some View {
-        Button { window.newTab() } label: { Label("New Tab", systemImage: "plus.square") }
-        Button { window.duplicate(tab.id) } label: { Label("Duplicate Tab", systemImage: "plus.square.on.square") }
-        Button { window.reload(tab.id) } label: { Label("Reload", systemImage: "arrow.clockwise") }
-        Divider()
-        Button { window.setPinned(tab.id, !tab.isPinned) } label: {
-            Label(tab.isPinned ? "Unpin Tab" : "Pin Tab", systemImage: tab.isPinned ? "pin.slash" : "pin")
-        }
-        Button { window.copyLink(tab.id) } label: { Label("Copy Link", systemImage: "link") }.disabled(tab.url == nil)
-        if let url = tab.url { ShareLink(item: url) { Label("Share…", systemImage: "square.and.arrow.up") } }
-        Button { window.pauseMedia(tab.id) } label: { Label("Pause Media", systemImage: "pause.circle") }
-        Divider()
-        Button { window.openInNewWindow(tab.id) } label: { Label("Open in New Window", systemImage: "macwindow.badge.plus") }
-            .disabled(tab.url == nil)
-        if window.spaces.count > 1 {
-            Menu {
-                ForEach(window.spaces.filter { $0.id != window.currentSpaceID }) { space in
-                    Button { window.moveTab(tab.id, toSpace: space.id) } label: { Label(space.name, systemImage: space.symbol) }
-                }
-            } label: { Label("Move to Space", systemImage: "square.stack") }
-        }
-        if tab.inSplit {
-            Button { window.removeFromSplit(tab.id) } label: { Label("Remove from Split View", systemImage: "rectangle.split.2x1.slash") }
-        } else {
-            if tab.id != window.activeID {
-                Button { window.splitWithActive(tab.id) } label: { Label("Split with Current Tab", systemImage: "rectangle.split.2x1") }
-            }
-            if window.hasSplit && window.splitCanGrow {
-                Button { window.addToSplit(tab.id) } label: { Label("Add to Split View", systemImage: "rectangle.split.3x1") }
-            }
-        }
-        Divider()
-        Button(role: .destructive) { window.close(tab.id) } label: { Label("Close Tab", systemImage: "xmark") }
-        Button { window.closeOthers(tab.id) } label: { Label("Close Other Tabs", systemImage: "xmark.square") }
-        Button { window.closeBelow(tab.id) } label: { Label("Close Tabs Below", systemImage: "arrow.down.to.line") }
-    }
-}
-
 private struct SidebarFooter: View {
     @Bindable var window: WindowModel
 

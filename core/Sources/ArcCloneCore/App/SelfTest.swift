@@ -246,6 +246,34 @@ enum SelfTest {
             dragStore.deleteSpace(away.id)
             dragStore.close(pinned.id)
 
+            // Pinned tiles are a native collection view: the tiles are on screen, an AppKit drag's
+            // pasteboard reads back as the tab, and dropping a tile further right lands exactly in
+            // the gap shown (1 before 3 → 2, 1, 3).
+            let tiles = (1...3).map { n -> Tab in
+                let tab = dragStore.create(url: URL(string: "https://selftest.arcclone.test/pin\(n)")!, activate: false)
+                dragStore.setPinned(tab.id, true)
+                return tab
+            }
+            window.model.refresh(from: dragStore)
+            try? await Task.sleep(for: .milliseconds(400))
+            func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+            let grid = window.window?.contentView.flatMap { views($0).compactMap { $0 as? NSCollectionView }.first }
+            let shown = grid?.numberOfItems(inSection: 0) ?? -1
+            let board = NSPasteboard(name: NSPasteboard.Name("dev.arcclone.selftest.drag"))
+            board.clearContents()
+            var appKitRoundTrip = false
+            if let first = window.model.tabs.first(where: { $0.id == tiles[0].id }) {
+                board.writeObjects([TabDrag.pasteboardItem(for: first)])
+                if case .tab(let id)? = TabDrag.read(board) { appKitRoundTrip = id == tiles[0].id }
+            }
+            _ = window.model.dropOnPinned(.tab(tiles[0].id), before: tiles[2].id)
+            let pinnedOrder = dragStore.tabs.filter(\.isPinned).map(\.id)
+            let reordered = pinnedOrder == [tiles[1].id, tiles[0].id, tiles[2].id]
+            check("native pinned tiles", shown == 3 && appKitRoundTrip && reordered,
+                  ["tilesShown": .number(Double(shown)), "pasteboardRoundTrip": .bool(appKitRoundTrip), "dropsInGap": .bool(reordered)])
+            tiles.forEach { dragStore.close($0.id) }
+            board.releaseGlobally()
+
             // ⌘K reads the live menus: browser commands validate through the window's responder
             // chain, text-editing commands and the palette itself stay out.
             let palette = PaletteCommands.all(in: window.model).map(\.title)

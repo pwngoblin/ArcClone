@@ -216,8 +216,9 @@ public final class WindowModel {
         }
     }
 
-    /// Dropped on a pinned tile: a tab is pinned (or reordered) before it; a link opens pinned there.
-    func dropOnPinned(_ drop: TabDrop, before target: UUID) -> Bool {
+    /// Dropped among the pinned tiles: a tab is pinned (or reordered) before `target`, or after the
+    /// last pinned tab when it's nil; a link opens pinned there.
+    func dropOnPinned(_ drop: TabDrop, before target: UUID?) -> Bool {
         guard let store = controller?.tabs else { return false }
         let id: UUID
         switch drop {
@@ -229,7 +230,11 @@ public final class WindowModel {
             guard let url = drop.webLink else { return false }
             id = store.create(url: url, activate: true, pinned: true).id
         }
-        if let index = store.tabs.firstIndex(where: { $0.id == target }) { store.move(id, to: index) }
+        // `move` removes the tab before inserting it, so moving it rightward lands one earlier than
+        // the target's current index; past the end, it clamps to after the last pinned tab.
+        var index = target.flatMap { target in store.tabs.firstIndex { $0.id == target } } ?? store.tabs.count
+        if let from = store.tabs.firstIndex(where: { $0.id == id }), from < index { index -= 1 }
+        store.move(id, to: index)
         Haptics.step()
         return true
     }
