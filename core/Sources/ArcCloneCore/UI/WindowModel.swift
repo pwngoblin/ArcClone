@@ -23,6 +23,8 @@ public final class WindowModel {
     var currentSpaceID: UUID?
     /// Direction of the last space switch, for the slide transition.
     var spaceForward = true
+    /// Horizontal offset of the tab list while a space swipe is in progress.
+    var spaceDragOffset: CGFloat = 0
     var currentSpace: Space? { spaces.first { $0.id == currentSpaceID } }
     var splitLayout: SplitLayout?
     var splitIDs: [UUID] = []
@@ -126,7 +128,7 @@ public final class WindowModel {
     func presentCommandBar(newTab: Bool) {
         let seed = newTab ? "" : (activeTab?.url?.absoluteString ?? "")
         commandBar = CommandBarModel(newTab: newTab, query: seed, window: self)
-        Haptics.perform(.generic)
+        Haptics.tap()
     }
 
     func dismissCommandBar() {
@@ -137,9 +139,14 @@ public final class WindowModel {
     // MARK: Tab actions (forwarded to the controller)
 
     func activate(_ id: UUID) { controller?.tabs.activate(id) }
-    func close(_ id: UUID) { controller?.tabs.close(id) }
+    func close(_ id: UUID) {
+        controller?.tabs.close(id)
+        Haptics.tap()
+    }
     func newTab() { presentCommandBar(newTab: true) }
-    func reopenClosed() { _ = controller?.tabs.reopenClosed() }
+    func reopenClosed() {
+        if controller?.tabs.reopenClosed() != nil { Haptics.tap() }
+    }
     func goBack() { controller?.tabs.active?.goBack() }
     func goForward() { controller?.tabs.active?.goForward() }
     func reloadOrStop() {
@@ -150,7 +157,7 @@ public final class WindowModel {
 
     func setPinned(_ id: UUID, _ pinned: Bool) {
         controller?.tabs.setPinned(id, pinned)
-        Haptics.perform(.levelChange)
+        Haptics.step()
     }
 
     /// Moves a regular-list row; a split group moves as one block.
@@ -172,7 +179,7 @@ public final class WindowModel {
             store.move(id, to: target)
             target += 1
         }
-        Haptics.perform(.alignment)
+        Haptics.snap()
     }
 
     /// Moves within a section (pinned or regular), as reported by SwiftUI's `onMove`.
@@ -184,16 +191,23 @@ public final class WindowModel {
         guard let newIndex = reordered.firstIndex(of: moving),
               let anchorIndex = store.tabs.firstIndex(where: { $0.id == (section.first?.id ?? moving.id) }) else { return }
         store.move(moving.id, to: anchorIndex + newIndex)
-        Haptics.perform(.alignment)
+        Haptics.snap()
     }
 
     // MARK: Spaces
 
-    func switchSpace(to id: UUID) { controller?.tabs.switchSpace(to: id) }
-    func switchSpace(by offset: Int) { controller?.tabs.switchSpace(by: offset) }
+    func switchSpace(to id: UUID) {
+        guard id != currentSpaceID else { return }
+        controller?.tabs.switchSpace(to: id)
+        Haptics.step()
+    }
+    func switchSpace(by offset: Int) {
+        controller?.tabs.switchSpace(by: offset)
+        Haptics.step()
+    }
     func addSpace(name: String, symbol: String, color: String) {
         controller?.tabs.addSpace(name: name, symbol: symbol, color: color)
-        Haptics.perform(.levelChange)
+        Haptics.step()
     }
     func updateSpace(_ space: Space) { controller?.tabs.updateSpace(space) }
     func deleteSpace(_ id: UUID) { controller?.tabs.deleteSpace(id) }
@@ -214,7 +228,7 @@ public final class WindowModel {
         guard id != target, let store = controller?.tabs, store.tab(id)?.isPinned == true,
               let index = store.tabs.firstIndex(where: { $0.id == target }) else { return }
         store.move(id, to: index)
-        Haptics.perform(.alignment)
+        Haptics.snap()
     }
 
     func duplicate(_ id: UUID) {
@@ -228,6 +242,7 @@ public final class WindowModel {
         guard let url = controller?.tabs.tab(id)?.url else { return }
         Clipboard.copy(url.absoluteString, sensitive: isPrivate)
         showToast("Link copied")
+        Haptics.tap()
     }
 
     func pauseMedia(_ id: UUID) {
@@ -242,7 +257,7 @@ public final class WindowModel {
     func closeOthers(_ id: UUID) {
         guard let store = controller?.tabs else { return }
         store.visibleTabs.filter { $0.id != id && !$0.isPinned }.forEach { store.close($0.id) }
-        Haptics.perform(.generic)
+        Haptics.tap()
     }
 
     func closeBelow(_ id: UUID) {
@@ -250,13 +265,25 @@ public final class WindowModel {
         let visible = store.visibleTabs
         guard let index = visible.firstIndex(where: { $0.id == id }) else { return }
         visible[(index + 1)...].filter { !$0.isPinned }.forEach { store.close($0.id) }
-        Haptics.perform(.generic)
+        Haptics.tap()
     }
 }
 
-/// Force Touch trackpad feedback for direct-manipulation moments (reordering, pinning, snapping).
+/// Force Touch trackpad feedback for important actions. macOS only plays it while a finger is on
+/// a Force Touch trackpad, so it accompanies gestures and clicks, never keyboard shortcuts alone.
+/// Settings → General can turn it off.
 enum Haptics {
-    static func perform(_ pattern: NSHapticFeedbackManager.FeedbackPattern) {
+    /// A light click: an action happened (close, open, copy).
+    @MainActor static func tap() { perform(.generic) }
+    /// Something snapped into place or crossed a threshold (reorder, swipe threshold, zoom limit).
+    @MainActor static func snap() { perform(.alignment) }
+    /// A change of level or mode (space switched, split created, pinned, dark mode).
+    @MainActor static func step() { perform(.levelChange) }
+
+    @MainActor static var isEnabled: Bool { Preferences.flag(Preferences.Key.haptics, default: true) }
+
+    @MainActor static func perform(_ pattern: NSHapticFeedbackManager.FeedbackPattern) {
+        guard isEnabled else { return }
         NSHapticFeedbackManager.defaultPerformer.perform(pattern, performanceTime: .now)
     }
 }

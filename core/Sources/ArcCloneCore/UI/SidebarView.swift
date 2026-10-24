@@ -16,6 +16,8 @@ struct SidebarView: View {
                     if !window.isPrivate, let space = window.currentSpace { SpaceHeader(space: space, window: window) }
                     TabListView(window: window)
                 }
+                .offset(x: window.spaceDragOffset)
+                .opacity(1 - min(0.35, abs(window.spaceDragOffset) / 500))
                 .id(window.currentSpaceID)
                 .transition(.push(from: window.spaceForward ? .trailing : .leading))
             case .assistant:
@@ -76,28 +78,55 @@ struct NavButton: View {
 private struct AddressPill: View {
     let window: WindowModel
     @State private var hovering = false
+    @State private var security: IdentifiedSecurity?
 
     var body: some View {
         let url = window.activeTab?.url
-        Button { window.presentCommandBar(newTab: false) } label: {
-            HStack(spacing: 7) {
-                Image(systemName: url?.scheme == "https" ? "lock.fill" : (url == nil ? "magnifyingglass" : "exclamationmark.triangle"))
+        HStack(spacing: 7) {
+            // The lock is its own button: it shows the site's security details.
+            Button { showSecurity() } label: {
+                Image(systemName: lockSymbol(url))
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(url?.scheme == "http" ? AnyShapeStyle(.orange) : AnyShapeStyle(.tertiary))
-                Text(display(url)).lineLimit(1).truncationMode(.middle).font(.system(size: 13))
-                    .foregroundStyle(url == nil ? .tertiary : .primary)
-                Spacer(minLength: 0)
-                if window.isPrivate {
-                    Label("Private", systemImage: "eyeglasses").labelStyle(.iconOnly).foregroundStyle(.secondary).help("Private window")
-                }
+                    .foregroundStyle(url?.scheme == "http" ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                    .frame(width: 18, height: 24)
+                    .contentShape(Rectangle())
             }
-            .padding(.horizontal, 10)
-            .frame(height: 32)
-            .background(.quaternary.opacity(hovering ? 1.0 : 0.6), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .buttonStyle(.plain)
+            .disabled(url == nil)
+            .help("Connection and site information")
+            .popover(item: $security) { item in
+                SiteSecurityView(security: item.value, window: window)
+            }
+            Button { window.presentCommandBar(newTab: false) } label: {
+                HStack(spacing: 7) {
+                    Text(display(url)).lineLimit(1).truncationMode(.middle).font(.system(size: 13))
+                        .foregroundStyle(url == nil ? .tertiary : .primary)
+                    Spacer(minLength: 0)
+                    if window.isPrivate {
+                        Label("Private", systemImage: "eyeglasses").labelStyle(.iconOnly).foregroundStyle(.secondary).help("Private window")
+                    }
+                }
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Open Location (⌘L)")
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 10)
+        .frame(height: 32)
+        .background(.quaternary.opacity(hovering ? 1.0 : 0.6), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         .onHover { hovering = $0 }
-        .help("Open Location (⌘L)")
+    }
+
+    private func lockSymbol(_ url: URL?) -> String {
+        guard let url else { return "magnifyingglass" }
+        if url.scheme == "https" { return window.controller?.tabs.active?.webView.hasOnlySecureContent == false ? "lock.trianglebadge.exclamationmark" : "lock.fill" }
+        return url.isFileURL ? "doc" : "exclamationmark.triangle"
+    }
+
+    private func showSecurity() {
+        guard let web = window.controller?.tabs.active?.webView, let url = web.url else { return }
+        security = IdentifiedSecurity(value: SiteSecurity(webView: web, url: url))
     }
 
     private func display(_ url: URL?) -> String {
@@ -464,4 +493,10 @@ private struct SpaceEditor: View {
         save(space)
         dismiss()
     }
+}
+
+/// `.popover(item:)` needs Identifiable; the details are rebuilt each time the lock is clicked.
+private struct IdentifiedSecurity: Identifiable {
+    let id = UUID()
+    let value: SiteSecurity
 }

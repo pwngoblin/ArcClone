@@ -73,6 +73,7 @@ final class CommandBarModel: Identifiable {
         case nil:
             return
         }
+        Haptics.tap()
         window.dismissCommandBar()
     }
 }
