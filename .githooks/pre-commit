@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Enabled with `make hooks`. Blocks commits that fail the static security checks.
+set -euo pipefail
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+exec "$(git rev-parse --show-toplevel)/scripts/security-lint.sh"

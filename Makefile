@@ -1,6 +1,6 @@
 # ArcClone build entry points. Run `make` for a dev build, `make app` for a packaged .app,
 # `make dmg` for a distributable disk image.
-.PHONY: all core run test check test-core selftest app dmg clean
+.PHONY: all core run test check lint hooks test-core selftest app dmg clean
 
 all: core
 
@@ -13,7 +13,15 @@ run: all
 test: check selftest
 
 # Every automated test; CI runs this, so it lists whatever test suites the repo has.
-check: test-core
+check: lint test-core
+
+# Static security checks (CLAUDE.md rules): banned APIs, log privacy, script guardrails, secrets.
+lint:
+	./scripts/security-lint.sh
+
+# Runs the lint before every commit in this clone.
+hooks:
+	git config core.hooksPath .githooks
 
 test-core:
 	cd core && swift test
