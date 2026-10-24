@@ -198,8 +198,11 @@ struct ExtensionPackage: Sendable, Equatable {
         try? manager.removeItem(at: folder)
         try manager.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         for (path, contents) in files {
+            // Lexical, not standardizedFileURL: that drops a /private prefix only from paths that
+            // already exist, so a new file and its folder could compare unequal.
+            guard Self.sanitized(path) == path else { throw Invalid(reason: "A file has a name that isn't allowed: \(path)") }
             let target = folder.appendingPathComponent(path)
-            guard target.standardizedFileURL.path.hasPrefix(folder.standardizedFileURL.path + "/") else { throw Invalid(reason: "A file has a name that isn't allowed: \(path)") }
+            guard target.path.hasPrefix(folder.path + "/") else { throw Invalid(reason: "A file has a name that isn't allowed: \(path)") }
             try manager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             try contents.write(to: target, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: target.path)
