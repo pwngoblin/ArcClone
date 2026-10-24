@@ -31,7 +31,7 @@ enum CRX3 {
 
     /// The zip inside `data`, once its signatures, ID and publisher are verified.
     static func verifiedPayload(_ data: Data, expectedID: String, publisherKeyHash: Data = webStorePublisherKeyHash) throws -> Data {
-        let crx = Data(data) // zero-based indices
+        let crx = data.startIndex == 0 ? data : Data(data) // zero-based indices
         let bad = ExtensionPackage.Invalid(reason: "The download isn't a valid Chrome extension package.")
         guard crx.count >= 12, crx.prefix(4) == Data("Cr24".utf8) else { throw bad }
         guard uint32(crx, 4) == 3 else { throw ExtensionPackage.Invalid(reason: "Only CRX3 packages from the Chrome Web Store are supported.") }
@@ -45,15 +45,18 @@ enum CRX3 {
         guard extensionID(fromHash: crxID) == expectedID else {
             throw ExtensionPackage.Invalid(reason: "The download is a different extension than the one requested.")
         }
-        var message = Data("CRX3 SignedData\u{0}".utf8)
-        message.append(contentsOf: (0..<4).map { UInt8((UInt32(signedData.count) >> (8 * $0)) & 0xFF) })
-        message.append(signedData)
-        message.append(payload)
+        // Hashed once for every proof, without copying the payload into a message buffer.
+        var hasher = SHA256()
+        hasher.update(data: Data("CRX3 SignedData\u{0}".utf8))
+        hasher.update(data: Data((0..<4).map { UInt8((UInt32(signedData.count) >> (8 * $0)) & 0xFF) }))
+        hasher.update(data: signedData)
+        hasher.update(data: payload)
+        let digest = hasher.finalize()
 
         let forged = ExtensionPackage.Invalid(reason: "The package's signature doesn't match its contents.")
         guard !header.rsa.isEmpty || !header.ecdsa.isEmpty else { throw forged }
-        for proof in header.rsa where !verifyRSA(proof, message) { throw forged }
-        for proof in header.ecdsa where !verifyECDSA(proof, message) { throw forged }
+        for proof in header.rsa where !verifyRSA(proof, digest) { throw forged }
+        for proof in header.ecdsa where !verifyECDSA(proof, digest) { throw forged }
         // The developer key is what the ID is derived from; it has to be among the signers.
         let keyHashes = (header.rsa + header.ecdsa).map { Data(SHA256.hash(data: $0.publicKey)) }
         guard keyHashes.contains(where: { $0.prefix(16) == crxID }) else { throw forged }
@@ -149,17 +152,17 @@ enum CRX3 {
 
     // MARK: Signatures
 
-    private static func verifyRSA(_ proof: Proof, _ message: Data) -> Bool {
+    private static func verifyRSA(_ proof: Proof, _ digest: SHA256.Digest) -> Bool {
         guard let pkcs1 = rsaPublicKey(fromSPKI: proof.publicKey),
               let key = SecKeyCreateWithData(pkcs1 as CFData, [kSecAttrKeyType: kSecAttrKeyTypeRSA, kSecAttrKeyClass: kSecAttrKeyClassPublic] as CFDictionary, nil),
               SecKeyGetBlockSize(key) >= 256 else { return false } // 2048-bit or larger
-        return SecKeyVerifySignature(key, .rsaSignatureMessagePKCS1v15SHA256, message as CFData, proof.signature as CFData, nil)
+        return SecKeyVerifySignature(key, .rsaSignatureDigestPKCS1v15SHA256, Data(digest) as CFData, proof.signature as CFData, nil)
     }
 
-    private static func verifyECDSA(_ proof: Proof, _ message: Data) -> Bool {
+    private static func verifyECDSA(_ proof: Proof, _ digest: SHA256.Digest) -> Bool {
         guard let key = try? P256.Signing.PublicKey(derRepresentation: proof.publicKey),
               let signature = try? P256.Signing.ECDSASignature(derRepresentation: proof.signature) else { return false }
-        return key.isValidSignature(signature, for: message)
+        return key.isValidSignature(signature, for: digest)
     }
 
     /// The PKCS#1 `RSAPublicKey` inside a SubjectPublicKeyInfo, which is what Security wants.

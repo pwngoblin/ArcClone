@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import zlib
 
 /// A web extension's files, read into memory from a folder, a .zip or a Chrome Web Store .crx, so
 /// they can be audited and pinned before anything runs. Reading never launches a helper (`unzip`)
@@ -101,7 +102,7 @@ struct ExtensionPackage: Sendable, Equatable {
 
     /// A zip archive (stored or deflated entries; no encryption, no zip64, no links).
     static func unzip(_ archive: Data) throws -> [String: Data] {
-        let zip = Data(archive) // zero-based indices
+        let zip = archive.startIndex == 0 ? archive : Data(archive) // zero-based indices
         let bad = Invalid(reason: "The archive is damaged or uses an unsupported format.")
         guard zip.count >= 22 else { throw bad }
         // End of central directory: the last record, possibly followed by a comment.
@@ -210,13 +211,11 @@ struct ExtensionPackage: Sendable, Equatable {
     }
 }
 
-/// CRC-32 (IEEE), as zip uses, to catch damaged or doctored archive entries.
+/// CRC-32 (IEEE), as zip uses, to catch damaged or doctored archive entries. The system zlib's
+/// is hardware-accelerated (a byte-at-a-time table was most of an unzip's time); the buffer is
+/// read in place, bounded by `Data`, and entries are at most `maxFileBytes`, well under `uInt`.
 enum CRC32 {
-    private static let table: [UInt32] = (0..<256).map { n in
-        (0..<8).reduce(UInt32(n)) { c, _ in c & 1 == 1 ? 0xEDB8_8320 ^ (c >> 1) : c >> 1 }
-    }
-
     static func checksum(_ data: Data) -> UInt32 {
-        ~data.reduce(~UInt32(0)) { table[Int(($0 ^ UInt32($1)) & 0xFF)] ^ ($0 >> 8) }
+        data.withUnsafeBytes { UInt32(crc32(0, $0.bindMemory(to: Bytef.self).baseAddress, uInt($0.count))) }
     }
 }
