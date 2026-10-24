@@ -1,18 +1,26 @@
 import AppKit
 import Observation
+import UniformTypeIdentifiers
 import WebKit
 
 /// One installed extension as remembered between launches.
 struct InstalledExtension: Codable, Identifiable, Equatable {
     var id: String               // WKWebExtensionContext.uniqueIdentifier
-    var bookmark: Data           // read-only, app-scoped security-scoped bookmark to the folder or .zip
+    /// Older installs: a read-only bookmark to the user's folder or .zip. Pinned on next load.
+    var bookmark: Data?
+    /// The audited copy in the app container (a folder name under Extensions/) and its SHA-256.
+    var pinnedFolder: String?
+    var contentHash: String?
     var enabled: Bool
     var grantedPermissions: [String]
     var grantedPatterns: [String]
 }
 
-/// Web extensions (WebExtensions API, manifest v2/v3) loaded from a folder or .zip the user picks.
-/// Every permission is shown and approved at install; extensions never run in private windows.
+/// Web extensions (WebExtensions API, manifest v2/v3) added from a folder, .zip or .crx.
+/// Each is audited (`ExtensionAudit`) and every permission approved before it's installed, then
+/// pinned: run from a copy in the app container whose hash is checked before every load, so it
+/// never changes or updates behind the user's back. Extensions never run in private windows and
+/// can't reach ArcClone's own page bridge, which lives in a separate content world.
 @available(macOS 15.4, *)
 @MainActor @Observable
 final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
@@ -30,7 +38,6 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     private(set) var loaded: [Loaded] = []
     private(set) var installed: [InstalledExtension] = []
     private(set) var lastError: String?
-    @ObservationIgnored private var scopedURLs: [String: URL] = [:]
     /// Window lookup for the extension APIs (tabs.query, windows.getAll).
     @ObservationIgnored var windows: () -> [BrowserWindowController] = { [] }
     @ObservationIgnored var focusedWindow: () -> BrowserWindowController? = { nil }
@@ -40,8 +47,11 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     /// authenticated with the Keychain key) instead of kept in UserDefaults, where any process able
     /// to write ArcClone's preferences could add an "extension".
     @ObservationIgnored private let file: SealedFile?
+    /// Pinned copies live here, one folder per extension.
+    @ObservationIgnored private let pinnedRoot: URL?
 
     init(directory: URL?, keys: KeyStore = KeychainKeyStore()) {
+        pinnedRoot = directory?.appendingPathComponent("Extensions", isDirectory: true)
         file = directory.map {
             SealedFile(url: $0.appendingPathComponent("extensions.sealed"), keyName: "extensions", purpose: "dev.arcclone.extensions.v1", keys: keys)
         }
@@ -69,33 +79,53 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
 
     // MARK: Install / remove
 
-    /// Picks an unpacked extension folder or .zip, shows what it asks for, and installs it if approved.
+    /// Picks an extension folder, .zip or Chrome Web Store .crx; audits it; shows the findings and
+    /// what it asks for; and installs a pinned copy if approved.
     func install(presentingIn window: NSWindow?) async {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
-        panel.allowedContentTypes = [.zip, .folder]
-        panel.message = "Choose an unpacked web extension folder (with manifest.json) or a .zip"
+        panel.allowedContentTypes = [.zip, .folder] + [UTType(filenameExtension: "crx")].compactMap { $0 }
+        panel.message = "Choose a web extension: an unpacked folder (with manifest.json), a .zip, or a .crx"
         panel.prompt = "Choose"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard panel.runModal() == .OK, let url = panel.url, let pinnedRoot else { return }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let folder = pinnedRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
         do {
-            let webExtension = try await WKWebExtension(resourceBaseURL: url)
-            guard confirmInstall(webExtension, window: window) else { return }
-            let bookmark = try url.bookmarkData(options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
-                                                includingResourceValuesForKeys: nil, relativeTo: nil)
+            let (package, audit) = try await Task.detached(priority: .userInitiated) {
+                let package = try ExtensionPackage.read(url)
+                return (package, ExtensionAudit.scan(package))
+            }.value
+            guard !audit.isBlocked else { showBlocked(audit); return }
+            try package.write(to: folder)
+            let webExtension = try await WKWebExtension(resourceBaseURL: folder)
+            guard confirmInstall(webExtension, audit: audit, hash: package.contentHash, window: window) else {
+                try? FileManager.default.removeItem(at: folder)
+                return
+            }
             let context = WKWebExtensionContext(for: webExtension)
-            let record = InstalledExtension(id: context.uniqueIdentifier, bookmark: bookmark, enabled: true,
+            let record = InstalledExtension(id: context.uniqueIdentifier, bookmark: nil, pinnedFolder: folder.lastPathComponent,
+                                            contentHash: package.contentHash, enabled: true,
                                             grantedPermissions: webExtension.requestedPermissions.map(\.rawValue),
                                             grantedPatterns: webExtension.allRequestedMatchPatterns.map(\.string))
-            installed.removeAll { $0.id == record.id }
+            if let old = installed.first(where: { $0.id == record.id }) { remove(old.id) }
             installed.append(record)
             save()
             await load(record, context: context)
         } catch {
+            try? FileManager.default.removeItem(at: folder)
             lastError = "Couldn't install: \(Sanitize.errorMessage(error))"
         }
+    }
+
+    private func showBlocked(_ audit: ExtensionAudit) {
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = "This extension can't be added"
+        alert.informativeText = "It could run code that isn't part of the extension itself, so it can't be checked or pinned:\n\n"
+            + audit.findings.filter { $0.severity == .blocked }.map { "• \($0.title) (\($0.detail))" }.joined(separator: "\n")
+        alert.runModal()
     }
 
     func setEnabled(_ id: String, _ enabled: Bool) {
@@ -107,8 +137,16 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
 
     func remove(_ id: String) {
         unload(id)
+        if let folder = installed.first(where: { $0.id == id })?.pinnedFolder, let pinnedRoot {
+            try? FileManager.default.removeItem(at: pinnedRoot.appendingPathComponent(folder, isDirectory: true))
+        }
         installed.removeAll { $0.id == id }
         save()
+    }
+
+    /// The first 12 hex digits of the pinned copy's SHA-256, for display.
+    func pinnedHash(_ id: String) -> String? {
+        installed.first { $0.id == id }?.contentHash.map { String($0.prefix(12)) }
     }
 
     func openOptions(_ id: String) {
@@ -126,12 +164,15 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
 
     private func load(_ record: InstalledExtension, context existing: WKWebExtensionContext? = nil) async {
         guard !loaded.contains(where: { $0.id == record.id }) else { return }
-        var stale = false
-        guard let url = try? URL(resolvingBookmarkData: record.bookmark, options: [.withSecurityScope], bookmarkDataIsStale: &stale) else {
-            lastError = "An installed extension's files are missing; remove and add it again."
+        guard let record = await pinIfNeeded(record), let folder = record.pinnedFolder, let expected = record.contentHash,
+              let url = pinnedRoot?.appendingPathComponent(folder, isDirectory: true) else { return }
+        // The pinned copy must be exactly what was audited and approved.
+        let actual = try? await Task.detached(priority: .userInitiated) { try ExtensionPackage.readFolder(url).contentHash }.value
+        guard actual == expected else {
+            Log.app.error("Pinned extension \(record.id, privacy: .private) failed its integrity check")
+            lastError = "An extension's files changed after it was added, so it wasn't loaded. Remove it and add it again."
             return
         }
-        if url.startAccessingSecurityScopedResource() { scopedURLs[record.id] = url }
         do {
             let context: WKWebExtensionContext
             if let existing { context = existing } else { context = WKWebExtensionContext(for: try await WKWebExtension(resourceBaseURL: url)) }
@@ -152,10 +193,46 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         }
     }
 
+    /// Older installs ran straight from the user's folder or .zip. On their next load they're copied
+    /// into the container, audited and hashed once; from then on that copy is what runs.
+    private func pinIfNeeded(_ record: InstalledExtension) async -> InstalledExtension? {
+        if record.pinnedFolder != nil { return record }
+        var stale = false
+        guard let bookmark = record.bookmark, let pinnedRoot,
+              let source = try? URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope], bookmarkDataIsStale: &stale) else {
+            lastError = "An installed extension's files are missing; remove and add it again."
+            return nil
+        }
+        let scoped = source.startAccessingSecurityScopedResource()
+        defer { if scoped { source.stopAccessingSecurityScopedResource() } }
+        let folder = pinnedRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        do {
+            let (package, audit) = try await Task.detached(priority: .utility) {
+                let package = try ExtensionPackage.read(source)
+                return (package, ExtensionAudit.scan(package))
+            }.value
+            guard !audit.isBlocked else {
+                lastError = "An extension can run code from outside itself, so it was turned off. Remove it."
+                return nil
+            }
+            try package.write(to: folder)
+            var pinned = record
+            pinned.bookmark = nil
+            pinned.pinnedFolder = folder.lastPathComponent
+            pinned.contentHash = package.contentHash
+            if let index = installed.firstIndex(where: { $0.id == record.id }) { installed[index] = pinned }
+            save()
+            return pinned
+        } catch {
+            try? FileManager.default.removeItem(at: folder)
+            lastError = "Couldn't load an extension: \(Sanitize.errorMessage(error))"
+            return nil
+        }
+    }
+
     private func unload(_ id: String) {
         if let context = loaded.first(where: { $0.id == id })?.context { try? controller.unload(context) }
         loaded.removeAll { $0.id == id }
-        scopedURLs.removeValue(forKey: id)?.stopAccessingSecurityScopedResource()
     }
 
     private func save() {
@@ -165,7 +242,7 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         }
     }
 
-    private func confirmInstall(_ webExtension: WKWebExtension, window: NSWindow?) -> Bool {
+    private func confirmInstall(_ webExtension: WKWebExtension, audit: ExtensionAudit, hash: String, window: NSWindow?) -> Bool {
         let alert = NSAlert()
         alert.messageText = "Add “\(webExtension.displayName ?? "this extension")”?"
         var lines: [String] = []
@@ -179,7 +256,13 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
                          ? "• Read and change all your data on all websites"
                          : "• Read and change your data on: \(hosts.prefix(6).joined(separator: ", "))\(hosts.count > 6 ? "…" : "")")
         }
-        lines.append("\nExtensions run in regular windows only, never in private windows.")
+        let notable = audit.findings.filter { $0.severity >= .warning }
+        if !notable.isEmpty {
+            lines.append("\nReview found:")
+            lines += notable.map { "⚠︎ \($0.title) (\($0.detail))" }
+        }
+        for info in audit.findings where info.severity == .info { lines.append("• \(info.title) (\(info.detail))") }
+        lines.append("\nThis exact copy is pinned (SHA-256 \(hash.prefix(12))…) and never updates on its own. Extensions run in regular windows only, never in private windows.")
         alert.informativeText = lines.joined(separator: "\n")
         alert.icon = webExtension.icon(for: CGSize(width: 64, height: 64))
         alert.addButton(withTitle: "Add Extension")

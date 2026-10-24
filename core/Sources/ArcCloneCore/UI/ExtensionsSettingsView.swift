@@ -10,7 +10,7 @@ struct ExtensionsSettingsView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Web Extensions").font(.headline)
-                    Text("Chrome, Firefox and Safari web extensions (manifest v2 or v3) from an unpacked folder or a .zip. They run in regular windows only.")
+                    Text("Chrome, Firefox and Safari web extensions from a folder, .zip or .crx. Each is reviewed before it's added, then pinned: this exact copy runs and never updates on its own. They run in regular windows only.")
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
@@ -21,7 +21,7 @@ struct ExtensionsSettingsView: View {
             }
             if manager.installed.isEmpty {
                 ContentUnavailableView("No Extensions", systemImage: "puzzlepiece.extension",
-                                       description: Text("Download an extension's source, unzip it if needed, and add the folder that contains manifest.json."))
+                                       description: Text("Add an extension's folder (with manifest.json), .zip or .crx. You'll see what it can do and what the review found before it's added."))
                     .frame(height: 180)
             } else {
                 List {
@@ -34,7 +34,8 @@ struct ExtensionsSettingsView: View {
                             .frame(width: 28, height: 28)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(loaded?.name ?? "Extension").font(.system(size: 13, weight: .medium))
-                                Text([loaded?.version, loaded?.summary].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · "))
+                                Text([loaded?.version, manager.pinnedHash(record.id).map { "pinned \($0)" }, loaded?.summary]
+                                        .compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · "))
                                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             }
                             Spacer()
