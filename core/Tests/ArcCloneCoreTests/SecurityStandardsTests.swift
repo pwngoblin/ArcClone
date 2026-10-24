@@ -41,5 +41,30 @@ import WebKit
         let config = factory.makeConfiguration(bridge: bridge)
         #expect(config.preferences.value(forKey: "allowFileAccessFromFileURLs") as? Bool == false)
         #expect(config.value(forKey: "allowUniversalAccessFromFileURLs") as? Bool == false)
+        #expect(!config.preferences.javaScriptCanOpenWindowsAutomatically)
+        #expect(config.preferences.minimumFontSize == 9)
+        #expect(config.upgradeKnownHostsToHTTPS)
+        #expect(!config.limitsNavigationsToAppBoundDomains) // tabs browse the open web
+    }
+
+    @Test func pagesCannotNavigateToFilesOrTopLevelData() {
+        let opened = URL(fileURLWithPath: "/Users/me/Documents/report.html")
+        #expect(Tab.isAllowedNavigation(opened, isMainFrame: true, allowedData: nil, allowedFile: opened))
+        #expect(!Tab.isAllowedNavigation(URL(fileURLWithPath: "/etc/passwd"), isMainFrame: false, allowedData: nil, allowedFile: opened))
+        #expect(!Tab.isAllowedNavigation(URL(fileURLWithPath: "/Users/me/.ssh/id_ed25519"), isMainFrame: true, allowedData: nil, allowedFile: nil))
+        let data = URL(string: "data:text/html,<form>login</form>")!
+        #expect(!Tab.isAllowedNavigation(data, isMainFrame: true, allowedData: nil, allowedFile: nil))
+        #expect(Tab.isAllowedNavigation(data, isMainFrame: false, allowedData: nil, allowedFile: nil)) // subframes are sandboxed by WebKit
+        #expect(Tab.isAllowedNavigation(URL(string: "https://example.com")!, isMainFrame: true, allowedData: nil, allowedFile: nil))
+    }
+
+    @Test func internalPagesNeverUseNilOrFileBaseURLs() {
+        #expect(ErrorPage.baseURL(for: URL(string: "https://down.example/x")!).host == "down.example")
+        for odd in [nil, URL(fileURLWithPath: "/Users/me/secret.html"), URL(string: "about:blank"), URL(string: "data:text/html,x")] {
+            #expect(ErrorPage.baseURL(for: odd) == ErrorPage.internalBaseURL)
+        }
+        #expect(ErrorPage.isInternal(ErrorPage.internalBaseURL) && !ErrorPage.isInternal(URL(string: "https://example.com")))
+        let page = ErrorPage.html(title: "<img src=x onerror=alert(1)>", message: "m", url: nil)
+        #expect(page.contains("default-src 'none'") && !page.contains("<img src=x"))
     }
 }
