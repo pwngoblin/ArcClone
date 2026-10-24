@@ -2,6 +2,24 @@ import Foundation
 
 /// Escaping and validation for data that crosses into another language or the file system.
 enum Sanitize {
+    static let maxErrorLength = 300
+
+    /// Error text that is safe to show in the UI or hand to page scripts: our own IPC messages as
+    /// they are; system errors by their localized description with file paths and file URLs
+    /// replaced; and nothing from Swift errors whose description is a type dump. Details belong in
+    /// the private log, never on screen.
+    static func errorMessage(_ error: Error) -> String {
+        if let ipc = error as? IPCError { return String(ipc.message.prefix(maxErrorLength)) }
+        var text = error.localizedDescription
+        // Errors with no description of their own read "The operation couldn’t be completed.
+        // (Module.TypeName error 1.)": internal type names and nothing useful for the user.
+        if text.range(of: #"\([^()]+ error -?\d+\.\)$"#, options: .regularExpression) != nil { return "Something went wrong." }
+        text = text.replacingOccurrences(of: #"file://\S+"#, with: "a file", options: .regularExpression)
+        text = text.replacingOccurrences(of: #"(?<![\w:])(/(Users|private|var|tmp|Volumes|Applications|Library|System)(/[^\s“”"'’,;)]*)?)"#,
+                                         with: "a location on this Mac", options: .regularExpression)
+        return String(text.prefix(maxErrorLength))
+    }
+
     /// HTML text and attribute content (both quote styles).
     static func html(_ text: String) -> String {
         var out = ""

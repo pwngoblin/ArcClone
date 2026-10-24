@@ -62,7 +62,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         } catch {
             let alert = NSAlert()
             alert.messageText = "ArcClone could not load its content scripts"
-            alert.informativeText = "\(error)\n\nLooked in \(paths.injections.path). Set ARCCLONE_ROOT to the repository root."
+            Log.app.error("Content scripts failed to load from \(self.paths.injections.path, privacy: .private): \(String(describing: error), privacy: .private)")
+            // Packaged builds don't reveal paths; development builds explain how to fix the setup.
+            alert.informativeText = AppInfo.isPackaged
+                ? "The app's resources are missing or damaged. Reinstall ArcClone."
+                : "\(Sanitize.errorMessage(error))\n\nSet ARCCLONE_ROOT to the repository root."
             alert.runModal()
             NSApp.terminate(nil)
             return

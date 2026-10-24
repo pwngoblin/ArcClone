@@ -94,7 +94,7 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
             save()
             await load(record, context: context)
         } catch {
-            lastError = "Couldn't install: \(error.localizedDescription)"
+            lastError = "Couldn't install: \(Sanitize.errorMessage(error))"
         }
     }
 
@@ -148,7 +148,7 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
             loaded.append(Loaded(id: record.id, context: context))
             for window in windows() { window.registerWithExtensions(controller) }
         } catch {
-            lastError = "Couldn't load an extension: \(error.localizedDescription)"
+            lastError = "Couldn't load an extension: \(Sanitize.errorMessage(error))"
         }
     }
 

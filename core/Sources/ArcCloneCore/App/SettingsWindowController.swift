@@ -77,7 +77,7 @@ struct GeneralSettingsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Button("Make ArcClone Default") {
                             DefaultBrowser.makeDefault { error in
-                                defaultBrowserError = error?.localizedDescription
+                                defaultBrowserError = error.map(Sanitize.errorMessage)
                                 isDefaultBrowser = DefaultBrowser.isDefault
                             }
                         }
@@ -375,7 +375,7 @@ struct AssistantSettingsView: View {
                 pins = found.prefix(2).joined(separator: ", ")
                 pinStatus = "Pinned \(min(found.count, 2)) key(s) for \(url.host ?? ""). Click Apply."
             } catch {
-                pinStatus = "Couldn't read the certificate: \(error.localizedDescription)"
+                pinStatus = "Couldn't read the certificate: \(Sanitize.errorMessage(error))"
             }
         }
     }

@@ -48,7 +48,7 @@ public final class ScriptRegistry {
                                   mainFrameOnly: entry.mainFrameOnly,
                                   matches: entry.matches)
         }
-        Log.scripts.info("Compiled \(self.scripts.count) injection scripts")
+        Log.scripts.info("Compiled \(self.scripts.count, privacy: .public) injection scripts")
     }
 
     /// Builds the final source: host guard + module + sourceURL for Web Inspector.

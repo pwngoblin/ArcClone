@@ -83,7 +83,7 @@ public final class IPCRouter {
         do {
             envelope = try JSONDecoder().decode(IPCEnvelope.self, from: Data(body.utf8))
         } catch {
-            return IPCReply.failure(.malformed("Invalid envelope: \(error.localizedDescription)")).jsonString()
+            return IPCReply.failure(.malformed("Invalid envelope")).jsonString()
         }
         return await dispatch(envelope, source: source).jsonString()
     }
@@ -113,7 +113,7 @@ public final class IPCRouter {
             return .failure(error)
         } catch {
             Log.ipc.error("Handler \(envelope.type, privacy: .public) threw: \(error.localizedDescription, privacy: .public)")
-            return .failure(.internal(error.localizedDescription))
+            return .failure(.internal(Sanitize.errorMessage(error)))
         }
     }
 }

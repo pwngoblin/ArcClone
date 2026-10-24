@@ -52,7 +52,7 @@ extension BrowserWindowController {
         router.on("runtime.error", from: pageOnly, as: PagePayload.RuntimeError.self) { ctx, p in
             // Only errors raised inside our own injection files are reported.
             guard let source = p.source, source.hasPrefix("arc-injection://"), source.count < 200 else { return .null }
-            Log.scripts.error("Injection error \(source, privacy: .public):\(p.line ?? 0): \(PagePayload.bounded(p.message, PagePayload.maxMessage) ?? "", privacy: .private) [\(ctx.source.tabID?.uuidString ?? "-", privacy: .public)]")
+            Log.scripts.error("Injection error \(source, privacy: .public):\(p.line ?? 0, privacy: .public): \(PagePayload.bounded(p.message, PagePayload.maxMessage) ?? "", privacy: .private) [\(ctx.source.tabID?.uuidString ?? "-", privacy: .public)]")
             return .null
         }
 

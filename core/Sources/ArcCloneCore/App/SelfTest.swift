@@ -156,8 +156,8 @@ enum SelfTest {
             }
 
             report["result"] = .string(failures.isEmpty ? "pass" : "fail")
-            print(JSONValue.object(report).jsonString())
-            fflush(stdout)
+            // The report is the self-test's output (stdout), not a log.
+            FileHandle.standardOutput.write(Data((JSONValue.object(report).jsonString() + "\n").utf8))
             exit(failures.isEmpty ? 0 : 1)
         }
     }
