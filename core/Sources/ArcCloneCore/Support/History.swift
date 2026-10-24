@@ -19,7 +19,10 @@ public final class History {
     static let coalesceInterval: TimeInterval = 30 * 60
 
     /// Most recent first.
-    public private(set) var visits: [Visit] = []
+    public private(set) var visits: [Visit] = [] { didSet { searchText = nil } }
+    /// Lowercased title + address per visit, built on the first search after a change, so typing in
+    /// the command bar doesn't lowercase the whole history on every keystroke.
+    @ObservationIgnored private var searchText: [NSString]?
     public private(set) var isLoaded = false
 
     @ObservationIgnored private let file: SealedFile?
@@ -102,7 +105,17 @@ public final class History {
     /// Newest visit per page whose title or URL contains `query`.
     public func search(_ query: String, limit: Int = 50) -> [Visit] {
         let needle = query.lowercased().trimmingCharacters(in: .whitespaces)
-        return unique(limit) { needle.isEmpty || $0.title.lowercased().contains(needle) || $0.url.absoluteString.lowercased().contains(needle) }
+        guard !needle.isEmpty else { return unique(limit) { _ in true } }
+        // Already lowercased, so a literal (byte-wise) search is enough, and several times faster.
+        if searchText == nil { searchText = visits.map { ($0.title + "\n" + $0.url.absoluteString).lowercased() as NSString } }
+        let text = searchText ?? []
+        var seen = Set<URL>()
+        var out: [Visit] = []
+        for (index, visit) in visits.enumerated() where out.count < limit
+            && text[index].range(of: needle, options: .literal).location != NSNotFound && seen.insert(visit.url).inserted {
+            out.append(visit)
+        }
+        return out
     }
 
     public func recent(_ limit: Int) -> [Visit] { unique(limit) { _ in true } }

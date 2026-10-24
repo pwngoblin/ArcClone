@@ -20,7 +20,9 @@ public final class Bookmarks {
 
     static let maxLinks = 100_000
 
-    public private(set) var root: [Node] = []
+    public private(set) var root: [Node] = [] { didSet { index = nil } }
+    /// Every link with its lowercased title + address, rebuilt after changes.
+    @ObservationIgnored private var index: [(link: Node, text: NSString)]?
     @ObservationIgnored private let file: SealedFile?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
 
@@ -41,24 +43,31 @@ public final class Bookmarks {
         }
     }
 
-    /// Every link, depth first.
-    public var links: [Node] {
-        var out: [Node] = []
-        func walk(_ nodes: [Node]) { for node in nodes { if let children = node.children { walk(children) } else if node.url != nil { out.append(node) } } }
+    private var linkIndex: [(link: Node, text: NSString)] {
+        if let index { return index }
+        var out: [(link: Node, text: NSString)] = []
+        func walk(_ nodes: [Node]) {
+            for node in nodes {
+                if let children = node.children { walk(children) } else if let url = node.url { out.append((node, (node.title + "\n" + url.absoluteString).lowercased() as NSString)) }
+            }
+        }
         walk(root)
+        index = out
         return out
     }
 
-    public var linkCount: Int { links.count }
+    /// Every link, depth first.
+    public var links: [Node] { linkIndex.map(\.link) }
+
+    public var linkCount: Int { linkIndex.count }
 
     /// Links whose title or address contains `query`.
     public func search(_ query: String, limit: Int = 20) -> [Node] {
         let needle = query.lowercased().trimmingCharacters(in: .whitespaces)
         guard !needle.isEmpty else { return [] }
         var out: [Node] = []
-        for link in links where out.count < limit {
-            if link.title.lowercased().contains(needle) || (link.url?.absoluteString.lowercased().contains(needle) ?? false) { out.append(link) }
-        }
+        // Already lowercased, so a literal (byte-wise) search is enough, and several times faster.
+        for entry in linkIndex where out.count < limit && entry.text.range(of: needle, options: .literal).location != NSNotFound { out.append(entry.link) }
         return out
     }
 
@@ -67,6 +76,7 @@ public final class Bookmarks {
     @discardableResult
     public func addFolder(_ folder: Node) -> Int {
         var known = Set(links.compactMap { $0.url.map(URLNormalizer.key) })
+        let existing = linkCount // counted once, not per link
         var added = 0
         func filter(_ nodes: [Node]) -> [Node] {
             nodes.compactMap { node in
@@ -74,7 +84,7 @@ public final class Bookmarks {
                     let kept = filter(children)
                     return kept.isEmpty ? nil : .folder(node.title, kept)
                 }
-                guard let url = node.url, URLNormalizer.isImportable(url), linkCount + added < Self.maxLinks,
+                guard let url = node.url, URLNormalizer.isImportable(url), existing + added < Self.maxLinks,
                       known.insert(URLNormalizer.key(url)).inserted else { return nil }
                 added += 1
                 return .link(String(node.title.prefix(500)), url)
