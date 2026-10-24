@@ -78,6 +78,33 @@ Extensions installed before pinning existed (loaded from your folder) are copied
 
 **Limits of the scan.** It's a static review. It catches the ways an extension can pull in outside code and the common telemetry endpoints, but minified or obfuscated code can hide behavior. Read the code of anything that handles sensitive pages. The store's CRX signature isn't verified; the audit and the pinned hash are what's trusted. To confirm you have the same copy as someone else, compare the hash shown in Settings → Extensions.
 
+## Architecture
+
+The modules `CLAUDE.md` names live in the Swift package (`core/Sources/ArcCloneCore/`), since SwiftPM compiles sources only from there. The shim script lives in `injections/`.
+
+| Contract | File | What it does |
+|---|---|---|
+| Manifest model | `Extensions/ExtensionManifest.swift` | `Codable`, `Sendable` model of MV2/MV3 manifests: content scripts, background, action, permissions, CSP, icons, `__MSG_…__` localization. Lenient: a field with an unexpected shape is treated as absent. |
+| Isolated loading | `Extensions/ExtensionActor.swift` | `@globalActor ExtensionActor`. Reading, auditing, pinning and hash checks all run here, off the main thread. |
+| Installed extensions | `Extensions/ExtensionLibrary.swift` | Install, audit, approval, pinning, sealed list and integrity checks, on every macOS version. |
+| Runtime, macOS 15.4+ | `Extensions/ExtensionManager.swift` | WebKit's `WKWebExtensionController`: content scripts, background, popups, `chrome.*` APIs and extension storage. It stays on the main actor because WebKit's extension types are main-thread only. |
+| Script injection, macOS 14–15.3 | `Extensions/ExtensionScriptInjector.swift` | Content scripts as `WKUserScript`s, each extension in its own content world (`ArcExtension.<id>`), chosen by match patterns when a page starts loading. |
+| Message bridge, macOS 14–15.3 | `Extensions/ExtensionMessageBridge.swift`, `injections/extension-compat.js` | A first-party shim gives content scripts `chrome.storage.local` / `sync` (sealed, 10 MB quota per extension) and `storage.onChanged`. It talks to native code through a handler that accepts only schema-validated `{ action, payload }` JSON from its own world. |
+| Native messaging | `Extensions/NativeMessagingHostManager.swift` | See below. Never starts a process. |
+| Toolbar | `UI/ExtensionToolbarView.swift` | SwiftUI popover: each extension's icon and action badge, Add and Manage. |
+
+**Compatibility mode (macOS 14–15.3)** runs page scripts only. Popups, background scripts and service workers, `runtime.sendMessage` and most `chrome.*` APIs need WebKit's extension controller, so they return a clear error instead.
+
+### Native messaging and password managers
+
+ArcClone doesn't bridge extensions to desktop helper apps. 1Password's, Bitwarden's and similar helpers check the calling browser against a built-in, signed list of known browsers (Chrome, Safari, Firefox, Edge, Brave), so they would reject ArcClone however the pipes were set up. Launching other apps' binaries from the App Sandbox would also widen the attack surface for nothing.
+
+Instead, `runtime.connectNative` and `runtime.sendNativeMessage` fail immediately with "ArcClone doesn't connect extensions to desktop apps. Sign in within the extension instead.":
+- On macOS 15.4+, through `WKWebExtensionControllerDelegate`.
+- On older versions, through the bridge.
+
+Extensions can handle that error and fall back to their own features: extension storage, their popup and options pages, and web sign-in in a tab. Nothing waits on a host that will never answer.
+
 ## 3. Runtime isolation
 
 What's enforced, and where:
@@ -88,5 +115,7 @@ What's enforced, and where:
 | Extension pages can't use the bridge either | `ScriptMessageBridge` answers only messages from its own content world, from frames whose WebKit-reported origin is `https`, `http` or `file`. `webkit-extension:` pages are refused even when opened in a tab. |
 | Only reviewed code runs | WebKit enforces each extension's CSP (Manifest V3 defaults to `script-src 'self'`). The audit refuses policies that would allow eval or remote scripts on extension pages, so the pinned files are all an extension can run. |
 | Only approved permissions | Permissions and host patterns are granted explicitly at each load, from what was approved at install (`ExtensionManager.load`). |
-| No extensions in private windows | Private windows use a separate configuration without the extension controller. |
+| Extensions can't see each other or the page | Compatibility-mode content scripts run in a separate content world per extension. Page scripts can't read their variables, and `chrome` never appears in the page. |
+| No extensions in private windows | Private windows use a separate configuration without the extension controller or the compatibility injector. |
+| No desktop helpers | Native messaging is refused without starting any process. |
 | OS-level containment | Extensions run in WebKit's own processes under ArcClone's App Sandbox (outbound network only, no file access beyond what you open). |
