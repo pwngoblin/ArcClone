@@ -5,11 +5,18 @@ import Security
 /// Verifies a CRX3 package the way Chrome does before it trusts one fetched from the store:
 /// `Cr24`, version 3, a protobuf `CrxFileHeader`, then the zip. Every signature in the header must
 /// check out over `"CRX3 SignedData\0" ‖ len ‖ signed_header_data ‖ zip`, and one of the signing
-/// keys must hash to the extension ID that was asked for. So a download that was swapped, damaged
-/// or is a different extension never reaches the audit.
+/// keys must hash to the extension ID that was asked for, and another must be Google's Web Store
+/// publisher key. So a download that was swapped, damaged, is a different extension or didn't come
+/// through the store never reaches the audit.
 enum CRX3 {
     static let maxHeaderBytes = 1_000_000
     static let maxProofs = 16
+    /// SHA-256 of the Chrome Web Store's publisher key (Chromium's `kPublisherKeyHash` in
+    /// components/crx_file/crx_verifier.cc). The store signs every package it serves with it.
+    static let webStorePublisherKeyHash = Data([
+        0x61, 0xf7, 0xf2, 0xa6, 0xbf, 0xcf, 0x74, 0xcd, 0x0b, 0xc1, 0xfe, 0x24, 0x97, 0xcc, 0x9b, 0x04,
+        0x25, 0x4c, 0x65, 0x8f, 0x79, 0xf2, 0x14, 0x53, 0x92, 0x86, 0x7e, 0xa8, 0x36, 0x63, 0x67, 0xcf,
+    ])
 
     struct Proof: Equatable {
         let publicKey: Data
@@ -22,8 +29,8 @@ enum CRX3 {
         var signedData: Data?
     }
 
-    /// The zip inside `data`, once its signatures and ID are verified.
-    static func verifiedPayload(_ data: Data, expectedID: String) throws -> Data {
+    /// The zip inside `data`, once its signatures, ID and publisher are verified.
+    static func verifiedPayload(_ data: Data, expectedID: String, publisherKeyHash: Data = webStorePublisherKeyHash) throws -> Data {
         let crx = Data(data) // zero-based indices
         let bad = ExtensionPackage.Invalid(reason: "The download isn't a valid Chrome extension package.")
         guard crx.count >= 12, crx.prefix(4) == Data("Cr24".utf8) else { throw bad }
@@ -48,7 +55,11 @@ enum CRX3 {
         for proof in header.rsa where !verifyRSA(proof, message) { throw forged }
         for proof in header.ecdsa where !verifyECDSA(proof, message) { throw forged }
         // The developer key is what the ID is derived from; it has to be among the signers.
-        guard (header.rsa + header.ecdsa).contains(where: { Data(SHA256.hash(data: $0.publicKey).prefix(16)) == crxID }) else { throw forged }
+        let keyHashes = (header.rsa + header.ecdsa).map { Data(SHA256.hash(data: $0.publicKey)) }
+        guard keyHashes.contains(where: { $0.prefix(16) == crxID }) else { throw forged }
+        guard keyHashes.contains(publisherKeyHash) else {
+            throw ExtensionPackage.Invalid(reason: "The package wasn't signed by the Chrome Web Store.")
+        }
         return payload
     }
 

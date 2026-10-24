@@ -25,8 +25,8 @@ enum ExtensionLoader {
 
     /// A CRX3 downloaded from the Chrome Web Store: signatures and ID verified, then unpacked and audited.
     @ExtensionActor
-    static func inspect(crx data: Data, expectedID: String) throws -> InspectedExtension {
-        let package = try ExtensionPackage(files: ExtensionPackage.unzip(CRX3.verifiedPayload(data, expectedID: expectedID)))
+    static func inspect(crx data: Data, expectedID: String, publisherKeyHash: Data = CRX3.webStorePublisherKeyHash) throws -> InspectedExtension {
+        let package = try ExtensionPackage(files: ExtensionPackage.unzip(CRX3.verifiedPayload(data, expectedID: expectedID, publisherKeyHash: publisherKeyHash)))
         return InspectedExtension(package: package, manifest: ExtensionManifest.parse(package), audit: ExtensionAudit.scan(package))
     }
 

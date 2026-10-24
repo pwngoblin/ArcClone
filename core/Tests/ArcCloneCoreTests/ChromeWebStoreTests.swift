@@ -34,9 +34,12 @@ private struct CRXBuilder {
     var signers: [Signer]
     /// The ID written into the signed header; the first signer's by default.
     var crxID: Data?
+    /// Stands in for the Web Store, which countersigns every package.
+    var publisher: Signer? = testPublisher
 
     func build(_ payload: Data) -> Data {
         let id = crxID ?? Data(SHA256.hash(data: signers[0].spki).prefix(16))
+        let signers = signers + [publisher].compactMap { $0 }
         let signedData = field(1, id)
         var message = Data("CRX3 SignedData\u{0}".utf8) + le32(UInt32(signedData.count)) + signedData
         message += payload
@@ -61,6 +64,14 @@ private struct CRXBuilder {
     }
 
     private func le32(_ v: UInt32) -> Data { Data((0..<4).map { UInt8((v >> (8 * $0)) & 0xFF) }) }
+}
+
+private let testPublisherKey = P256.Signing.PrivateKey()
+private var testPublisher: CRXBuilder.Signer { .ecdsa(testPublisherKey) }
+private let testPublisherHash = Data(SHA256.hash(data: testPublisher.spki))
+
+private func verify(_ crx: Data, expectedID: String) throws -> Data {
+    try CRX3.verifiedPayload(crx, expectedID: expectedID, publisherKeyHash: testPublisherHash)
 }
 
 private func extensionZip() -> Data {
@@ -106,7 +117,7 @@ private func extensionZip() -> Data {
     @Test func verifiedRSAPackageUnpacksAndAudits() async throws {
         let signer = CRXBuilder.Signer.newRSA()
         let crx = CRXBuilder(signers: [signer]).build(extensionZip())
-        let inspected = try await ExtensionLoader.inspect(crx: crx, expectedID: signer.id)
+        let inspected = try await ExtensionLoader.inspect(crx: crx, expectedID: signer.id, publisherKeyHash: testPublisherHash)
         #expect(inspected.manifest?.name == "Store Test")
         #expect(!inspected.audit.isBlocked)
     }
@@ -114,19 +125,29 @@ private func extensionZip() -> Data {
     @Test func verifiesECDSAAndExtraPublisherSignatures() throws {
         let developer = CRXBuilder.Signer.ecdsa(P256.Signing.PrivateKey())
         let crx = CRXBuilder(signers: [developer, .newRSA()]).build(extensionZip())
-        #expect(try CRX3.verifiedPayload(crx, expectedID: developer.id) == extensionZip())
+        #expect(try verify(crx, expectedID: developer.id) == extensionZip())
+    }
+
+    @Test func requiresTheStoresCountersignature() {
+        let signer = CRXBuilder.Signer.newRSA()
+        let unpublished = CRXBuilder(signers: [signer], publisher: nil).build(extensionZip())
+        #expect(throws: ExtensionPackage.Invalid.self) { try verify(unpublished, expectedID: signer.id) }
+        // Signed by someone, but not by the real Web Store key.
+        let published = CRXBuilder(signers: [signer]).build(extensionZip())
+        #expect(throws: ExtensionPackage.Invalid.self) { try CRX3.verifiedPayload(published, expectedID: signer.id) }
+        #expect(CRX3.webStorePublisherKeyHash.count == 32)
     }
 
     @Test func refusesADifferentExtension() {
         let crx = CRXBuilder(signers: [.newRSA()]).build(extensionZip())
-        #expect(throws: ExtensionPackage.Invalid.self) { try CRX3.verifiedPayload(crx, expectedID: id) }
+        #expect(throws: ExtensionPackage.Invalid.self) { try verify(crx, expectedID: id) }
     }
 
     @Test func refusesTamperedContents() {
         let signer = CRXBuilder.Signer.newRSA()
         var crx = CRXBuilder(signers: [signer]).build(extensionZip())
         crx[crx.count - 30] ^= 0xFF
-        #expect(throws: ExtensionPackage.Invalid.self) { try CRX3.verifiedPayload(crx, expectedID: signer.id) }
+        #expect(throws: ExtensionPackage.Invalid.self) { try verify(crx, expectedID: signer.id) }
     }
 
     @Test func refusesAnIDNoSignerOwns() {
@@ -134,25 +155,27 @@ private func extensionZip() -> Data {
         let signer = CRXBuilder.Signer.newRSA()
         let claimed = Data(SHA256.hash(data: Data("someone else".utf8)).prefix(16))
         let crx = CRXBuilder(signers: [signer], crxID: claimed).build(extensionZip())
-        #expect(throws: ExtensionPackage.Invalid.self) { try CRX3.verifiedPayload(crx, expectedID: CRX3.extensionID(fromHash: claimed)) }
+        #expect(throws: ExtensionPackage.Invalid.self) { try verify(crx, expectedID: CRX3.extensionID(fromHash: claimed)) }
     }
 
     @Test func refusesOneBadSignatureAmongGoodOnes() {
         let developer = CRXBuilder.Signer.newRSA()
-        var crx = CRXBuilder(signers: [developer, .ecdsa(P256.Signing.PrivateKey())]).build(extensionZip())
+        // The ECDSA proof goes last, so its signature ends right before the signed-data field.
+        var crx = CRXBuilder(signers: [developer, testPublisher, .ecdsa(P256.Signing.PrivateKey())], publisher: nil).build(extensionZip())
+        #expect(throws: Never.self) { try verify(crx, expectedID: developer.id) }
         // Corrupt the last byte of the ECDSA proof's signature, just before the signed-data field
         // (3-byte tag, length, then crx_id's tag, length and 16 bytes).
         let signedDataField = 3 + 1 + 2 + 16
         let headerEnd = 12 + (Int(crx[8]) | Int(crx[9]) << 8)
         crx[headerEnd - signedDataField - 1] ^= 0x01
-        #expect(throws: ExtensionPackage.Invalid.self) { try CRX3.verifiedPayload(crx, expectedID: developer.id) }
+        #expect(throws: ExtensionPackage.Invalid.self) { try verify(crx, expectedID: developer.id) }
     }
 
     @Test func refusesUnsignedV2AndNonZipPackages() {
         let signer = CRXBuilder.Signer.newRSA()
-        #expect(throws: ExtensionPackage.Invalid.self) { try CRX3.verifiedPayload(Data("Cr24".utf8) + Data([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]) + extensionZip(), expectedID: signer.id) }
-        #expect(throws: ExtensionPackage.Invalid.self) { try CRX3.verifiedPayload(CRXBuilder(signers: [signer]).build(Data("not a zip".utf8)), expectedID: signer.id) }
-        #expect(throws: ExtensionPackage.Invalid.self) { try CRX3.verifiedPayload(extensionZip(), expectedID: signer.id) }
+        #expect(throws: ExtensionPackage.Invalid.self) { try verify(Data("Cr24".utf8) + Data([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]) + extensionZip(), expectedID: signer.id) }
+        #expect(throws: ExtensionPackage.Invalid.self) { try verify(CRXBuilder(signers: [signer]).build(Data("not a zip".utf8)), expectedID: signer.id) }
+        #expect(throws: ExtensionPackage.Invalid.self) { try verify(extensionZip(), expectedID: signer.id) }
         #expect(ExtensionPackage.crxPayload(Data("Cr24".utf8) + Data([3, 0, 0, 0, 0, 0, 0, 0]) + Data("not a zip at all".utf8)) == nil)
     }
 

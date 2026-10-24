@@ -54,7 +54,7 @@ Settings → Extensions → **Add Extension…** accepts an unpacked folder (wit
    ```
    https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130.0&acceptformat=crx3&x=id%3D<ID>%26installsource%3Dondemand%26uc
    ```
-2. **Verify the signature.** Only CRX3 is accepted. Every RSA (2048-bit or larger) and P-256 signature in the header must verify over the signed header and the zip. One of the signing keys must hash to the requested ID. So a download that was swapped, damaged or is a different extension is refused before it's unpacked.
+2. **Verify the signature.** Only CRX3 is accepted. Every RSA (2048-bit or larger) and P-256 signature in the header must verify over the signed header and the zip. One of the signing keys must hash to the requested ID, and another must be the Chrome Web Store's publisher key (the same hash Chromium pins). So a download that was swapped, damaged, is a different extension or didn't come through the store is refused before it's unpacked.
 3. From there it's the same as adding a file: unpack, audit, approve, pin. The record remembers the store ID.
 
 **What happens when you add it** (`ExtensionPackage.swift`, `ExtensionAudit.swift`, `ExtensionManager.swift`):
@@ -79,7 +79,7 @@ Settings → Extensions → **Add Extension…** accepts an unpacked folder (wit
 
 Extensions installed before pinning existed (loaded from your folder) are copied, audited and pinned once on their next load. If one would now be blocked, it's turned off.
 
-**Limits of the scan.** It's a static review. It catches the ways an extension can pull in outside code and the common telemetry endpoints, but minified or obfuscated code can hide behavior. Read the code of anything that handles sensitive pages. For store downloads the CRX3 signatures are checked against the requested ID (a `.crx` file you add yourself isn't, since there's no ID to check it against). Google's own publisher signature isn't pinned. The audit and the pinned hash are what's trusted after that. To confirm you have the same copy as someone else, compare the hash shown in Settings → Extensions.
+**Limits of the scan.** It's a static review. It catches the ways an extension can pull in outside code and the common telemetry endpoints, but minified or obfuscated code can hide behavior. Read the code of anything that handles sensitive pages. For store downloads the CRX3 signatures are checked against the requested ID (a `.crx` file you add yourself isn't, since there's no ID to check it against). The audit and the pinned hash are what's trusted after that. To confirm you have the same copy as someone else, compare the hash shown in Settings → Extensions.
 
 ## Architecture
 
