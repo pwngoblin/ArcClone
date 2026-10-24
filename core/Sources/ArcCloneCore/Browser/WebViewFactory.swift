@@ -14,6 +14,8 @@ public final class WebViewFactory {
     /// WKWebExtensionController on macOS 15.4+ (typed loosely so the app still runs on macOS 14).
     /// nil for private windows: extensions never run there.
     public var extensionController: AnyObject?
+    /// Compatibility-mode content scripts (macOS 14–15.3); nil in private windows.
+    var extensionScripts: ExtensionScriptInjector?
     /// Web Inspector is a development tool: release builds don't let it attach to tabs or the chrome.
     #if DEBUG
     public var inspectable = true
@@ -60,7 +62,7 @@ public final class WebViewFactory {
     }
 
     public func makeWebView(bridge: ScriptMessageBridge) -> WKWebView {
-        let webView = WKWebView(frame: .zero, configuration: makeConfiguration(bridge: bridge))
+        let webView = BrowserWebView(frame: .zero, configuration: makeConfiguration(bridge: bridge))
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = true
         webView.isInspectable = inspectable

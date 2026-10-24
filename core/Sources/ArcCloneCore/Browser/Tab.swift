@@ -4,6 +4,8 @@ import WebKit
 public protocol TabDelegate: AnyObject {
     func tabDidChange(_ tab: Tab)
     func tab(_ tab: Tab, requestsNewTabWith request: URLRequest, inBackground: Bool)
+    /// Context menu → Open Link in Split View.
+    func tab(_ tab: Tab, requestsSplitWith request: URLRequest)
     func tabRequestsClose(_ tab: Tab)
     func tabDidStartDownload(_ tab: Tab)
 }
@@ -43,6 +45,8 @@ public final class Tab: NSObject {
     private var isDiscarded = false
     let siteSettings: SiteSettings?
     let adBlocker: AdBlocker?
+    private let extensionScripts: ExtensionScriptInjector?
+    private let registry: ScriptRegistry
 
     public init(id: UUID = UUID(), factory: WebViewFactory, router: IPCRouter, url: URL?, pinned: Bool = false) {
         self.id = id
@@ -50,6 +54,8 @@ public final class Tab: NSObject {
         self.contentWorld = factory.registry.contentWorld
         self.siteSettings = factory.siteSettings
         self.adBlocker = factory.adBlocker
+        self.extensionScripts = factory.extensionScripts
+        self.registry = factory.registry
         let tabID = id
         self.bridge = ScriptMessageBridge(name: ScriptRegistry.messageHandlerName,
                                           contentWorld: factory.registry.contentWorld,
@@ -64,6 +70,7 @@ public final class Tab: NSObject {
         super.init()
         webView.navigationDelegate = self
         webView.uiDelegate = self
+        (webView as? BrowserWebView)?.willOpenLinkInSplit = { [weak self] in self?.splitRequestedAt = Date() }
         observe()
         if let url { load(url) }
     }
@@ -71,6 +78,7 @@ public final class Tab: NSObject {
     /// Breaks the WKUserContentController -> bridge retain and stops the page.
     public func tearDown() {
         adBlocker?.forget(webView.configuration.userContentController)
+        extensionScripts?.forget(webView.configuration.userContentController)
         securityScopedURL?.stopAccessingSecurityScopedResource()
         securityScopedURL = nil
         observations.removeAll()
@@ -106,6 +114,9 @@ public final class Tab: NSObject {
     // MARK: Page change detection
 
     private var recheckTask: Task<Void, Never>?
+    /// Set when the context menu's Open Link in Split View hands the link to WebKit; the
+    /// new-window request that follows (within a moment) opens in split view.
+    fileprivate var splitRequestedAt: Date?
 
     /// The page scripts no longer poll for single-page-app navigations; when WebKit reports a URL
     /// change we ask them, once, to re-read the page (debounced to coalesce redirect bursts).
@@ -362,6 +373,7 @@ extension Tab: WKNavigationDelegate {
             let target = navigationAction.request.url
             if let siteSettings { preferences.allowsContentJavaScript = siteSettings.allowsJavaScript(for: target) }
             adBlocker?.configure(webView.configuration.userContentController, adsAllowed: siteSettings?.adsAllowed(for: target) ?? false)
+            extensionScripts?.configure(webView.configuration.userContentController, for: target, registry: registry)
         }
         return (.allow, preferences)
     }
@@ -486,8 +498,11 @@ extension Tab: WKUIDelegate {
     /// target=_blank and window.open: open as a foreground tab instead of a popup window.
     public func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                         for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        let split = splitRequestedAt.map { Date().timeIntervalSince($0) < 2 } ?? false
+        splitRequestedAt = nil
         if navigationAction.request.url != nil {
-            delegate?.tab(self, requestsNewTabWith: navigationAction.request, inBackground: false)
+            if split { delegate?.tab(self, requestsSplitWith: navigationAction.request) }
+            else { delegate?.tab(self, requestsNewTabWith: navigationAction.request, inBackground: false) }
         }
         return nil
     }

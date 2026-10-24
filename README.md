@@ -13,7 +13,7 @@ ArcClone is written in Swift with AppKit and SwiftUI and renders pages with WebK
 3. Builds without a Developer ID signature are blocked on first launch: open **System Settings → Privacy & Security** and click **Open Anyway**.
 
 **Requirements**
-- macOS 14 Sonoma or later, Apple silicon or Intel. Web extensions need macOS 15.4 or later.
+- macOS 14 Sonoma or later, Apple silicon or Intel. Full web extension support (popups, background) needs macOS 15.4 or later.
 - For the assistant only: [Ollama](https://ollama.com) with at least one model (`ollama pull llama3.2`).
 
 ## Features
@@ -34,7 +34,7 @@ ArcClone is written in Swift with AppKit and SwiftUI and renders pages with WebK
 - **Ad and tracker blocking** with WebKit content rules: a built-in list, YouTube ad skipping, and a toolbar shield to allow ads on a site. Filter lists can be turned on in Settings → Privacy: EasyList, EasyPrivacy, uBlock filters, uBlock filters – Privacy, Peter Lowe's list and AdGuard Annoyances. They're downloaded weekly and converted from Adblock Plus / uBlock Origin syntax, including exceptions, `$domain=`, `$important`, `$badfilter`, element hiding, and procedural filters (`:has-text()`, `:upward()`, `:style()` limited to layout properties) that run in the page. Scriptlets (`+js`), redirects and other filters that would run list-supplied code, or that WebKit can't express exactly, are skipped.
 - **HTTPS-First**: `http://` addresses are tried over HTTPS first; falling back to HTTP asks you.
 - **Downloads**: a progress ring and badge in the sidebar, and a popover with progress, time remaining, cancel, retry (resuming when possible) and Show in Finder.
-- **Web extensions** (macOS 15.4+): Chrome, Firefox and Safari web extensions from a folder, .zip or Chrome Web Store .crx (Settings → Extensions). Each is audited before installing: anything that could load code from outside the extension is refused, and eval, telemetry calls and sensitive permissions are shown with every permission. The approved copy is pinned in the app's container, checked against its SHA-256 at every launch, and never updates on its own. Extensions can't reach ArcClone's page bridge. See [docs/EXTENSIONS.md](docs/EXTENSIONS.md).
+- **Web extensions**: Chrome, Firefox and Safari web extensions from a folder, .zip or Chrome Web Store .crx (Settings → Extensions). On macOS 15.4+ they run fully through WebKit; on macOS 14–15.3 their page scripts run, each in its own content world, with `chrome.storage`. Each is audited before installing: anything that could load code from outside the extension is refused, and eval, telemetry calls and sensitive permissions are shown with every permission. The approved copy is pinned in the app's container, checked against its SHA-256 at every launch, and never updates on its own. Extensions can't reach ArcClone's page bridge. Native messaging to desktop apps (such as password manager helpers) isn't supported; extensions get a clear error and use their own sign-in. See [docs/EXTENSIONS.md](docs/EXTENSIONS.md).
 
 **History**
 - A History window (⌘Y) with time ranges, most-visited sites and search; a History list in the sidebar (clock button); recently visited pages in the History menu. Private windows are never recorded.
@@ -43,7 +43,8 @@ ArcClone is written in Swift with AppKit and SwiftUI and renders pages with WebK
 - Ask about the current page, summarize a page or a YouTube video from its transcript (⇧⌘E), or explain selected text. Timestamps in answers jump to that point in the video.
 
 **macOS integration**
-- Native toolbar, standard menus (Services, Spelling and Grammar, Substitutions, Speech), printing, and a Settings window (⌘,) with General, Tabs, Appearance, Websites, Privacy, Extensions (macOS 15.4+) and Assistant panes.
+- Native toolbar, standard menus (Services, Spelling and Grammar, Substitutions, Speech), printing, and a Settings window (⌘,) with General, Tabs, Appearance, Websites, Privacy, Extensions and Assistant panes.
+- A page context menu with icons, including Open Link in New Tab and Open Link in Split View.
 - Can be the default browser; opens `http`/`https` links and HTML files.
 - Handoff of the current tab to your other Apple devices.
 - Haptic feedback on Force Touch trackpads for actions such as reordering, pinning, splitting, switching spaces and crossing the space-swipe threshold (Settings → General).

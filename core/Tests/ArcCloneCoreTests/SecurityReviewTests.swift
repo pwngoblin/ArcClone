@@ -50,16 +50,15 @@ import WebKit
     }
 
     @Test func tamperedExtensionListLoadsNothing() async throws {
-        guard #available(macOS 15.4, *) else { return }
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("arcclone-extlist-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         // Someone without the key writes a list pointing at their own "extension".
         let forged = try JSONEncoder().encode([InstalledExtension(id: "evil", bookmark: Data([1, 2, 3]), enabled: true,
                                                                    grantedPermissions: ["tabs"], grantedPatterns: ["<all_urls>"])])
         try forged.write(to: dir.appendingPathComponent("extensions.sealed"))
-        let manager = ExtensionManager(directory: dir, keys: InMemoryKeyStore())
-        await manager.loadAll()
-        #expect(manager.installed.isEmpty && manager.loaded.isEmpty)
-        #expect(manager.lastError != nil)
+        let library = ExtensionLibrary(directory: dir, keys: InMemoryKeyStore())
+        await library.loadAll()
+        #expect(library.installed.isEmpty && library.ready.isEmpty)
+        #expect(library.lastError != nil)
     }
 }

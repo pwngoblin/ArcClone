@@ -4,7 +4,7 @@ import SwiftUI
 /// Settings… (⌘,): a toolbar-style preferences window with SwiftUI panes, like the system apps.
 @MainActor
 final class SettingsWindowController: NSWindowController {
-    init(siteSettings: SiteSettings, adBlocker: AdBlocker, extensions: AnyObject?, clearBrowsingData: @escaping @MainActor () -> Void,
+    init(siteSettings: SiteSettings, adBlocker: AdBlocker, extensionLibrary: ExtensionLibrary?, extensionRuntime: AnyObject?, clearBrowsingData: @escaping @MainActor () -> Void,
          onAgentSettingsChanged: @escaping @MainActor () -> Void) {
         let tabs = NSTabViewController()
         tabs.tabStyle = .toolbar
@@ -13,8 +13,8 @@ final class SettingsWindowController: NSWindowController {
         tabs.addTabViewItem(Self.pane("Appearance", symbol: "paintpalette", AppearanceSettingsView()))
         tabs.addTabViewItem(Self.pane("Websites", symbol: "globe", WebsitesSettingsView(settings: siteSettings)))
         tabs.addTabViewItem(Self.pane("Privacy", symbol: "hand.raised", PrivacySettingsView(adBlocker: adBlocker, clearBrowsingData: clearBrowsingData)))
-        if #available(macOS 15.4, *), let manager = extensions as? ExtensionManager {
-            tabs.addTabViewItem(Self.pane("Extensions", symbol: "puzzlepiece.extension", ExtensionsSettingsView(manager: manager)))
+        if let extensionLibrary {
+            tabs.addTabViewItem(Self.pane("Extensions", symbol: "puzzlepiece.extension", ExtensionsSettingsView(library: extensionLibrary, runtime: extensionRuntime)))
         }
         tabs.addTabViewItem(Self.pane("Assistant", symbol: "sparkles", AssistantSettingsView(onApply: onAgentSettingsChanged)))
 

@@ -149,10 +149,10 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
         let popover = NSPopover()
         popover.behavior = .transient
         let content: AnyView
-        if #available(macOS 15.4, *), let manager = (NSApp.delegate as? AppDelegate)?.extensions as? ExtensionManager {
-            content = AnyView(ExtensionsPopoverView(manager: manager) { [weak popover] in popover?.performClose(nil) })
+        if let delegate = NSApp.delegate as? AppDelegate, let library = delegate.extensionLibrary, !isPrivate {
+            content = AnyView(ExtensionToolbarView(library: library, runtime: delegate.extensionRuntime) { [weak popover] in popover?.performClose(nil) })
         } else {
-            content = AnyView(Text("Web extensions need macOS 15.4 or later.").padding(16))
+            content = AnyView(Label("Extensions don't run in private windows", systemImage: "puzzlepiece.extension").padding(16))
         }
         popover.contentViewController = NSHostingController(rootView: content.appAccent())
         if let item = sender as? NSToolbarItem {

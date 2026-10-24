@@ -40,7 +40,7 @@ import WebKit
 
     @Test func permissionsAreDescribedInPlainLanguage() {
         guard #available(macOS 15.4, *) else { return }
-        #expect(ExtensionManager.describe("tabs") == "Read your open tabs' titles and addresses")
-        #expect(ExtensionManager.describe("somethingNew") == "somethingNew")
+        #expect(ExtensionLibrary.describe("tabs") == "Read your open tabs' titles and addresses")
+        #expect(ExtensionLibrary.describe("somethingNew") == "somethingNew")
     }
 }

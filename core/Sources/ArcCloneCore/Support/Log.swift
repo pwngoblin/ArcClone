@@ -8,4 +8,5 @@ public enum Log {
     public static let web = Logger(subsystem: subsystem, category: "web")
     public static let process = Logger(subsystem: subsystem, category: "process")
     public static let agent = Logger(subsystem: subsystem, category: "agent")
+    public static let extensions = Logger(subsystem: subsystem, category: "extensions")
 }
