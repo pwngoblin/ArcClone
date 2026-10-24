@@ -36,8 +36,15 @@ ArcClone is written in Swift with AppKit and SwiftUI and renders pages with WebK
 - **Downloads**: a progress ring and badge in the sidebar, and a popover with progress, time remaining, cancel, retry (resuming when possible) and Show in Finder.
 - **Web extensions**: Chrome, Firefox and Safari web extensions from a folder, .zip or Chrome Web Store .crx (Settings → Extensions). On macOS 15.4+ they run fully through WebKit; on macOS 14–15.3 their page scripts run, each in its own content world, with `chrome.storage`. Each is audited before installing: anything that could load code from outside the extension is refused, and eval, telemetry calls and sensitive permissions are shown with every permission. The approved copy is pinned in the app's container, checked against its SHA-256 at every launch, and never updates on its own. Extensions can't reach ArcClone's page bridge. Native messaging to desktop apps (such as password manager helpers) isn't supported; extensions get a clear error and use their own sign-in. See [docs/EXTENSIONS.md](docs/EXTENSIONS.md).
 
-**History**
+**History and bookmarks**
 - A History window (⌘Y) with time ranges, most-visited sites and search; a History list in the sidebar (clock button); recently visited pages in the History menu. Private windows are never recorded.
+- **Import from another browser** (File → Import from Another Browser…): bookmarks and history from Google Chrome, Safari, Arc, Dia and Zen, and Arc's spaces and tabs.
+  - You grant read-only access once to `~/Library/Application Support` and `~/Library/Safari`; the grant is remembered as security-scoped bookmarks.
+  - Browser databases are copied and read with SQLite in read-only mode, so the other browsers are never changed.
+  - Addresses are cleaned of tracking parameters, duplicates across browsers are merged, and only web links are kept.
+  - Imported Arc tabs stay unloaded until opened.
+  - macOS protects some browsers' data (Safari, and Chrome on recent versions); those need Full Disk Access for ArcClone, and the import window says so.
+- Bookmarks appear in the Bookmarks menu and in command bar suggestions, and are encrypted at rest like history.
 
 **Assistant** (⌘E)
 - Ask about the current page, summarize a page or a YouTube video from its transcript (⇧⌘E), or explain selected text. Timestamps in answers jump to that point in the video.
@@ -79,7 +86,7 @@ ArcClone is written in Swift with AppKit and SwiftUI and renders pages with WebK
 
 | Area | What ArcClone does |
 |---|---|
-| **Data at rest** | The session, history and site settings are encrypted with AES-GCM using a key in your Keychain (`…AfterFirstUnlockThisDeviceOnly`, with an access list that trusts only ArcClone), written owner-only (0600) with file protection and excluded from backups. Logs keep URLs private. *Clear Browsing Data* removes website data, the session, history and the assistant's context. |
+| **Data at rest** | The session, history, bookmarks and site settings are encrypted with AES-GCM using a key in your Keychain (`…AfterFirstUnlockThisDeviceOnly`, with an access list that trusts only ArcClone), written owner-only (0600) with file protection and excluded from backups. Logs keep URLs private. *Clear Browsing Data* removes website data, the session, history and the assistant's context. |
 | **Network** | HTTPS-First for page navigations. The app's own connections use TLS 1.2+ under App Transport Security. Ollama may use plain HTTP only on this Mac; a remote host must use HTTPS and can be pinned by SPKI SHA-256 (*Settings → Assistant*), checked after normal certificate validation. Websites use WebKit's TLS validation with no overrides. |
 | **Sandbox** | App Sandbox with a minimal entitlement list ([`scripts/ArcClone.entitlements`](scripts/ArcClone.entitlements)), no temporary exceptions, no helper processes. Files are opened through the open panel and reopened with read-only security-scoped bookmarks. Downloads are quarantined. Opening another app through a link always asks first. |
 | **Code integrity** | Hardened runtime with library validation, no JIT and no DYLD environment variables. Only system libraries are loaded and only the `/usr/lib/swift` rpath is kept. Packaged builds ignore developer environment overrides and check their own signature and resources at launch, refusing to run if modified. |
