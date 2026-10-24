@@ -222,12 +222,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     /// so macOS offers Lily for it; this is where the page arrives. Receiving shares nothing, so it
     /// works whatever Settings → Privacy → Handoff (which is about sending) says.
     public func application(_ application: NSApplication, willContinueUserActivityWithType type: String) -> Bool {
-        type == NSUserActivityTypeBrowsingWeb
+        Log.app.notice("Handoff: will continue \(type, privacy: .public)")
+        return type == NSUserActivityTypeBrowsingWeb
     }
 
     public func application(_ application: NSApplication, continue userActivity: NSUserActivity,
                             restorationHandler: @escaping ([any NSUserActivityRestoring]) -> Void) -> Bool {
-        guard userActivity.activityType == NSUserActivityTypeBrowsingWeb, let url = Self.continuable(userActivity.webpageURL) else { return false }
+        // Whether a page arrived, never which one: the address stays private in the log.
+        Log.app.notice("""
+            Handoff: continue \(userActivity.activityType, privacy: .public): webpageURL \(userActivity.webpageURL?.scheme ?? "none", privacy: .public), \
+            referrerURL \(userActivity.referrerURL?.scheme ?? "none", privacy: .public), userInfo keys \(userActivity.userInfo?.count ?? 0, privacy: .public), \
+            launched \(self.launched, privacy: .public), url \(userActivity.webpageURL?.absoluteString ?? "", privacy: .private)
+            """)
+        // The address normally comes as webpageURL; fall back to the referrer before giving up.
+        guard userActivity.activityType == NSUserActivityTypeBrowsingWeb,
+              let url = Self.continuable(userActivity.webpageURL) ?? Self.continuable(userActivity.referrerURL) else {
+            Log.app.error("Handoff: no web page in the continued activity")
+            return false
+        }
         guard launched else {
             pendingContinued.append(url)
             return true

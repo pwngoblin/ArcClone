@@ -16,12 +16,21 @@ import WebKit
 
     @Test func pagesAreRateLimitedPerTab() async throws {
         let router = IPCRouter()
+        // A frozen clock: on a slow machine the real one refilled a token mid-burst (61 accepted).
+        var clock = Date(timeIntervalSinceReferenceDate: 0)
+        router.now = { clock }
         router.on("ping", from: [.page]) { _, _ in .null }
         var accepted = 0
         for _ in 0..<100 where try await send(router, try envelope(), from: page).ok { accepted += 1 }
         #expect(accepted == Int(IPCRouter.burst))
         let other = IPCSource.page(tabID: UUID(), isMainFrame: true, url: nil)
         #expect(try await send(router, try envelope(), from: other).ok) // other tabs unaffected
+
+        // Half a second later, `perSecond / 2` messages are allowed again, and no more.
+        clock += 0.5
+        var refilled = 0
+        for _ in 0..<100 where try await send(router, try envelope(), from: page).ok { refilled += 1 }
+        #expect(refilled == Int(IPCRouter.perSecond / 2))
     }
 
     @Test func oversizedMessagesAreRefusedUnread() async throws {
