@@ -1,0 +1,176 @@
+import Foundation
+
+/// A static review of an extension's files before it's installed: what it may run, what it can
+/// reach, and where it sends data. Anything that would let it load code from the network blocks
+/// installation; risky but common patterns are shown to the user as warnings.
+struct ExtensionAudit: Sendable, Equatable {
+    enum Severity: Int, Sendable, Comparable {
+        case info, warning, blocked
+        static func < (a: Severity, b: Severity) -> Bool { a.rawValue < b.rawValue }
+    }
+
+    struct Finding: Sendable, Hashable {
+        let severity: Severity
+        let title: String
+        /// Where it was seen (files, hosts, permissions), shortened for display.
+        let detail: String
+    }
+
+    let findings: [Finding]
+    var isBlocked: Bool { findings.contains { $0.severity == .blocked } }
+
+    /// Analytics and error-reporting services that extensions commonly phone home to.
+    static let telemetryHosts = [
+        "google-analytics.com", "googletagmanager.com", "analytics.google.com", "doubleclick.net", "mixpanel.com",
+        "segment.io", "segment.com", "amplitude.com", "sentry.io", "bugsnag.com", "hotjar.com", "datadoghq.com",
+        "newrelic.com", "nr-data.net", "posthog.com", "heap.io", "heapanalytics.com", "app-measurement.com",
+        "firebaseio.com", "firebaselogging.googleapis.com", "clarity.ms", "fullstory.com", "logrocket.com", "rollbar.com",
+        "yandex.ru/metrika", "mc.yandex.ru", "statcounter.com", "matomo.cloud", "plausible.io", "countly.com",
+    ]
+
+    /// Permissions that reach beyond the pages the extension is used on.
+    static let sensitivePermissions: Set<String> = [
+        "cookies", "history", "webRequest", "webRequestBlocking", "debugger", "management", "proxy", "privacy",
+        "declarativeNetRequestFeedback", "clipboardRead", "downloads", "tabCapture", "desktopCapture", "nativeMessaging",
+        "browsingData", "topSites", "bookmarks", "pageCapture", "identity", "webNavigation", "scripting",
+    ]
+
+    private static let codeExtensions: Set<String> = ["js", "mjs", "cjs", "html", "htm"]
+    private static let codeChecks: [(Severity, String, String)] = [
+        (.blocked, "Loads scripts from the internet", #"<script[^>]+src\s*=\s*["']?(https?:)?//"#),
+        (.blocked, "Imports scripts from the internet", #"importScripts\(\s*["'`](https?:)?//"#),
+        (.blocked, "Imports modules from the internet", #"import\s*\(\s*["'`]https?://"#),
+        (.warning, "Evaluates strings as code (eval)", #"(^|[^.\w$])eval\s*\("#),
+        (.warning, "Builds functions from strings (new Function)", #"new\s+Function\s*\("#),
+        (.warning, "Runs strings as code in timers", #"set(Timeout|Interval)\s*\(\s*["'`]"#),
+        (.warning, "Talks to native apps on your Mac", #"(sendNativeMessage|connectNative)\s*\("#),
+        (.info, "Writes HTML into pages (innerHTML / document.write)", #"\.innerHTML\s*=|\.outerHTML\s*=|document\.write\s*\("#),
+        (.info, "Runs WebAssembly", #"WebAssembly\.(instantiate|compile)"#),
+    ]
+
+    static func scan(_ package: ExtensionPackage) -> ExtensionAudit {
+        var findings: [Finding] = []
+        guard let data = package.manifest, let manifest = parseManifest(data) else {
+            return ExtensionAudit(findings: [Finding(severity: .blocked, title: "manifest.json isn't valid JSON", detail: "manifest.json")])
+        }
+        findings += review(manifest: manifest)
+
+        var hits: [String: [String]] = [:]
+        var hosts = Set<String>()
+        var telemetry = Set<String>()
+        for (path, contents) in package.files.sorted(by: { $0.key < $1.key }) {
+            guard let ext = path.split(separator: ".").last.map({ $0.lowercased() }), codeExtensions.contains(ext) else { continue }
+            let text = String(decoding: contents, as: UTF8.self)
+            for (_, title, pattern) in codeChecks where text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil {
+                hits[title, default: []].append(path)
+            }
+            hosts.formUnion(remoteHosts(in: text))
+            telemetry.formUnion(telemetryCalls(in: text))
+        }
+        for (severity, title, _) in codeChecks {
+            if let files = hits[title] { findings.append(Finding(severity: severity, title: title, detail: list(files))) }
+        }
+        if !telemetry.isEmpty {
+            findings.append(Finding(severity: .warning, title: "Sends data to analytics or error-reporting services", detail: list(telemetry.sorted())))
+        }
+        let others = hosts.subtracting(telemetry).filter { !ignoredHosts.contains($0) }
+        if !others.isEmpty { findings.append(Finding(severity: .info, title: "Mentions these servers", detail: list(others.sorted(), limit: 8))) }
+        return ExtensionAudit(findings: findings.sorted { $0.severity > $1.severity })
+    }
+
+    // MARK: Manifest
+
+    static func parseManifest(_ data: Data) -> [String: Any]? {
+        var bytes = data
+        if bytes.starts(with: [0xEF, 0xBB, 0xBF]) { bytes.removeFirst(3) } // UTF-8 BOM
+        return (try? JSONSerialization.jsonObject(with: bytes)) as? [String: Any]
+    }
+
+    static func review(manifest: [String: Any]) -> [Finding] {
+        var findings: [Finding] = []
+        let version = manifest["manifest_version"] as? Int ?? 0
+        if version < 3 { findings.append(Finding(severity: .info, title: "Uses the older Manifest V2 format", detail: "manifest_version \(version)")) }
+
+        // A content security policy that allows eval or remote scripts lets the extension run code
+        // that was never part of what's audited and pinned here.
+        var policies: [(String, String)] = []
+        if let csp = manifest["content_security_policy"] as? String { policies.append(("extension pages", csp)) }
+        if let csp = manifest["content_security_policy"] as? [String: Any] {
+            for (key, value) in csp { if let value = value as? String { policies.append((key == "sandbox" ? "sandbox" : "extension pages", value)) } }
+        }
+        for (scope, policy) in policies {
+            let scripts = directive("script-src", in: policy) ?? directive("default-src", in: policy) ?? ""
+            let remote = scripts.split(separator: " ").filter { source in
+                let s = source.lowercased()
+                return s.hasPrefix("http:") || s.hasPrefix("https:") || s == "*" || s.hasPrefix("*.") || s == "data:" || s == "blob:"
+                    || (s.contains(".") && !s.hasPrefix("'"))
+            }
+            let unsafe = ["'unsafe-eval'", "'unsafe-inline'"].filter { scripts.lowercased().contains($0) }
+            guard !remote.isEmpty || !unsafe.isEmpty else { continue }
+            // Sandboxed pages have no extension APIs and no access to your pages.
+            findings.append(Finding(severity: scope == "sandbox" ? .warning : .blocked,
+                                    title: scope == "sandbox" ? "Sandboxed pages may run unchecked code"
+                                                              : "Its security policy allows code from outside the extension",
+                                    detail: (unsafe + remote.map(String.init)).joined(separator: ", ")))
+        }
+
+        let permissions = (manifest["permissions"] as? [String] ?? []) + (manifest["optional_permissions"] as? [String] ?? [])
+        let hostPermissions = (manifest["host_permissions"] as? [String] ?? []) + permissions.filter { $0.contains("://") || $0 == "<all_urls>" }
+        let sensitive = permissions.filter(sensitivePermissions.contains)
+        if !sensitive.isEmpty { findings.append(Finding(severity: .warning, title: "Asks for sensitive permissions", detail: list(sensitive.sorted()))) }
+        if hostPermissions.contains(where: { $0 == "<all_urls>" || $0.hasPrefix("*://*/") || $0.hasPrefix("http://*/") || $0.hasPrefix("https://*/") }) {
+            findings.append(Finding(severity: .warning, title: "Can read and change every website", detail: "host permissions"))
+        }
+        if let connectable = manifest["externally_connectable"] as? [String: Any], connectable["matches"] != nil {
+            findings.append(Finding(severity: .warning, title: "Websites can send it messages", detail: list(connectable["matches"] as? [String] ?? [])))
+        }
+        if let update = manifest["update_url"] as? String {
+            findings.append(Finding(severity: .info, title: "Has an update address; ArcClone never updates it automatically",
+                                    detail: URL(string: update)?.host ?? "update_url"))
+        }
+        return findings
+    }
+
+    static func directive(_ name: String, in policy: String) -> String? {
+        for part in policy.split(separator: ";") {
+            let trimmed = part.trimmingCharacters(in: .whitespaces)
+            if trimmed.lowercased().hasPrefix(name + " ") || trimmed.lowercased() == name { return String(trimmed.dropFirst(name.count)) }
+        }
+        return nil
+    }
+
+    // MARK: Helpers
+
+    /// Namespace and documentation hosts that appear in code without being contacted.
+    private static let ignoredHosts: Set<String> = [
+        "www.w3.org", "w3.org", "localhost", "example.com", "www.example.com", "schema.org", "json-schema.org",
+        "developer.mozilla.org", "developer.chrome.com", "github.com", "reactjs.org", "fb.me", "www.apache.org",
+        "opensource.org", "mozilla.org", "creativecommons.org", "unicode.org", "tc39.es", "npms.io", "feross.org",
+    ]
+
+    static func isTelemetry(_ host: String) -> Bool { telemetryHosts.contains { host == $0 || host.hasSuffix("." + $0) } }
+
+    /// Telemetry hosts on lines that actually send something (fetch, beacons, XHR, pixels). Ad
+    /// blockers list the same hosts as things to block; those lines don't make requests.
+    static func telemetryCalls(in text: String) -> Set<String> {
+        let sends = #"fetch\s*\(|sendBeacon|XMLHttpRequest|\.open\s*\(|\.src\s*=|axios|\$\.(ajax|get|post)|new\s+Image\s*\("#
+        var found = Set<String>()
+        for line in text.split(whereSeparator: \.isNewline) where line.range(of: sends, options: .regularExpression) != nil {
+            found.formUnion(remoteHosts(in: String(line)).filter(isTelemetry))
+        }
+        return found
+    }
+
+    static func remoteHosts(in text: String) -> Set<String> {
+        guard let regex = try? NSRegularExpression(pattern: #"https?://([a-z0-9-]+(?:\.[a-z0-9-]+)+)"#, options: [.caseInsensitive]) else { return [] }
+        var hosts = Set<String>()
+        for match in regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).prefix(2_000) {
+            if let range = Range(match.range(at: 1), in: text) { hosts.insert(text[range].lowercased()) }
+        }
+        return hosts
+    }
+
+    private static func list(_ items: [String], limit: Int = 4) -> String {
+        items.prefix(limit).joined(separator: ", ") + (items.count > limit ? " and \(items.count - limit) more" : "")
+    }
+}

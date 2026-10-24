@@ -2,6 +2,8 @@ import SwiftUI
 
 /// The vertical tab sidebar, in SwiftUI.
 struct SidebarView: View {
+    /// Fills the sidebar's hosting view, so frames measured in it are in the host's coordinates.
+    static let coordinateSpace = "ArcClone.sidebar"
     @Bindable var window: WindowModel
 
     var body: some View {
@@ -12,14 +14,20 @@ struct SidebarView: View {
                 .padding(.bottom, 6)
             switch window.panel {
             case .tabs:
-                VStack(spacing: 0) {
-                    if !window.isPrivate, let space = window.currentSpace { SpaceHeader(space: space, window: window) }
-                    TabListView(window: window)
+                // The drag offset moves the container, so the outgoing and incoming spaces share it
+                // and a committed swipe continues from where the fingers left the list.
+                ZStack {
+                    VStack(spacing: 0) {
+                        if !window.isPrivate, let space = window.currentSpace { SpaceHeader(space: space, window: window) }
+                        TabListView(window: window)
+                    }
+                    .id(window.currentSpaceID)
+                    .transition(.push(from: window.spaceForward ? .trailing : .leading))
                 }
                 .offset(x: window.spaceDragOffset)
                 .opacity(1 - min(0.35, abs(window.spaceDragOffset) / 500))
-                .id(window.currentSpaceID)
-                .transition(.push(from: window.spaceForward ? .trailing : .leading))
+                .clipped()
+                .transition(.move(edge: .leading).combined(with: .opacity))
             case .assistant:
                 AssistantPanelView(chat: window.assistant, window: window)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -48,6 +56,7 @@ struct SidebarView: View {
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: window.toast)
+        .coordinateSpace(name: Self.coordinateSpace)
     }
 }
 
@@ -173,7 +182,7 @@ private struct TabListView: View {
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
         .animation(.smooth(duration: 0.2), value: window.tabs.map(\.id))
-        .animation(.smooth(duration: 0.25), value: window.splitIDs)
+        .animation(.smooth(duration: 0.25), value: window.splitGroups)
     }
 }
 
