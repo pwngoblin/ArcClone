@@ -25,8 +25,9 @@ extension BrowserWindowController {
             return .null
         }
 
-        router.on("selection.cleared", from: pageOnly) { [weak self] ctx, _ in
-            guard let self, let tabID = ctx.source.tabID, let tab = self.tabs.tab(tabID) else { return .null }
+        router.on("selection.cleared", from: pageOnly, as: PagePayload.SelectionCleared.self) { [weak self] ctx, p in
+            guard let self, case .page(let tabID, _, let origin) = ctx.source, let tab = self.tabs.tab(tabID) else { return .null }
+            _ = try PagePayload.sameOrigin(p.url, origin: origin)
             tab.applySelection(nil)
             self.recordForAssistant(tabID, "selection.cleared", .null)
             if tabID == self.tabs.activeID { self.model.selection = nil }
@@ -42,7 +43,7 @@ extension BrowserWindowController {
         }
 
         // Procedural hiding filters for the frame's real origin (never a URL the page reports).
-        router.on("adblock.procedural", from: pageOnly) { [weak self] ctx, _ in
+        router.on("adblock.procedural", from: pageOnly, as: PagePayload.Empty.self) { [weak self] ctx, _ in
             guard let self, case .page(_, true, let origin) = ctx.source, let host = origin?.host,
                   let blocker = self.factory.adBlocker, blocker.isEnabled,
                   !(self.factory.siteSettings?.adsAllowed(for: origin) ?? false) else { return ["filters": []] }

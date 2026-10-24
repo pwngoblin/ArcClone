@@ -14,7 +14,21 @@ public protocol TabDelegate: AnyObject {
 @MainActor
 public final class Tab: NSObject {
     public let id: UUID
-    public let webView: WKWebView
+    /// Created on first use and released while the tab sleeps, so tabs that are restored, imported
+    /// or asleep cost no web view (or web content process) until they're shown again.
+    public var webView: WKWebView {
+        if let loadedWebView { return loadedWebView }
+        let created = factory.makeWebView(bridge: bridge)
+        loadedWebView = created
+        created.navigationDelegate = self
+        created.uiDelegate = self
+        (created as? BrowserWebView)?.willOpenLinkInSplit = { [weak self] in self?.splitRequestedAt = Date() }
+        observe()
+        return created
+    }
+    public var hasWebView: Bool { loadedWebView != nil }
+    private var loadedWebView: WKWebView?
+    private let factory: WebViewFactory
     public weak var delegate: TabDelegate?
 
     public private(set) var title: String = ""
@@ -48,7 +62,8 @@ public final class Tab: NSObject {
     private let extensionScripts: ExtensionScriptInjector?
     private let registry: ScriptRegistry
 
-    public init(id: UUID = UUID(), factory: WebViewFactory, router: IPCRouter, url: URL?, pinned: Bool = false) {
+    /// `asleepWithTitle`: start unloaded (imported tabs), showing this title until first used.
+    public init(id: UUID = UUID(), factory: WebViewFactory, router: IPCRouter, url: URL?, pinned: Bool = false, asleepWithTitle: String? = nil) {
         self.id = id
         self.isPinned = pinned
         self.contentWorld = factory.registry.contentWorld
@@ -65,28 +80,38 @@ public final class Tab: NSObject {
             return .page(tabID: tabID, isMainFrame: message.frameInfo.isMainFrame,
                          url: IPCSource.originURL(protocol: origin.protocol, host: origin.host, port: origin.port))
         }
-        self.webView = factory.makeWebView(bridge: bridge)
+        self.factory = factory
         self.url = url
         super.init()
-        webView.navigationDelegate = self
-        webView.uiDelegate = self
-        (webView as? BrowserWebView)?.willOpenLinkInSplit = { [weak self] in self?.splitRequestedAt = Date() }
-        observe()
-        if let url { load(url) }
+        if let title = asleepWithTitle, let url, url.scheme == "https" || url.scheme == "http" {
+            self.title = title
+            isSleeping = true
+        } else if let url {
+            load(url)
+        }
     }
 
     /// Breaks the WKUserContentController -> bridge retain and stops the page.
     public func tearDown() {
-        adBlocker?.forget(webView.configuration.userContentController)
-        extensionScripts?.forget(webView.configuration.userContentController)
         securityScopedURL?.stopAccessingSecurityScopedResource()
         securityScopedURL = nil
-        observations.removeAll()
-        bridge.detach(from: webView.configuration.userContentController)
-        webView.stopLoading()
-        webView.navigationDelegate = nil
-        webView.uiDelegate = nil
+        releaseWebView()
         isDiscarded = true
+    }
+
+    /// Lets the web view (and its web content process) go; the next use of `webView` makes a new one.
+    private func releaseWebView() {
+        guard let view = loadedWebView else { return }
+        let controller = view.configuration.userContentController
+        adBlocker?.forget(controller)
+        extensionScripts?.forget(controller)
+        observations.removeAll()
+        bridge.detach(from: controller)
+        view.stopLoading()
+        view.navigationDelegate = nil
+        view.uiDelegate = nil
+        view.removeFromSuperview()
+        loadedWebView = nil
     }
 
     // MARK: Navigation
@@ -142,10 +167,10 @@ public final class Tab: NSObject {
     /// Unloads the page (its web content process can exit), keeping enough to restore it exactly.
     func sleep() {
         guard !isSleeping, let url, url.scheme == "https" || url.scheme == "http" else { return }
-        sleepState = webView.interactionState
+        sleepState = loadedWebView?.interactionState
         isSleeping = true
         isLoading = false
-        webView.load(URLRequest(url: URL(string: "about:blank")!))
+        releaseWebView()
         notify()
     }
 
@@ -164,6 +189,7 @@ public final class Tab: NSObject {
 
     /// Media, camera and microphone keep a tab awake.
     func isBusy() async -> Bool {
+        guard let webView = loadedWebView else { return false }
         if isLoading || webView.cameraCaptureState != .none || webView.microphoneCaptureState != .none { return true }
         return await webView.requestMediaPlaybackState() == .playing
     }
@@ -238,6 +264,7 @@ public final class Tab: NSObject {
 
     /// Re-applies everything after the user changes this site's settings.
     func siteSettingsDidChange() {
+        guard hasWebView else { return } // applied when the page next loads
         applySiteAppearance()
         applyForcedDark()
     }

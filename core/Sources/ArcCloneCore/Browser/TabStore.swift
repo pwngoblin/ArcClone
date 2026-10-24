@@ -28,7 +28,9 @@ public final class TabStore {
         let index: Int
     }
 
-    public private(set) var tabs: [Tab] = []
+    public private(set) var tabs: [Tab] = [] { didSet { byID = nil } }
+    /// id → tab, rebuilt lazily after the list changes; lookups happen far more often than changes.
+    private var byID: [UUID: Tab]?
     public private(set) var activeID: UUID?
     public private(set) var recentlyClosed: [ClosedTab] = []
 
@@ -79,13 +81,33 @@ public final class TabStore {
 
     public var active: Tab? { activeID.flatMap(tab) }
 
-    public func tab(_ id: UUID) -> Tab? { tabs.first { $0.id == id } }
+    public func tab(_ id: UUID) -> Tab? {
+        if byID == nil { byID = Dictionary(tabs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }) }
+        return byID?[id]
+    }
 
     @discardableResult
     /// `nextToActive: nil` follows Settings → Tabs ("Open new tabs next to the current tab").
     public func create(url: URL?, activate: Bool = true, pinned: Bool = false, nextToActive: Bool? = nil) -> Tab {
         let nextToActive = nextToActive ?? Preferences.opensTabsNextToCurrent
         let tab = Tab(factory: factory, router: router, url: url, pinned: pinned)
+        return insert(tab, activate: activate, pinned: pinned, nextToActive: nextToActive)
+    }
+
+    /// Imported tabs: added to `space`, unloaded until first used, without switching to them.
+    @discardableResult
+    public func createAsleep(url: URL, title: String, pinned: Bool, in space: UUID) -> Tab {
+        let tab = Tab(factory: factory, router: router, url: url, pinned: pinned, asleepWithTitle: title.isEmpty ? (url.host ?? url.absoluteString) : title)
+        tab.spaceID = space
+        tab.delegate = tabDelegate
+        let index = pinned ? (tabs.lastIndex(where: \.isPinned).map { $0 + 1 } ?? 0) : tabs.count
+        tabs.insert(tab, at: index)
+        onTabAdded?(tab)
+        onChange?()
+        return tab
+    }
+
+    private func insert(_ tab: Tab, activate: Bool, pinned: Bool, nextToActive: Bool) -> Tab {
         tab.spaceID = currentSpaceID
         tab.delegate = tabDelegate
         let index: Int
@@ -179,10 +201,10 @@ public final class TabStore {
     }
 
     @discardableResult
-    public func addSpace(name: String, symbol: String, color: String) -> Space {
+    public func addSpace(name: String, symbol: String, color: String, activate: Bool = true) -> Space {
         let space = Space(name: name.isEmpty ? "Space \(spaces.count + 1)" : String(name.prefix(40)), symbol: symbol, color: color)
         spaces.append(space)
-        switchSpace(to: space.id)
+        if activate { switchSpace(to: space.id) } else { onChange?() }
         return space
     }
 
@@ -345,7 +367,8 @@ public final class TabStore {
                 guard let file = try? URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope], bookmarkDataIsStale: &stale) else { continue }
                 openFile(file, activate: false, pinned: entry.pinned)
             } else {
-                create(url: entry.url, activate: false, pinned: entry.pinned, nextToActive: false)
+                // Restored tabs load when first opened, not all at launch.
+                createAsleep(url: entry.url, title: entry.title, pinned: entry.pinned, in: currentSpaceID)
             }
         }
         currentSpaceID = restoring

@@ -19,6 +19,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     private var memoryPressure: DispatchSourceMemoryPressure?
     private var historyWindow: HistoryWindowController?
     private let historyMenuDelegate = HistoryMenuDelegate()
+    private(set) var bookmarks: Bookmarks!
+    private let bookmarksMenuDelegate = BookmarksMenuDelegate()
+    private var migrationAccess: MigrationAccess?
+    private var migrationWindow: MigrationWindowController?
     private var windows: [BrowserWindowController] = []
     private var settingsWindow: SettingsWindowController?
     private var saveScheduled = false
@@ -92,6 +96,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         await history.load()
         historyMenuDelegate.history = history
         NSApp.mainMenu?.item(withTitle: "History")?.submenu?.delegate = historyMenuDelegate
+        bookmarks = Bookmarks(directory: isSelfTest ? nil : paths.applicationSupport)
+        await bookmarks.load()
+        bookmarksMenuDelegate.bookmarks = bookmarks
+        NSApp.mainMenu?.item(withTitle: "Bookmarks")?.submenu?.delegate = bookmarksMenuDelegate
+        migrationAccess = MigrationAccess(directory: isSelfTest ? nil : paths.applicationSupport)
 
         let controller = makeWindow()
         if ProcessInfo.processInfo.arguments.contains("--self-test") {
@@ -122,6 +131,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
             await sessionStore.save(session)
             if Preferences.flag(Preferences.Key.clearHistoryOnQuit, default: false) { history?.clear() }
             await history?.flush()
+            await bookmarks?.flush()
             if Preferences.flag(Preferences.Key.clearWebsiteDataOnQuit, default: false) {
                 // Cookies, storage and caches are written by WebKit unencrypted; don't leave them behind.
                 await factory.dataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
@@ -263,6 +273,28 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         target.showWindow(nil)
     }
 
+    /// File → Import from Another Browser…
+    @objc public func showMigration(_ sender: Any?) {
+        guard let migrationAccess else { return }
+        if migrationWindow == nil {
+            let model = MigrationModel(access: migrationAccess, destination: .init(bookmarks: bookmarks, history: history) { [weak self] in
+                (self?.primaryWindow ?? self?.makeWindow())?.tabs
+            })
+            migrationWindow = MigrationWindowController(model: model)
+        }
+        migrationWindow?.present()
+    }
+
+    @objc func removeAllBookmarks(_ sender: Any?) {
+        let alert = NSAlert()
+        alert.messageText = "Remove all \(bookmarks.linkCount.formatted()) bookmarks?"
+        alert.informativeText = "This can't be undone. Your other browsers' bookmarks aren't affected."
+        alert.addButton(withTitle: "Remove All")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+        if alert.runModal() == .alertFirstButtonReturn { bookmarks.removeAll() }
+    }
+
     @objc func openHistoryItem(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
         openFromHistory(url, newTab: true)
@@ -279,6 +311,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
             ? WebViewFactory(registry: registry, dataStore: .nonPersistent(), siteSettings: siteSettings, savesSiteChanges: false, adBlocker: adBlocker)
             : self.factory!
         let controller = BrowserWindowController(factory: factory, assistant: assistant, history: isPrivate ? nil : history, isPrivate: isPrivate)
+        controller.bookmarks = bookmarks
         controller.onClose = { [weak self] closed in
             guard let self else { return }
             if self.primaryWindow === closed {
@@ -325,6 +358,44 @@ final class HistoryMenuDelegate: NSObject, NSMenuDelegate {
             item.toolTip = visit.url.absoluteString
             item.tag = Self.tag
             menu.addItem(item)
+        }
+    }
+}
+
+/// Fills the Bookmarks menu with folders (as submenus) and links when it opens.
+@MainActor
+final class BookmarksMenuDelegate: NSObject, NSMenuDelegate {
+    weak var bookmarks: Bookmarks?
+    private static let tag = 4_300
+    private static let maxItemsPerMenu = 300
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.items.filter { $0.tag == Self.tag }.forEach(menu.removeItem)
+        guard let root = bookmarks?.root, !root.isEmpty else { return }
+        let separator = NSMenuItem.separator()
+        separator.tag = Self.tag
+        menu.addItem(separator)
+        for item in Self.items(root, depth: 0) {
+            item.tag = Self.tag
+            menu.addItem(item)
+        }
+    }
+
+    static func items(_ nodes: [Bookmarks.Node], depth: Int) -> [NSMenuItem] {
+        nodes.prefix(maxItemsPerMenu).map { node in
+            let title = String((node.title.isEmpty ? (node.url?.host ?? "Untitled") : node.title).prefix(60))
+            if let children = node.children {
+                let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+                item.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
+                let submenu = NSMenu(title: title)
+                if depth < 8 { Self.items(children, depth: depth + 1).forEach(submenu.addItem) }
+                item.submenu = submenu
+                return item
+            }
+            let item = NSMenuItem(title: title, action: #selector(AppDelegate.openHistoryItem(_:)), keyEquivalent: "")
+            item.representedObject = node.url
+            item.toolTip = node.url?.absoluteString
+            return item
         }
     }
 }

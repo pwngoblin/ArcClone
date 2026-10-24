@@ -23,6 +23,27 @@ enum PagePayload {
         var truncated: Bool?
     }
 
+    struct SelectionCleared: Decodable {
+        var url: String
+    }
+
+    /// A request that carries nothing: `null` or `{}`, and nothing else.
+    struct Empty: Decodable {
+        private struct AnyKey: CodingKey {
+            var stringValue: String
+            var intValue: Int? { nil }
+            init?(stringValue: String) { self.stringValue = stringValue }
+            init?(intValue: Int) { nil }
+        }
+
+        init(from decoder: Decoder) throws {
+            if let single = try? decoder.singleValueContainer(), single.decodeNil() { return }
+            guard try decoder.container(keyedBy: AnyKey.self).allKeys.isEmpty else {
+                throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "Expected no payload"))
+            }
+        }
+    }
+
     struct VideoChanged: Decodable {
         var videoId: String?
         var url: String
