@@ -59,7 +59,7 @@ import Testing
 
     @Test func filterSelectorsCannotInjectCSS() {
         #expect(FilterListConverter.isSupportedSelector(".ad-banner"))
-        for bad in [".ad{background:url(https://t.example/x)}", ".a;}body{display:none", "@import url(x)", ".x\\7b"] {
+        for bad in [".ad{background:url(https://t.example/x)}", ".a;}body{display:none", "@import url(x)", ".x\\", "[a=\"}\"] .b", ".a:style(color:red)"] {
             #expect(!FilterListConverter.isSupportedSelector(bad), "\(bad)")
         }
         #expect(BuiltinBlocklist.selectors.allSatisfy(FilterListConverter.isSupportedSelector))

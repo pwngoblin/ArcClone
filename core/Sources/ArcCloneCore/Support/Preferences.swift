@@ -23,8 +23,14 @@ public enum Preferences {
         public static let haptics = "HapticFeedback"
         /// Minutes before an unused background tab sleeps; 0 means never.
         public static let sleepTabsAfter = "SleepTabsAfterMinutes"
+        /// Replaced by `filterLists`; read once to carry the old EasyList switch over.
         public static let easyList = "UseEasyList"
-        public static let easyListUpdated = "EasyListUpdated"
+        /// Ids of the downloadable filter lists that are turned on (see `FilterLists`).
+        public static let filterLists = "FilterLists"
+        public static let filterListsUpdated = "FilterListsUpdated"
+        /// Content-rule list identifiers compiled from the filter lists, and which lists they came from.
+        public static let filterListsCompiled = "FilterListsCompiled"
+        public static let filterListsCompiledFrom = "FilterListsCompiledFrom"
     }
 
     public enum SearchEngine: String, CaseIterable, Identifiable, Sendable {
