@@ -24,6 +24,14 @@ import WebKit
                 == Sanitize.maxErrorLength)
     }
 
+    /// Routes that take no data still refuse anything that isn't empty.
+    @Test func emptyPayloadsMustBeEmpty() throws {
+        #expect((try? JSONValue.null.decode(PagePayload.Empty.self)) != nil)
+        #expect((try? JSONValue.object([:]).decode(PagePayload.Empty.self)) != nil)
+        #expect((try? JSONValue.object(["sneaky": "x"]).decode(PagePayload.Empty.self)) == nil)
+        #expect((try? JSONValue.string("x").decode(PagePayload.Empty.self)) == nil)
+    }
+
     /// Pages loaded from file URLs must not read other files or reach other origins.
     @Test func fileURLAccessStaysDisabled() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

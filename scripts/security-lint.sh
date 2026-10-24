@@ -50,6 +50,9 @@ report "log interpolations carry an explicit privacy qualifier" \
   "$( { [ "${#SWIFT[@]}" -gt 0 ] && grep -nE 'Log\.[a-z]+\.(debug|info|notice|error|fault|warning)\(' "${SWIFT[@]}" || true; } \
       | perl -ne 'my $n = () = /\\\(/g; my $p = () = /privacy:/g; print if $n > $p')"
 
+report "every page IPC route decodes its payload into a schema (as: …)" \
+  "$(grep -nE 'router\.on\("' core/Sources/ArcCloneCore/Handlers/*.swift | grep -v ' as: ' || true)"
+
 report "injected scripts: no eval, Function, innerHTML/outerHTML, document.write, string timers, setInterval" \
   "$(scan '(^|[^.[:alnum:]_])eval\(|new Function\(|\.(inner|outer)HTML[[:space:]]*=|insertAdjacentHTML|document\.write|set(Timeout|Interval)\([[:space:]]*["'"'"'`]|setInterval\(' "${JS[@]}")"
 
