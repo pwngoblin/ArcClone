@@ -2,6 +2,8 @@ import SwiftUI
 
 /// The vertical tab sidebar, in SwiftUI.
 struct SidebarView: View {
+    /// Fills the sidebar's hosting view, so frames measured in it are in the host's coordinates.
+    static let coordinateSpace = "ArcClone.sidebar"
     @Bindable var window: WindowModel
 
     var body: some View {
@@ -54,6 +56,7 @@ struct SidebarView: View {
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: window.toast)
+        .coordinateSpace(name: Self.coordinateSpace)
     }
 }
 

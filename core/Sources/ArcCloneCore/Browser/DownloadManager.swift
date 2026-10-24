@@ -86,7 +86,7 @@ public final class DownloadManager: NSObject, WKDownloadDelegate {
         let cancelled = (error as? URLError)?.code == .cancelled
         if let resumeData { self.resumeData[id] = resumeData }
         update(id) { $0.state = cancelled ? .cancelled : .failed(Sanitize.errorMessage(error)) }
-        Log.web.error("Download failed: \(error.localizedDescription, privacy: .public)")
+        Log.web.error("Download failed: \(error.localizedDescription, privacy: .private)")
     }
 
     // MARK: Actions

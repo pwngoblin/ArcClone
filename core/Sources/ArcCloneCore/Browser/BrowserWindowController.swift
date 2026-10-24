@@ -188,6 +188,8 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    private let animationOverlay = AnimationOverlayView()
+
     private func buildLayout() {
         let effect = NSVisualEffectView()
         effect.material = .sidebar
@@ -366,14 +368,26 @@ extension BrowserWindowController: TabDelegate {
     }
 
     /// A file icon arcs from the page into the sidebar's downloads button, shrinking as it lands.
+    /// It's drawn in a click-through overlay kept above every other view (web content, the command
+    /// bar), since a bare layer on the root can end up underneath them.
     func animateDownloadFlight() {
         guard let root = window?.contentView, let host = sidebarHost, !isSidebarCollapsed,
-              model.downloadsButtonFrame != .zero, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
-        root.wantsLayer = true
-        let frame = model.downloadsButtonFrame
-        let end = host.convert(NSPoint(x: frame.midX, y: frame.midY), to: root)
+              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        let overlay = animationOverlay
+        if root.subviews.last !== overlay {
+            overlay.frame = root.bounds
+            overlay.autoresizingMask = [.width, .height]
+            root.addSubview(overlay, positioned: .above, relativeTo: nil)
+        }
+        // The button reports its frame in the sidebar's top-left-origin space; before it has, aim
+        // at the footer where it sits.
+        var frame = model.downloadsButtonFrame
+        if frame == .zero { frame = CGRect(x: 30, y: host.bounds.height - 30, width: 30, height: 28) }
+        let target = NSPoint(x: frame.midX, y: host.isFlipped ? frame.midY : host.bounds.height - frame.midY)
+        let end = host.convert(target, to: overlay)
         let content = contentController.view
-        let start = content.convert(NSPoint(x: content.bounds.midX, y: content.bounds.midY), to: root)
+        let start = content.convert(NSPoint(x: content.bounds.midX, y: content.bounds.midY), to: overlay)
+        let scale = window?.backingScaleFactor ?? 2
 
         let size: CGFloat = 44
         let icon = CALayer()
@@ -382,12 +396,13 @@ extension BrowserWindowController: TabDelegate {
         let symbol = NSImage(systemSymbolName: "arrow.down.doc.fill", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 34, weight: .semibold).applying(.init(paletteColors: [
                 NSColor(hex: UserDefaults.standard.string(forKey: AppearanceStyle.Key.accent) ?? AppearanceStyle.defaultAccent)])))
-        icon.contents = symbol
+        icon.contentsScale = scale
+        icon.contents = symbol?.layerContents(forContentsScale: scale)
         icon.contentsGravity = .resizeAspect
         icon.shadowOpacity = 0.25
         icon.shadowRadius = 8
         icon.shadowOffset = CGSize(width: 0, height: -3)
-        root.layer?.addSublayer(icon)
+        overlay.layer?.addSublayer(icon)
 
         let path = CGMutablePath()
         path.move(to: start)
@@ -410,6 +425,19 @@ extension BrowserWindowController: TabDelegate {
         icon.add(group, forKey: "flight")
         CATransaction.commit()
     }
+}
+
+/// A transparent layer above the whole window for short decorative animations; clicks pass through.
+final class AnimationOverlayView: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 /// The window's content: the sidebar/content split, with overlays (command bar) stacked above.

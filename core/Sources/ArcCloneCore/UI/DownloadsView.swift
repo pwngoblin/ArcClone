@@ -39,8 +39,17 @@ struct DownloadsButton: View {
         .buttonStyle(.plain)
         .foregroundStyle(downloads.items.isEmpty ? .secondary : .primary)
         .help("Downloads")
+        // When a download starts, the button pulses as the flying icon lands (~0.7 s later).
+        .phaseAnimator([1.0, 1.0, 1.3, 1.0], trigger: downloads.startCount) { content, scale in
+            content.scaleEffect(scale)
+        } animation: { scale in
+            switch scale {
+            case 1.3: .spring(response: 0.18, dampingFraction: 0.5)
+            default: .smooth(duration: 0.35)
+            }
+        }
         .background(GeometryReader { proxy in
-            Color.clear.preference(key: DownloadsButtonFrameKey.self, value: proxy.frame(in: .global))
+            Color.clear.preference(key: DownloadsButtonFrameKey.self, value: proxy.frame(in: .named(SidebarView.coordinateSpace)))
         })
         .onPreferenceChange(DownloadsButtonFrameKey.self) { frame in window.downloadsButtonFrame = frame }
         .popover(isPresented: $showing, arrowEdge: .top) {
