@@ -8,7 +8,7 @@ Lily is written in Swift with AppKit and SwiftUI and renders pages with WebKit (
 
 > **Status:** early development (0.x). Everything listed under [Features](#features) is implemented and covered by tests or the self-test; [Known issues and limitations](#known-issues-and-limitations) lists what isn't finished, what is deliberately not supported, and what still needs a human to try.
 
-**Contents:** [Install](#install) · [Features](#features) · [Keyboard shortcuts](#keyboard-shortcuts) · [Security](#security) · [Architecture](#architecture) · [Where things are](#where-things-are) · [Development](#development) · [Adding a feature](#adding-a-feature) · [Known issues and limitations](#known-issues-and-limitations) · [Releases](#releases)
+**Contents:** [Install](#install) · [Features](#features) · [Keyboard shortcuts](#keyboard-shortcuts) · [Privacy](#privacy) · [Security](#security) · [Architecture](#architecture) · [Where things are](#where-things-are) · [Development](#development) · [Adding a feature](#adding-a-feature) · [Known issues and limitations](#known-issues-and-limitations) · [Releases](#releases)
 
 ## Install
 
@@ -42,6 +42,7 @@ Lily is written in Swift with AppKit and SwiftUI and renders pages with WebKit (
 - **Site security**: the lock next to the address shows whether the connection is secure (or mixes in insecure content), the certificate's subject, issuer and expiry with the system certificate viewer, your settings for the site, and whether it stores data.
 - **Ad and tracker blocking** with WebKit content rules: a built-in list, YouTube ad skipping, and a toolbar shield to allow ads on a site. Filter lists can be turned on in Settings → Privacy: EasyList, EasyPrivacy, uBlock filters, uBlock filters – Privacy, Peter Lowe's list and AdGuard Annoyances. They're downloaded weekly and converted from Adblock Plus / uBlock Origin syntax, including exceptions, `$domain=`, `$important`, `$badfilter`, element hiding, and procedural filters (`:has-text()`, `:upward()`, `:style()` limited to layout properties) that run in the page. Scriptlets (`+js`), redirects and other filters that would run list-supplied code, or that WebKit can't express exactly, are skipped.
 - **HTTPS-First**: `http://` addresses are tried over HTTPS first; falling back to HTTP asks you.
+- **Link tracking protection**: click and campaign identifiers (`utm_…`, `fbclid`, `gclid` and similar) are removed from links you click, type, open from other apps or copy (Settings → Privacy, on by default).
 - **Downloads**: a progress ring and badge in the sidebar, and a popover with progress, time remaining, cancel, retry (resuming when possible) and Show in Finder.
 - **Web extensions**: Chrome, Firefox and Safari web extensions from a folder, .zip, .crx, or straight from a **Chrome Web Store link or ID** (Settings → Extensions → Add from Store). Store downloads are verified like Chrome does (CRX3 signatures, the developer key matching the ID, and the Web Store's own publisher signature). Every extension is audited before installing: anything that could load code from outside the extension is refused, and eval, telemetry calls and sensitive permissions are shown with every permission. The approved copy is pinned in the app's container, checked against its SHA-256 at every launch, and never updates on its own (re-adding a newer store version updates it in place, keeping its data). On macOS 15.4+ they run fully through WebKit, with a small compatibility layer for Chrome APIs WebKit doesn't have; on macOS 14–15.3 their page scripts run, each in its own content world, with `chrome.storage`. Extensions can't reach Lily's page bridge. See [docs/EXTENSIONS.md](docs/EXTENSIONS.md).
 
@@ -65,7 +66,7 @@ Lily is written in Swift with AppKit and SwiftUI and renders pages with WebKit (
 - Native toolbar, a trimmed menu bar (no Spelling, Substitutions, Speech, Dictation or Emoji items: WebKit's text-field menu and Fn/Globe cover them; macOS window tabbing is off since Lily has its own tabs), printing, and a Settings window (⌘,) with General, Tabs, Appearance, Websites, Privacy, Extensions and Assistant panes.
 - A page context menu with icons, including Open Link in New Tab and Open Link in Split View.
 - Can be the default browser; opens `http`/`https` links and HTML files.
-- Handoff of the current tab to your other Apple devices.
+- Handoff of the current tab to your other Apple devices, if you turn it on (Settings → Privacy; off by default, since it shares each page's address and title).
 - Haptic feedback on Force Touch trackpads for reordering and dragging tabs, pinning, splitting, switching spaces and crossing the space-swipe threshold (Settings → General).
 - Appearance: accent color, sidebar color and strength, a paper-like grain, and System / Light / Dark.
 - Release DMGs are universal binaries (arm64 + x86_64).
@@ -98,6 +99,10 @@ Lily is written in Swift with AppKit and SwiftUI and renders pages with WebKit (
 | ⌘O / ⌘P | Open file / print |
 | ⌥⌘I | Show Web Inspector (with web developer features on) |
 | ⌘, | Settings |
+
+## Privacy
+
+No account, no telemetry, no analytics, no crash reporting of its own. What Lily stores stays on your Mac, encrypted; what it sends is what browsing needs. Site icons in lists come from your own visits, never by contacting the sites in them; trackers are taken out of links; Lily presents exactly as this Mac's Safari so it doesn't stand out; Handoff is off unless you turn it on; private windows keep nothing, and their downloads don't record where they came from. Everything Lily keeps (and for how long), everything it sends (and to whom), and what isn't covered yet: [docs/PRIVACY.md](docs/PRIVACY.md).
 
 ## Security
 
@@ -213,6 +218,7 @@ Everything lives in the app container's `Application Support/Lily/`. Sealed file
 | `history.sealed` | `History` | visits (90 days by default, at most 20,000) |
 | `bookmarks.sealed` | `Bookmarks` | imported bookmarks |
 | `sites.sealed` | `SiteSettings` | per-site zoom, dark mode, JavaScript, permissions, ads allowed |
+| `favicons.sealed` | `FaviconLoader` | site icons kept from visits (at most 32 px, 600 sites); they follow history |
 | `form-drafts.sealed` | `FormDrafts` | typed-text drafts, 24 h, at most 200 × 40,000 characters |
 | `extensions.sealed` | `ExtensionLibrary` | installed extensions, granted permissions, pinned hashes, store IDs |
 | `ExtensionStorage/<id>.sealed` | `ExtensionStorage` | `chrome.storage` for compatibility-mode extensions |
@@ -273,7 +279,7 @@ CONTRIBUTING.md           branches, PRs, stacked PRs, releases
 | `Agent/` | `Assistant`, `OllamaClient`, `Prompts`, `AssistantModels`, `AssistantContextStore` | The local assistant |
 | `Migration/` | `MigrationEngine`, `MigrationModel`, `MigrationModels`, `BrowserReaders`, `SQLiteReader`, `MigrationAccess` | Importing from Chrome, Safari, Arc, Dia and Zen |
 | `Session/` | `FormDrafts` | Typed-text recovery |
-| `Support/` | `SecureStorage`, `SessionStore`, `History`, `Bookmarks`, `SiteSettings`, `Preferences`, `AppPaths`, `CodeIntegrity`, `CertificatePinning`, `Clipboard`, `Sanitize`, `JSONValue`, `Log` | Encryption and storage, settings, paths, integrity, pinning, sanitizing, logging |
+| `Support/` | `SecureStorage`, `SessionStore`, `History`, `Bookmarks`, `SiteSettings`, `LinkTracking`, `Preferences`, `AppPaths`, `CodeIntegrity`, `CertificatePinning`, `Clipboard`, `Sanitize`, `JSONValue`, `Log` | Encryption and storage, settings, paths, integrity, pinning, sanitizing, logging |
 
 ## Development
 
