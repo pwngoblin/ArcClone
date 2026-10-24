@@ -72,6 +72,31 @@ public final class History {
         scheduleSave()
     }
 
+    /// Adds visits imported from another browser: one entry per page at its latest visit, merged
+    /// with what's here (the newer visit wins). Retention and the size limit then apply as usual.
+    /// Returns how many pages were added or updated.
+    @discardableResult
+    public func importVisits(_ imported: [(url: URL, title: String, visitedAt: Date)]) -> Int {
+        var index = Dictionary(visits.enumerated().map { ($0.element.url, $0.offset) }, uniquingKeysWith: { first, _ in first })
+        var changed = 0
+        for entry in imported where entry.url.scheme == "https" || entry.url.scheme == "http" {
+            let title = String(entry.title.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1_000))
+            if let at = index[entry.url] {
+                guard entry.visitedAt > visits[at].visitedAt else { continue }
+                visits[at].visitedAt = entry.visitedAt
+                if !title.isEmpty { visits[at].title = title }
+            } else {
+                index[entry.url] = visits.count
+                visits.append(Visit(id: UUID(), url: entry.url, title: title, visitedAt: entry.visitedAt))
+            }
+            changed += 1
+        }
+        visits.sort { $0.visitedAt > $1.visitedAt }
+        prune()
+        scheduleSave()
+        return changed
+    }
+
     // MARK: Queries
 
     /// Newest visit per page whose title or URL contains `query`.

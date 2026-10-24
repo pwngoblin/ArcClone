@@ -86,6 +86,23 @@ public final class TabStore {
     public func create(url: URL?, activate: Bool = true, pinned: Bool = false, nextToActive: Bool? = nil) -> Tab {
         let nextToActive = nextToActive ?? Preferences.opensTabsNextToCurrent
         let tab = Tab(factory: factory, router: router, url: url, pinned: pinned)
+        return insert(tab, activate: activate, pinned: pinned, nextToActive: nextToActive)
+    }
+
+    /// Imported tabs: added to `space`, unloaded until first used, without switching to them.
+    @discardableResult
+    public func createAsleep(url: URL, title: String, pinned: Bool, in space: UUID) -> Tab {
+        let tab = Tab(factory: factory, router: router, url: url, pinned: pinned, asleepWithTitle: title.isEmpty ? (url.host ?? url.absoluteString) : title)
+        tab.spaceID = space
+        tab.delegate = tabDelegate
+        let index = pinned ? (tabs.lastIndex(where: \.isPinned).map { $0 + 1 } ?? 0) : tabs.count
+        tabs.insert(tab, at: index)
+        onTabAdded?(tab)
+        onChange?()
+        return tab
+    }
+
+    private func insert(_ tab: Tab, activate: Bool, pinned: Bool, nextToActive: Bool) -> Tab {
         tab.spaceID = currentSpaceID
         tab.delegate = tabDelegate
         let index: Int
@@ -179,10 +196,10 @@ public final class TabStore {
     }
 
     @discardableResult
-    public func addSpace(name: String, symbol: String, color: String) -> Space {
+    public func addSpace(name: String, symbol: String, color: String, activate: Bool = true) -> Space {
         let space = Space(name: name.isEmpty ? "Space \(spaces.count + 1)" : String(name.prefix(40)), symbol: symbol, color: color)
         spaces.append(space)
-        switchSpace(to: space.id)
+        if activate { switchSpace(to: space.id) } else { onChange?() }
         return space
     }
 

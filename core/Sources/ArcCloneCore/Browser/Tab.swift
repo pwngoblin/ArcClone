@@ -48,7 +48,8 @@ public final class Tab: NSObject {
     private let extensionScripts: ExtensionScriptInjector?
     private let registry: ScriptRegistry
 
-    public init(id: UUID = UUID(), factory: WebViewFactory, router: IPCRouter, url: URL?, pinned: Bool = false) {
+    /// `asleepWithTitle`: start unloaded (imported tabs), showing this title until first used.
+    public init(id: UUID = UUID(), factory: WebViewFactory, router: IPCRouter, url: URL?, pinned: Bool = false, asleepWithTitle: String? = nil) {
         self.id = id
         self.isPinned = pinned
         self.contentWorld = factory.registry.contentWorld
@@ -72,7 +73,12 @@ public final class Tab: NSObject {
         webView.uiDelegate = self
         (webView as? BrowserWebView)?.willOpenLinkInSplit = { [weak self] in self?.splitRequestedAt = Date() }
         observe()
-        if let url { load(url) }
+        if let title = asleepWithTitle, let url, url.scheme == "https" || url.scheme == "http" {
+            self.title = title
+            isSleeping = true
+        } else if let url {
+            load(url)
+        }
     }
 
     /// Breaks the WKUserContentController -> bridge retain and stops the page.
