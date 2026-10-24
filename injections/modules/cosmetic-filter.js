@@ -1,13 +1,13 @@
-// ArcClone procedural element hiding: the filter-list rules WebKit's content blockers can't
+// Lily procedural element hiding: the filter-list rules WebKit's content blockers can't
 // express, such as `div.post:has-text(Sponsored):upward(2)`, and `:style()` rules that undo what a
 // hidden cookie wall left behind (e.g. `body { overflow: hidden }`). Native code sends this site's filters
 // (looked up from the frame's real origin) as plain data: selectors, text and numbers. Nothing in
 // them is ever run as code. Runs in the isolated injection world.
 (() => {
   "use strict";
-  const arc = window.__arc;
-  if (!arc || !arc.isMainFrame || window.__arcCosmeticFilter) return;
-  window.__arcCosmeticFilter = true;
+  const lily = window.__lily;
+  if (!lily || !lily.isMainFrame || window.__lilyCosmeticFilter) return;
+  window.__lilyCosmeticFilter = true;
 
   const MAX_MATCHES = 500; // per filter per pass, so a page can't make a pass arbitrarily slow
   let filters = [];
@@ -113,7 +113,7 @@
 
   async function start() {
     let reply;
-    try { reply = await arc.send("adblock.procedural", {}); } catch { return; }
+    try { reply = await lily.send("adblock.procedural", {}); } catch { return; }
     filters = prepare(reply?.filters);
     if (!filters.length) return;
     apply();

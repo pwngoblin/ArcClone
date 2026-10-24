@@ -1,4 +1,4 @@
-// Renders the ArcClone app icon straight into an .icns.
+// Renders the Lily app icon straight into an .icns.
 // Usage: swift scripts/make-icon.swift <out.icns>
 // One image per pixel size: iconutil would also store "128@2x" and "256@2x", byte-for-byte
 // copies of the 256 and 512 px images (about 220 KB); macOS picks an icon image by pixel size.

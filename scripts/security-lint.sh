@@ -54,11 +54,11 @@ report "log interpolations carry an explicit privacy qualifier" \
       | perl -ne 'my $n = () = /\\\(/g; my $p = () = /privacy:/g; print if $n > $p')"
 
 report "every page IPC route decodes its payload into a schema (as: …)" \
-  "$(grep -nE 'router\.on\("' core/Sources/ArcCloneCore/Handlers/*.swift | grep -v ' as: ' || true)"
+  "$(grep -nE 'router\.on\("' core/Sources/LilyCore/Handlers/*.swift | grep -v ' as: ' || true)"
 
 report "web views: no evaluateJavaScript outside the self-test, callAsyncJavaScript only in Tab, no nil base URLs" \
-  "$( { grep -nE 'evaluateJavaScript\(' "${SWIFT[@]}" | grep -v '^core/Sources/ArcCloneCore/App/SelfTest.swift:'
-        grep -nE 'callAsyncJavaScript\(' "${SWIFT[@]}" | grep -v '^core/Sources/ArcCloneCore/Browser/Tab.swift:'
+  "$( { grep -nE 'evaluateJavaScript\(' "${SWIFT[@]}" | grep -v '^core/Sources/LilyCore/App/SelfTest.swift:'
+        grep -nE 'callAsyncJavaScript\(' "${SWIFT[@]}" | grep -v '^core/Sources/LilyCore/Browser/Tab.swift:'
         grep -nE 'baseURL: *nil' "${SWIFT[@]}"; } || true)"
 
 report "injected scripts: no eval, Function, innerHTML/outerHTML, document.write, string timers, setInterval" \

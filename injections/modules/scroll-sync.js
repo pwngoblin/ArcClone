@@ -3,9 +3,9 @@
 // stay in step) and scrolls to where the other panes are. Nothing listens while unlinked.
 (() => {
   "use strict";
-  const arc = window.__arc;
-  if (!arc || !arc.isMainFrame || window.__arcScrollSync) return;
-  window.__arcScrollSync = true;
+  const lily = window.__lily;
+  if (!lily || !lily.isMainFrame || window.__lilyScrollSync) return;
+  window.__lilyScrollSync = true;
 
   // Scroll events caused by applying another pane's position aren't sent back.
   const ECHO_MS = 120;
@@ -28,11 +28,11 @@
     if (frame) return;
     frame = requestAnimationFrame(() => {
       frame = 0;
-      if (linked && performance.now() >= quietUntil) arc.emit("scroll.changed", position());
+      if (linked && performance.now() >= quietUntil) lily.emit("scroll.changed", position());
     });
   }
 
-  arc.register("scroll.link", ({ on } = {}) => {
+  lily.register("scroll.link", ({ on } = {}) => {
     const next = on === true;
     if (next !== linked) {
       linked = next;
@@ -42,7 +42,7 @@
     return { linked };
   });
 
-  arc.register("scroll.apply", ({ x, y } = {}) => {
+  lily.register("scroll.apply", ({ x, y } = {}) => {
     if (!linked) return { applied: false };
     const element = root();
     quietUntil = performance.now() + ECHO_MS;

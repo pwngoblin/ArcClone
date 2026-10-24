@@ -41,4 +41,4 @@ jobs:
         run: make app
 
       - name: Self-test the packaged app
-        run: perl -e 'alarm 120; exec @ARGV' build/ArcClone.app/Contents/MacOS/ArcClone --self-test
+        run: perl -e 'alarm 120; exec @ARGV' build/Lily.app/Contents/MacOS/Lily --self-test

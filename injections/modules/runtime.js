@@ -1,17 +1,17 @@
-// ArcClone injection runtime.
-// Runs first, in the isolated "ArcInjections" content world, in every frame.
-// Provides window.__arc: the single bridge every other module uses to talk to core.
+// Lily injection runtime.
+// Runs first, in the isolated "LilyInjections" content world, in every frame.
+// Provides window.__lily: the single bridge every other module uses to talk to core.
 //
 // Wire protocol (all messages are JSON strings):
 //   page -> native   { v: 1, id, kind: "request" | "event", type, payload }
 //   native reply     { ok: true, result } | { ok: false, error: { code, message } }
-//   native -> page   window.__arc.invoke(name, args) via callAsyncJavaScript
+//   native -> page   window.__lily.invoke(name, args) via callAsyncJavaScript
 (() => {
   "use strict";
-  if (window.__arc) return;
+  if (window.__lily) return;
 
   const PROTOCOL_VERSION = 1;
-  const HANDLER = "arc";
+  const HANDLER = "lily";
   const handlers = new Map();
   let counter = 0;
 
@@ -27,7 +27,7 @@
 
   async function post(kind, type, payload) {
     const handler = nativeHandler();
-    if (!handler) throw new Error("ArcClone native bridge unavailable");
+    if (!handler) throw new Error("Lily native bridge unavailable");
     const envelope = { v: PROTOCOL_VERSION, id: nextId(), kind, type, payload: payload ?? null };
     const raw = await handler.postMessage(JSON.stringify(envelope));
     const reply = typeof raw === "string" ? JSON.parse(raw) : raw;
@@ -39,7 +39,7 @@
     return reply.result;
   }
 
-  const arc = Object.freeze({
+  const lily = Object.freeze({
     version: PROTOCOL_VERSION,
     isMainFrame: window.top === window,
 
@@ -51,7 +51,7 @@
     /** Fire-and-forget event into core. Never throws. */
     emit(type, payload) {
       post("event", type, payload).catch((e) => {
-        if (arc.debug) console.debug("[arc] emit failed", type, e);
+        if (lily.debug) console.debug("[lily] emit failed", type, e);
       });
     },
 
@@ -83,12 +83,12 @@
     debug: false,
   });
 
-  Object.defineProperty(window, "__arc", { value: arc, configurable: false, enumerable: false, writable: false });
+  Object.defineProperty(window, "__lily", { value: lily, configurable: false, enumerable: false, writable: false });
 
-  arc.register("runtime.ping", () => ({ pong: true, url: location.href, mainFrame: arc.isMainFrame, handlers: arc.handlers() }));
+  lily.register("runtime.ping", () => ({ pong: true, url: location.href, mainFrame: lily.isMainFrame, handlers: lily.handlers() }));
 
   window.addEventListener("error", (e) => {
-    if (!e.filename || !e.filename.startsWith("arc-injection://")) return;
-    arc.emit("runtime.error", { message: e.message, source: e.filename, line: e.lineno, column: e.colno });
+    if (!e.filename || !e.filename.startsWith("lily-injection://")) return;
+    lily.emit("runtime.error", { message: e.message, source: e.filename, line: e.lineno, column: e.colno });
   });
 })();

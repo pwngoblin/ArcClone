@@ -1,12 +1,12 @@
-// ArcClone compatibility shim for extension content scripts on macOS 14–15.3 (where WebKit has no
+// Lily compatibility shim for extension content scripts on macOS 14–15.3 (where WebKit has no
 // extension controller). Runs first, in the extension's own content world, and provides a minimal
 // `chrome` / `browser` object: storage.local (and sync, stored locally), storage.onChanged, and
 // clean errors for APIs that need a background context or a desktop app. Talks to native code only
-// through the `arcExtension` handler of this world, with JSON { action, payload } messages.
+// through the `lilyExtension` handler of this world, with JSON { action, payload } messages.
 (() => {
   "use strict";
-  if (globalThis.chrome && globalThis.chrome.__arcCompat) return;
-  const handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.arcExtension;
+  if (globalThis.chrome && globalThis.chrome.__lilyCompat) return;
+  const handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.lilyExtension;
   if (!handler) return;
 
   let lastError;
@@ -70,10 +70,10 @@
     hasListener(fn) { return set.has(fn); },
   });
   const noListeners = listenerSet(new Set());
-  const needsBackground = "This needs macOS 15.4 or later in ArcClone.";
+  const needsBackground = "This needs macOS 15.4 or later in Lily.";
 
   const api = Object.freeze({
-    __arcCompat: true,
+    __lilyCompat: true,
     runtime: Object.freeze({
       get lastError() { return lastError; },
       sendMessage(...args) {
@@ -86,7 +86,7 @@
       connect() { throw new Error(needsBackground); },
       connectNative(application) {
         call("runtime.connectNative", { application: String(application) }).catch(() => {});
-        throw new Error("ArcClone doesn't connect extensions to desktop apps.");
+        throw new Error("Lily doesn't connect extensions to desktop apps.");
       },
       getURL() { return ""; },
       onMessage: noListeners,

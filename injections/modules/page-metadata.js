@@ -1,9 +1,9 @@
 // Collects page metadata and reports navigation (including SPA URL changes) to core.
 (() => {
   "use strict";
-  const arc = window.__arc;
-  if (!arc || window.__arcPageMetadata) return;
-  window.__arcPageMetadata = true;
+  const lily = window.__lily;
+  if (!lily || window.__lilyPageMetadata) return;
+  window.__lilyPageMetadata = true;
 
   function meta(selector) {
     const el = document.querySelector(selector);
@@ -58,7 +58,7 @@
     };
   }
 
-  arc.register("page.metadata", collect);
+  lily.register("page.metadata", collect);
 
   let lastURL = location.href;
   let lastTitle = document.title;
@@ -71,12 +71,12 @@
     const wait = 500 - (Date.now() - lastReport);
     if (wait <= 0) {
       lastReport = Date.now();
-      arc.emit("page.didChange", { reason, ...collect() });
+      lily.emit("page.didChange", { reason, ...collect() });
     } else if (!pending) {
       pending = setTimeout(() => {
         pending = null;
         lastReport = Date.now();
-        arc.emit("page.didChange", { reason, ...collect() });
+        lily.emit("page.didChange", { reason, ...collect() });
       }, wait);
     }
   }
@@ -90,7 +90,7 @@
 
   // history.pushState in the page world is invisible here. Instead of polling (a timer in every
   // tab keeps the CPU from idling), native code observes the URL and calls this when it changes.
-  arc.register("page.recheck", () => {
+  lily.register("page.recheck", () => {
     check("navigation");
     return null;
   });

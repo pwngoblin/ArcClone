@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "contentWorld": "ArcInjections",
+  "contentWorld": "LilyInjections",
   "scripts": [
     {
       "id": "runtime",

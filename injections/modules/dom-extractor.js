@@ -2,9 +2,9 @@
 // A self-contained heuristic extractor (paragraph scoring + link-density penalty).
 (() => {
   "use strict";
-  const arc = window.__arc;
-  if (!arc || window.__arcDomExtractor) return;
-  window.__arcDomExtractor = true;
+  const lily = window.__lily;
+  if (!lily || window.__lilyDomExtractor) return;
+  window.__lilyDomExtractor = true;
 
   const DEFAULT_MAX_CHARS = 60000;
   const UNLIKELY = /banner|breadcrumb|combx|comment|community|cookie|disqus|extra|footer|gdpr|header|legends|menu|modal|related|remark|replies|rss|shoutbox|sidebar|skyscraper|social|sponsor|ad-break|agegate|pagination|pager|popup|newsletter|subscribe/i;
@@ -196,11 +196,11 @@
     return result;
   }
 
-  arc.register("dom.extract", extract);
-  arc.register("dom.outline", outline);
-  arc.register("dom.selection", () => ({ text: selectionText() }));
-  arc.register("dom.links", links);
-  arc.register("dom.scrollToHeading", ({ id, text }) => {
+  lily.register("dom.extract", extract);
+  lily.register("dom.outline", outline);
+  lily.register("dom.selection", () => ({ text: selectionText() }));
+  lily.register("dom.links", links);
+  lily.register("dom.scrollToHeading", ({ id, text }) => {
     let el = id ? document.getElementById(id) : null;
     if (!el && text) el = Array.from(document.querySelectorAll("h1,h2,h3,h4")).find((h) => h.textContent.trim() === text);
     if (!el) return { found: false };

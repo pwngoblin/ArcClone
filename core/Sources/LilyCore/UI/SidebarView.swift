@@ -1,0 +1,475 @@
+import SwiftUI
+
+/// The vertical tab sidebar, in SwiftUI.
+struct SidebarView: View {
+    /// Fills the sidebar's hosting view, so frames measured in it are in the host's coordinates.
+    static let coordinateSpace = "Lily.sidebar"
+    @Bindable var window: WindowModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            AddressPill(window: window)
+                .padding(.horizontal, 10)
+                .padding(.top, 6)
+                .padding(.bottom, 6)
+            switch window.panel {
+            case .tabs:
+                // The drag offset moves the container, so the outgoing and incoming spaces share it
+                // and a committed swipe continues from where the fingers left the list.
+                ZStack {
+                    VStack(spacing: 0) {
+                        if !window.isPrivate, let space = window.currentSpace { SpaceHeader(space: space, window: window) }
+                        TabListView(window: window)
+                    }
+                    .id(window.currentSpaceID)
+                    .transition(.push(from: window.spaceForward ? .trailing : .leading))
+                }
+                .offset(x: window.spaceDragOffset)
+                .opacity(1 - min(0.35, abs(window.spaceDragOffset) / 500))
+                .clipped()
+                .transition(.move(edge: .leading).combined(with: .opacity))
+            case .assistant:
+                AssistantPanelView(chat: window.assistant, window: window)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            case .history:
+                HistoryPanelView(window: window)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+            SidebarFooter(window: window)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
+        }
+        .animation(.smooth(duration: 0.25), value: window.panel)
+        .animation(.spring(response: 0.35, dampingFraction: 0.86), value: window.currentSpaceID)
+        .background(SidebarBackground(spaceColor: window.isPrivate ? nil : window.currentSpace?.color))
+        .appAccent()
+        .overlay(alignment: .bottom) {
+            if let toast = window.toast {
+                HStack(spacing: 10) {
+                    Text(toast.message)
+                    if let action = toast.action {
+                        Button(action.title) {
+                            window.toast = nil
+                            action.run()
+                        }
+                        .buttonStyle(.borderless).fontWeight(.semibold)
+                    }
+                }
+                    .font(.callout)
+                    .padding(.horizontal, 12).padding(.vertical, 7)
+                    .background(.regularMaterial, in: Capsule())
+                    .shadow(radius: 8, y: 3)
+                    .padding(.bottom, 52)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .id(toast.id)
+            }
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: window.toast)
+        .coordinateSpace(name: Self.coordinateSpace)
+    }
+}
+
+struct NavButton: View {
+    let symbol: String
+    let help: String
+    var enabled = true
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 30, height: 28)
+                .background(hovering && enabled ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear),
+                            in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(enabled ? .secondary : .tertiary)
+        .disabled(!enabled)
+        .help(help)
+        .onHover { hovering = $0 }
+    }
+}
+
+/// Shows the active page's address; clicking it opens the command bar on that URL (⌘L).
+private struct AddressPill: View {
+    let window: WindowModel
+    @State private var hovering = false
+    @State private var security: IdentifiedSecurity?
+
+    var body: some View {
+        let url = window.activeTab?.url
+        HStack(spacing: 7) {
+            // The lock is its own button: it shows the site's security details.
+            Button { showSecurity() } label: {
+                Image(systemName: lockSymbol(url))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(url?.scheme == "http" ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                    .frame(width: 18, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(url == nil)
+            .help("Connection and site information")
+            .popover(item: $security) { item in
+                SiteSecurityView(security: item.value, window: window)
+            }
+            Button { window.presentCommandBar(newTab: false) } label: {
+                HStack(spacing: 7) {
+                    Text(display(url)).lineLimit(1).truncationMode(.middle).font(.system(size: 13))
+                        .foregroundStyle(url == nil ? .tertiary : .primary)
+                    Spacer(minLength: 0)
+                    if window.isPrivate {
+                        Label("Private", systemImage: "eyeglasses").labelStyle(.iconOnly).foregroundStyle(.secondary).help("Private window")
+                    }
+                }
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Open Location (⌘L)")
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 32)
+        .background(.quaternary.opacity(hovering ? 1.0 : 0.6), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .onHover { hovering = $0 }
+    }
+
+    private func lockSymbol(_ url: URL?) -> String {
+        guard let url else { return "magnifyingglass" }
+        if url.scheme == "https" { return window.controller?.tabs.active?.webView.hasOnlySecureContent == false ? "lock.trianglebadge.exclamationmark" : "lock.fill" }
+        return url.isFileURL ? "doc" : "exclamationmark.triangle"
+    }
+
+    private func showSecurity() {
+        guard let web = window.controller?.tabs.active?.webView, let url = web.url else { return }
+        security = IdentifiedSecurity(value: SiteSecurity(webView: web, url: url))
+    }
+
+    private func display(_ url: URL?) -> String {
+        guard let url else { return "Search or enter address" }
+        guard let host = url.host, url.scheme?.hasPrefix("http") == true else { return url.absoluteString }
+        let path = url.path == "/" ? "" : url.path
+        return host.replacingOccurrences(of: "www.", with: "", options: .anchored) + path
+    }
+}
+
+/// Pinned tabs as rounded tiles, then the regular tabs, where a split group shows as one pill
+/// laid out like the split itself.
+private struct TabListView: View {
+    @Bindable var window: WindowModel
+    @AppStorage(AppearanceStyle.Key.accent) private var accent = AppearanceStyle.defaultAccent
+
+    var body: some View {
+        List {
+            if !window.pinnedTabs.isEmpty {
+                PinnedTabsGrid(window: window, tabs: window.pinnedTabs, activeID: window.activeID, accent: accent)
+                    .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 8, trailing: 8))
+                    .listRowBackground(Color.clear)
+                    .selectionDisabled()
+            }
+            Section {
+                ForEach(window.regularItems) { item in
+                    switch item {
+                    case .tab(let tab):
+                        TabRow(tab: tab, window: window)
+                            .listRowBackground(ActiveRowBackground(active: tab.id == window.activeID))
+                            // Reordering stays with onMove; this lets the row also be dropped on a
+                            // pinned tile, a space or a split, or into another app as its address.
+                            .itemProvider { TabDrag.provider(for: tab) }
+                    case .split(let layout, let members):
+                        SplitPill(layout: layout, members: members, window: window)
+                            .listRowInsets(EdgeInsets(top: 3, leading: 6, bottom: 3, trailing: 6))
+                            .listRowBackground(Color.clear)
+                    }
+                }
+                .onMove { window.moveItems(from: $0, to: $1) }
+                // A pinned tile dragged down unpins there; a link dragged in opens there.
+                .onInsert(of: [.lilyTab, .url]) { row, providers in
+                    Task { if let drop = await TabDrag.load(providers) { window.dropInList(drop, atRow: row) } }
+                }
+                Button { window.newTab() } label: {
+                    Label("New Tab", systemImage: "plus").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .selectionDisabled()
+            }
+        }
+        .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .animation(.smooth(duration: 0.2), value: window.tabs.map(\.id))
+        .animation(.smooth(duration: 0.25), value: window.splitGroups)
+    }
+}
+
+/// A split group: one rounded pill holding its tabs arranged like the split (side by side, stacked,
+/// three columns/rows, or a 2×2 grid). Clicking a tab focuses it in the split.
+private struct SplitPill: View {
+    let layout: SplitLayout
+    let members: [WindowModel.TabItem]
+    let window: WindowModel
+    @State private var dropTargeted = false
+    @AppStorage(AppearanceStyle.Key.accent) private var accent = AppearanceStyle.defaultAccent
+
+    var body: some View {
+        let isActive = members.contains { $0.id == window.activeID }
+        Group {
+            switch layout {
+            case .twoColumns, .threeColumns:
+                HStack(spacing: 3) { cells(members, compact: layout == .threeColumns) }
+            case .twoRows, .threeRows:
+                VStack(spacing: 3) { cells(members, compact: false) }
+            case .grid:
+                Grid(horizontalSpacing: 3, verticalSpacing: 3) {
+                    GridRow { cells(Array(members.prefix(2)), compact: true) }
+                    GridRow { cells(Array(members.dropFirst(2)), compact: true) }
+                }
+            }
+        }
+        .padding(3)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(isActive ? AnyShapeStyle(Color(hex: accent).opacity(0.12)) : AnyShapeStyle(.quaternary.opacity(0.5))))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .strokeBorder(dropTargeted ? Color.accentColor : isActive ? Color(hex: accent).opacity(0.45) : .clear, lineWidth: dropTargeted ? 2 : 1))
+        // A tab dropped here joins the split (while there's room for another pane).
+        .tabDropTarget($dropTargeted) { drop in members.first.map { window.dropOnSplit(drop, joining: $0.id) } ?? false }
+        .overlay(alignment: .topTrailing) {
+            Image(systemName: layout.symbol).font(.system(size: 8, weight: .semibold)).foregroundStyle(.tertiary).padding(4)
+        }
+        .help(layout.title)
+    }
+
+    @ViewBuilder
+    private func cells(_ tabs: [WindowModel.TabItem], compact: Bool) -> some View {
+        ForEach(tabs) { tab in
+            let focused = tab.id == window.activeID
+            HStack(spacing: 5) {
+                FaviconView(url: tab.favicon ?? tab.url?.faviconGuess, size: 14)
+                if !compact { Text(tab.title).font(.system(size: 12)).lineLimit(1).truncationMode(.tail) }
+            }
+            .frame(maxWidth: .infinity, alignment: compact ? .center : .leading)
+            .padding(.horizontal, 7).frame(height: 26)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(focused ? AnyShapeStyle(Color(hex: accent).opacity(0.3)) : AnyShapeStyle(.background.opacity(0.35))))
+            .contentShape(Rectangle())
+            .onTapGesture { window.activate(tab.id) }
+            .help(tab.title)
+            .contextMenu { TabContextMenu(tab: tab, window: window) }
+        }
+    }
+}
+
+private struct TabRow: View {
+    let tab: WindowModel.TabItem
+    let window: WindowModel
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ZStack {
+                FaviconView(url: tab.favicon ?? tab.url?.faviconGuess, size: 16)
+                    .opacity(tab.isSleeping ? 0.45 : 1)
+                    .saturation(tab.isSleeping ? 0 : 1)
+                if tab.isLoading { ProgressView().controlSize(.mini).scaleEffect(0.8) }
+            }
+            .frame(width: 18)
+            Text(tab.title).lineLimit(1).truncationMode(.tail)
+                .foregroundStyle(tab.isSleeping ? .secondary : .primary)
+                .help(tab.isSleeping ? "Sleeping to save memory. Opens where you left off." : tab.title)
+            Spacer(minLength: 0)
+            if tab.inSplit {
+                Image(systemName: "rectangle.split.2x1").font(.system(size: 10)).foregroundStyle(.tint).help("In Split View")
+            }
+            if hovering && !tab.isPinned {
+                Button { window.close(tab.id) } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .bold)) }
+                    .buttonStyle(.plain).foregroundStyle(.secondary).help("Close Tab (⌘W)")
+            }
+        }
+        .frame(height: 26)
+        .contentShape(Rectangle())
+        .onTapGesture { window.activate(tab.id) }
+        .onHover { hovering = $0 }
+        .contextMenu { TabContextMenu(tab: tab, window: window) }
+    }
+}
+
+/// The active tab's highlight, in the user's accent color (Settings → Appearance).
+private struct ActiveRowBackground: View {
+    let active: Bool
+    @AppStorage(AppearanceStyle.Key.accent) private var accent = AppearanceStyle.defaultAccent
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .fill(active ? Color(hex: accent).opacity(0.22) : .clear)
+            .padding(.horizontal, 6)
+            .animation(.smooth(duration: 0.15), value: active)
+    }
+}
+
+/// Right-click menu for a tab.
+private struct SidebarFooter: View {
+    @Bindable var window: WindowModel
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Button { window.showsAssistant.toggle() } label: {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 30)
+                    .padding(.horizontal, 8).frame(height: 28)
+                    .background(window.showsAssistant ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear),
+                                in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(window.showsAssistant ? .primary : .secondary)
+            .help("Assistant (⌘E)")
+            if !window.isPrivate { SpaceSwitcher(window: window).frame(maxWidth: .infinity) } else { Spacer() }
+            if window.controller?.history != nil {
+                NavButton(symbol: "clock", help: "History") { window.panel = window.panel == .history ? .tabs : .history }
+                    .foregroundStyle(window.panel == .history ? .primary : .secondary)
+            }
+            DownloadsButton(downloads: DownloadManager.shared, window: window)
+            if window.canReopenClosed {
+                NavButton(symbol: "arrow.uturn.backward", help: "Reopen Closed Tab (⇧⌘T)") { window.reopenClosed() }
+            }
+            NavButton(symbol: "plus", help: "New Tab (⌘T)") { window.newTab() }
+        }
+    }
+}
+
+// MARK: - Spaces
+
+/// The current space's name above its tabs, with a menu to rename, restyle or delete it.
+private struct SpaceHeader: View {
+    let space: Space
+    let window: WindowModel
+    @State private var editing = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: space.symbol).foregroundStyle(Color(hex: space.color)).font(.system(size: 11, weight: .semibold))
+            Text(space.name).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+            if space.hasSeparateLogins {
+                Image(systemName: "person.badge.key.fill").font(.system(size: 10)).foregroundStyle(.secondary)
+                    .help("Separate logins: this space has its own cookies and site data")
+            }
+            Spacer()
+            Menu {
+                Button { editing = true } label: { Label("Edit Space…", systemImage: "pencil") }
+                Button(role: .destructive) { window.deleteSpace(space.id) } label: { Label("Delete Space and Its Tabs", systemImage: "trash") }
+                    .disabled(window.spaces.count < 2)
+            } label: { Image(systemName: "ellipsis") }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        }
+        .padding(.horizontal, 16).padding(.vertical, 4)
+        .popover(isPresented: $editing) {
+            SpaceEditor(space: space, title: "Edit Space", allowsSeparateLogins: !window.isPrivate) { window.updateSpace($0) }
+        }
+    }
+}
+
+/// Space icons in the footer; click to switch, + to add. Two-finger swipes on the sidebar also switch.
+private struct SpaceSwitcher: View {
+    let window: WindowModel
+    @State private var adding = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(window.spaces) { space in SpaceSwitcherButton(space: space, window: window) }
+            Button { adding = true } label: { Image(systemName: "plus").font(.system(size: 10, weight: .bold)).frame(width: 20, height: 20) }
+                .buttonStyle(.plain).foregroundStyle(.secondary).help("New Space")
+                .popover(isPresented: $adding) {
+                    SpaceEditor(space: Space(name: "", symbol: Space.symbols.randomElement() ?? "circle.fill",
+                                             color: AppearanceStyle.presets.randomElement() ?? AppearanceStyle.defaultAccent),
+                                title: "New Space", allowsSeparateLogins: !window.isPrivate) { window.addSpace($0) }
+                }
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.75), value: window.currentSpaceID)
+    }
+}
+
+/// One space in the footer switcher. A tab dropped on it moves to that space; a link opens there.
+private struct SpaceSwitcherButton: View {
+    let space: Space
+    let window: WindowModel
+    @State private var dropTargeted = false
+
+    var body: some View {
+        let current = space.id == window.currentSpaceID
+        Button { window.switchSpace(to: space.id) } label: {
+            Image(systemName: space.symbol)
+                .font(.system(size: current || dropTargeted ? 12 : 9, weight: .semibold))
+                .foregroundStyle(current || dropTargeted ? Color(hex: space.color) : .secondary)
+                .frame(width: 20, height: 20)
+                .background(current || dropTargeted ? Color(hex: space.color).opacity(dropTargeted ? 0.35 : 0.18) : .clear, in: Circle())
+                .scaleEffect(dropTargeted ? 1.2 : 1)
+                .animation(.spring(response: 0.25, dampingFraction: 0.7), value: dropTargeted)
+        }
+        .buttonStyle(.plain)
+        .help(space.name)
+        .tabDropTarget($dropTargeted) { window.dropOnSpace($0, space: space.id) }
+        .contextMenu {
+            Button(role: .destructive) { window.deleteSpace(space.id) } label: { Label("Delete Space", systemImage: "trash") }
+                .disabled(window.spaces.count < 2)
+        }
+    }
+}
+
+private struct SpaceEditor: View {
+    @State var space: Space
+    let title: String
+    /// Private windows already keep everything apart, in one throwaway store.
+    let allowsSeparateLogins: Bool
+    let save: (Space) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title).font(.headline)
+            TextField("Name", text: $space.name).textFieldStyle(.roundedBorder).onSubmit(commit)
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(28)), count: 6), spacing: 6) {
+                ForEach(Space.symbols, id: \.self) { symbol in
+                    Image(systemName: symbol)
+                        .frame(width: 28, height: 28)
+                        .background(space.symbol == symbol ? Color(hex: space.color).opacity(0.25) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                        .onTapGesture { space.symbol = symbol }
+                }
+            }
+            HStack(spacing: 8) {
+                ForEach(AppearanceStyle.presets, id: \.self) { hex in
+                    Circle().fill(Color(hex: hex)).frame(width: 18, height: 18)
+                        .overlay(Circle().strokeBorder(.primary.opacity(space.color == hex ? 0.8 : 0), lineWidth: 2).padding(-3))
+                        .onTapGesture { space.color = hex }
+                }
+            }
+            if allowsSeparateLogins {
+                Toggle(isOn: Binding(get: { space.hasSeparateLogins }, set: { space.separateLogins = $0 })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Separate logins")
+                        Text("Its own cookies and site data, so you can use other accounts here. Open tabs in this space reload.")
+                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .toggleStyle(.switch).controlSize(.small)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button("Save", action: commit).keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(16).frame(width: 260)
+    }
+
+    private func commit() {
+        save(space)
+        dismiss()
+    }
+}
+
+/// `.popover(item:)` needs Identifiable; the details are rebuilt each time the lock is clicked.
+private struct IdentifiedSecurity: Identifiable {
+    let id = UUID()
+    let value: SiteSecurity
+}
