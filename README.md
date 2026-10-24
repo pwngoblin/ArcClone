@@ -20,9 +20,11 @@ ArcClone is written in Swift with AppKit and SwiftUI and renders pages with WebK
 
 **Tabs and windows**
 - A sidebar with pinned tabs as rounded tiles and regular tabs below. Drag to reorder; right-click for duplicate, pin, copy link, share, pause media, open in new window, split, move to another space, and close tab / others / below.
-- **Spaces**: separate sets of tabs, each with a name, icon and color that tints the sidebar. Switch with a two-finger horizontal swipe on the sidebar, the switcher in the sidebar footer, or ⌥⌘] / ⌥⌘[.
-- **Split view**: two side by side, two stacked, three columns, three rows, or a 2×2 grid. Click a pane to focus it. Each split appears in the sidebar as one pill arranged like the split, and you can keep several splits at once.
-- **Command bar** (⌘T, ⌘L): opens addresses, searches with your chosen engine, and suggests open tabs and history.
+- **Spaces**: separate sets of tabs, each with a name, icon and color that tints the sidebar. Switch with a two-finger horizontal swipe on the sidebar, the switcher in the sidebar footer, or ⌥⌘] / ⌥⌘[. Turn on **Separate logins** (Edit Space) to give a space its own cookies and site data, so you can be signed in to a site with a different account in each space.
+- **Split view**: two side by side, two stacked, three columns, three rows, or a 2×2 grid. Click a pane to focus it. Each split appears in the sidebar as one pill arranged like the split, and you can keep several splits at once. **Link Scrolling** (⌃⌘L) keeps the panes in step for comparing documents. Panes you haven't used for 5 minutes pause (no scripts or rendering) until you click or scroll them; set this in Settings → Tabs.
+- **Command bar** (⌘T, ⌘L): opens addresses, searches with your chosen engine, and suggests open tabs, bookmarks and history.
+- **Command palette** (⌘K): the command bar plus every menu command, your spaces and your extensions. Type `>` for commands only.
+- **Typed text recovery**: text typed into long fields (comments, posts, messages) is kept for 24 hours, encrypted, so it can be restored if the page crashes or closes before you send it (History → Restore Typed Text). Never passwords, card fields or private windows.
 - **Private windows** (⇧⌘N): in-memory website data that is never saved, no history, no extensions, and a request to macOS to keep the window out of screen capture.
 - **Sleeping tabs**: background tabs unused for 15 minutes (configurable, 5 in Low Power Mode) release their web view entirely to free memory and come back where you left off. Tabs playing media, using the camera or microphone, or in a visible split stay awake. Memory pressure from macOS puts eligible tabs to sleep immediately. The app doesn't poll for this: it wakes only when a tab is due to sleep. Restored and imported tabs load only when you first open them, so thousands of tabs cost about a kilobyte each.
 - Tabs, pinned tabs, spaces and opened files (*File → Open File…*) are restored on launch.
@@ -63,6 +65,7 @@ ArcClone is written in Swift with AppKit and SwiftUI and renders pages with WebK
 | Shortcut | Action |
 |---|---|
 | ⌘T / ⌘L | New tab / edit the current address |
+| ⌘K | Command palette |
 | ⌘N / ⇧⌘N | New window / new private window |
 | ⌘W / ⇧⌘T | Close tab / reopen closed tab |
 | ⌘1–⌘8, ⌘9 | Go to a tab / the last tab |
@@ -70,6 +73,7 @@ ArcClone is written in Swift with AppKit and SwiftUI and renders pages with WebK
 | ⌘D | Pin or unpin tab |
 | ⌥⌘] / ⌥⌘[ | Next / previous space |
 | ⌃⌘1–⌃⌘5 / ⌃⌘0 | Split view layouts / exit split view |
+| ⌃⌘L | Link scrolling in split view |
 | ⌘S | Toggle sidebar |
 | ⌘E / ⇧⌘E | Toggle assistant / summarize page |
 | ⌘[ / ⌘] | Back / forward |

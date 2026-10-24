@@ -155,8 +155,13 @@ struct SiteSecurityView: View {
         .font(.caption)
     }
 
+    /// The active tab's store: a space with Separate logins keeps this site's data apart.
+    private var store: WKWebsiteDataStore? {
+        window.controller.map { $0.factory.dataStore(forSpace: $0.tabs.active?.spaceID) }
+    }
+
     private func matchingRecords() async -> [WKWebsiteDataRecord] {
-        guard let store = window.controller?.factory.dataStore, let key = SiteSettings.key(for: security.url) else { return [] }
+        guard let store, let key = SiteSettings.key(for: security.url) else { return [] }
         let records = await store.dataRecords(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes())
         return records.filter { $0.displayName == key || $0.displayName.hasSuffix(".\(key)") }
     }
@@ -164,7 +169,7 @@ struct SiteSecurityView: View {
     private func countRecords() async -> Int { await matchingRecords().count }
 
     private func clearData() {
-        guard let store = window.controller?.factory.dataStore else { return }
+        guard let store else { return }
         Task {
             await store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), for: await matchingRecords())
             storedRecords = 0

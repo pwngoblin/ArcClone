@@ -62,6 +62,7 @@ enum MainMenu {
         m.addItem(item("New Private Window", #selector(AppDelegate.newPrivateWindow(_:)), "n", [.command, .shift]))
         m.addItem(item("Open File…", #selector(AppDelegate.openDocument(_:)), "o"))
         m.addItem(item("Open Location…", #selector(BrowserWindowController.focusAddressBar(_:)), "l"))
+        m.addItem(item("Command Palette…", #selector(BrowserWindowController.showCommandPalette(_:)), "k"))
         m.addItem(.separator())
         m.addItem(item("Import from Another Browser…", #selector(AppDelegate.showMigration(_:))))
         m.addItem(.separator())
@@ -152,6 +153,7 @@ enum MainMenu {
         m.addItem(item("Forward", #selector(BrowserWindowController.goForward(_:)), "]"))
         m.addItem(.separator())
         m.addItem(item("Show All History", #selector(AppDelegate.showHistory(_:)), "y"))
+        m.addItem(item("Restore Typed Text", #selector(BrowserWindowController.restoreTypedText(_:))))
         m.addItem(.separator())
         m.addItem(item("Clear Browsing Data…", #selector(AppDelegate.clearBrowsingData(_:)), "\u{8}", [.command, .shift]))
         return m

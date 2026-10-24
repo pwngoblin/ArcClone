@@ -102,6 +102,7 @@ struct GeneralSettingsView: View {
 struct TabsSettingsView: View {
     @AppStorage(Preferences.Key.newTabsNextToCurrent) private var nextToCurrent = true
     @AppStorage(Preferences.Key.sleepTabsAfter) private var sleepAfter = TabSleeper.defaultMinutes
+    @AppStorage(Preferences.Key.pauseIdlePanesAfter) private var pausePanesAfter = PaneFreezer.defaultMinutes
 
     var body: some View {
         Form {
@@ -120,6 +121,17 @@ struct TabsSettingsView: View {
             .frame(width: 260)
             LabeledContent("") {
                 Text("Sleeping tabs release their memory and use no CPU; they reload where you left off when you open them. Tabs playing media or using the camera stay awake, and Low Power Mode sleeps tabs after 5 minutes.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Picker("Pause idle split panes after:", selection: $pausePanesAfter) {
+                Text("1 minute").tag(1)
+                Text("5 minutes").tag(5)
+                Text("15 minutes").tag(15)
+                Text("Never").tag(0)
+            }
+            .frame(width: 260)
+            LabeledContent("") {
+                Text("A pane of a split you haven't clicked into shows a still picture while its page is paused: no scripts, animations or rendering. Click or scroll it to resume. Panes playing media, loading, or with Link Scrolling on keep running.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             LabeledContent("Shortcuts:") {

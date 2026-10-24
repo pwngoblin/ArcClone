@@ -6,6 +6,11 @@ public struct Space: Codable, Identifiable, Equatable, Sendable {
     public var name: String
     public var symbol: String
     public var color: String
+    /// Separate logins: the space's tabs have their own cookies, storage and cache, so you can be
+    /// signed in to a site with different accounts in different spaces. Optional so sessions
+    /// saved before it existed still decode.
+    public var separateLogins: Bool?
+    public var hasSeparateLogins: Bool { separateLogins ?? false }
 
     public init(id: UUID = UUID(), name: String, symbol: String = "circle.fill", color: String = "#5B4CF5") {
         self.id = id
@@ -90,15 +95,15 @@ public final class TabStore {
     /// `nextToActive: nil` follows Settings → Tabs ("Open new tabs next to the current tab").
     public func create(url: URL?, activate: Bool = true, pinned: Bool = false, nextToActive: Bool? = nil) -> Tab {
         let nextToActive = nextToActive ?? Preferences.opensTabsNextToCurrent
-        let tab = Tab(factory: factory, router: router, url: url, pinned: pinned)
+        let tab = Tab(factory: factory, router: router, url: url, pinned: pinned, space: currentSpaceID)
         return insert(tab, activate: activate, pinned: pinned, nextToActive: nextToActive)
     }
 
     /// Imported tabs: added to `space`, unloaded until first used, without switching to them.
     @discardableResult
     public func createAsleep(url: URL, title: String, pinned: Bool, in space: UUID) -> Tab {
-        let tab = Tab(factory: factory, router: router, url: url, pinned: pinned, asleepWithTitle: title.isEmpty ? (url.host ?? url.absoluteString) : title)
-        tab.spaceID = space
+        let tab = Tab(factory: factory, router: router, url: url, pinned: pinned, space: space,
+                      asleepWithTitle: title.isEmpty ? (url.host ?? url.absoluteString) : title)
         tab.delegate = tabDelegate
         let index = pinned ? (tabs.lastIndex(where: \.isPinned).map { $0 + 1 } ?? 0) : tabs.count
         tabs.insert(tab, at: index)
@@ -201,8 +206,12 @@ public final class TabStore {
     }
 
     @discardableResult
-    public func addSpace(name: String, symbol: String, color: String, activate: Bool = true) -> Space {
-        let space = Space(name: name.isEmpty ? "Space \(spaces.count + 1)" : String(name.prefix(40)), symbol: symbol, color: color)
+    public func addSpace(name: String, symbol: String, color: String, separateLogins: Bool = false, activate: Bool = true) -> Space {
+        var space = Space(name: name.isEmpty ? "Space \(spaces.count + 1)" : String(name.prefix(40)), symbol: symbol, color: color)
+        if separateLogins {
+            space.separateLogins = true
+            factory.setSeparateLogins(true, forSpace: space.id)
+        }
         spaces.append(space)
         if activate { switchSpace(to: space.id) } else { onChange?() }
         return space
@@ -210,7 +219,13 @@ public final class TabStore {
 
     public func updateSpace(_ space: Space) {
         guard let index = spaces.firstIndex(where: { $0.id == space.id }) else { return }
+        let switchedStore = spaces[index].hasSeparateLogins != space.hasSeparateLogins
         spaces[index] = space
+        if switchedStore {
+            factory.setSeparateLogins(space.hasSeparateLogins, forSpace: space.id)
+            tabs.filter { $0.spaceID == space.id }.forEach { $0.rebuildWebView() }
+            if active?.spaceID == space.id { onActiveChange?(active) }
+        }
         onChange?()
     }
 
@@ -219,15 +234,20 @@ public final class TabStore {
         guard spaces.count > 1, let index = spaces.firstIndex(where: { $0.id == id }) else { return }
         if id == currentSpaceID { switchSpace(to: spaces[index == 0 ? 1 : index - 1].id) }
         tabs.filter { $0.spaceID == id }.forEach { close($0.id) }
-        spaces.remove(at: index)
+        let separate = spaces.remove(at: index).hasSeparateLogins
         lastActive[id] = nil
         onChange?()
+        // Its tabs are gone, so its logins and site data go too.
+        if separate { Task { [factory] in await factory.removeSpaceData(id) } }
     }
 
     public func moveTab(_ id: UUID, toSpace space: UUID) {
         guard let tab = tab(id), tab.spaceID != space, spaces.contains(where: { $0.id == space }) else { return }
         leaveSplit(id)
+        let store = factory.dataStore(forSpace: tab.spaceID)
         tab.spaceID = space
+        // Cookies don't follow a tab into a space with a different store; it reloads there.
+        if factory.dataStore(forSpace: space) !== store { tab.rebuildWebView() }
         if activeID == id { setActive(visibleTabs.max { $0.lastActivated < $1.lastActivated }?.id) } else { onChange?() }
     }
 
@@ -301,7 +321,8 @@ public final class TabStore {
             }
             var ids = splits[index].tabIDs
             ids = Array(ids.prefix(layout.paneCount)) + fill(layout.paneCount - ids.count, after: active, excluding: ids)
-            splits[index] = SplitGroup(layout: layout, tabIDs: ids)
+            splits[index].layout = layout
+            splits[index].tabIDs = ids
             return splits[index]
         }
         requested.forEach(leaveSplit)
@@ -337,6 +358,12 @@ public final class TabStore {
 
     public func removeFromSplit(_ id: UUID) { leaveSplit(id) }
 
+    /// Link Scrolling for the split on screen.
+    public func setScrollLinked(_ linked: Bool) {
+        guard let activeID, let index = splits.firstIndex(where: { $0.tabIDs.contains(activeID) }) else { return }
+        splits[index].scrollLinked = linked
+    }
+
     /// Ends the split on screen; other splits stay.
     public func exitSplit() {
         guard let activeID else { return }
@@ -355,6 +382,7 @@ public final class TabStore {
     public func restore(_ session: SessionStore.Session) {
         if let saved = session.spaces, !saved.isEmpty {
             spaces = saved
+            for space in saved where space.hasSeparateLogins { factory.setSeparateLogins(true, forSpace: space.id) }
             currentSpaceID = session.currentSpace.flatMap { id in saved.first { $0.id == id }?.id } ?? saved[0].id
         }
         let known = Set(spaces.map(\.id))

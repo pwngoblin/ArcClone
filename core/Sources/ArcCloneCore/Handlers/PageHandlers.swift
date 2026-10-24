@@ -13,6 +13,9 @@ extension BrowserWindowController {
             guard !ErrorPage.isInternal(metadata.url) else { return .null } // ArcClone's own pages aren't history
             tab.applyMetadata(metadata)
             self.history?.record(url: metadata.url, title: metadata.title)
+            self.offerFormRestore(tab)
+            // A navigation resets the page's scripts; a pane of a linked split links again.
+            if self.scrollLinkedTabs.contains(tabID) { self.setScrollLink(true, in: tab) }
             self.recordForAssistant(tabID, "page.didChange", metadata.json)
             return .null
         }
@@ -32,6 +35,31 @@ extension BrowserWindowController {
             tab.applySelection(nil)
             self.recordForAssistant(tabID, "selection.cleared", .null)
             if tabID == self.tabs.activeID { self.model.selection = nil }
+            return .null
+        }
+
+        // Long-field drafts (FormDrafts). Main frame only, regular windows only (`formDrafts` is nil
+        // in private ones), keyed by the frame's real origin.
+        router.on("form.snapshot", from: pageOnly, as: PagePayload.FormSnapshot.self) { [weak self] ctx, p in
+            guard let drafts = self?.formDrafts, case .page(_, true, let origin) = ctx.source else { return .null }
+            let url = try PagePayload.sameOrigin(p.url, origin: origin)
+            let draft = try PagePayload.formDraft(field: p.field, text: p.text)
+            drafts.save(page: url, field: draft.field, text: draft.text)
+            return .null
+        }
+
+        router.on("form.clear", from: pageOnly, as: PagePayload.FormClear.self) { [weak self] ctx, p in
+            guard let drafts = self?.formDrafts, case .page(_, true, let origin) = ctx.source else { return .null }
+            let url = try PagePayload.sameOrigin(p.url, origin: origin)
+            drafts.clear(page: url, field: try PagePayload.formDraft(field: p.field, text: nil).field)
+            return .null
+        }
+
+        // Link Scrolling: one pane scrolled, the others in its split follow.
+        router.on("scroll.changed", from: pageOnly, as: PagePayload.ScrollPosition.self) { [weak self] ctx, p in
+            guard let self, case .page(let tabID, true, _) = ctx.source,
+                  let group = self.tabs.splitGroup(containing: tabID), group.scrollLinked else { return .null }
+            for id in group.tabIDs where id != tabID { self.applyScroll(p.clamped, to: id) }
             return .null
         }
 

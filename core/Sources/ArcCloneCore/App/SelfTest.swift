@@ -94,6 +94,115 @@ enum SelfTest {
                        "end": JSONValue(ends.first.map { "\(Int($0.x)),\(Int($0.y))" }), "bounds": .string("\(Int(bounds.width))x\(Int(bounds.height))")])
             }
 
+            // Form recovery: typing into a long field keeps a draft (never a card field, never the
+            // query string), a reload offers it back, and Restore fills the empty field.
+            let compose = """
+            <!doctype html><title>Compose</title><form>
+            <textarea id="body"></textarea><textarea id="card" autocomplete="cc-number"></textarea></form>
+            """
+            let composeURL = URL(string: "https://selftest.arcclone.test/compose?session=secret")!
+            let formTab = window.tabs.create(url: nil)
+            formTab.webView.loadHTMLString(compose, baseURL: composeURL)
+            _ = await waitUntil(10) { formTab.title == "Compose" }
+            let typed = "A long reply that would be painful to lose when the page crashes."
+            _ = try? await formTab.webView.evaluateJavaScript("""
+            for (const [id, text] of [['body', \(String(reflecting: typed))], ['card', '4111 1111 1111 1111 1111']]) {
+              const field = document.getElementById(id); field.value = text;
+              field.dispatchEvent(new InputEvent('input', { bubbles: true }));
+            }
+            """)
+            let saved = await waitUntil(5) { window.formDrafts?.drafts(for: composeURL).isEmpty == false }
+            let drafts = window.formDrafts?.drafts(for: composeURL) ?? []
+            formTab.webView.loadHTMLString(compose, baseURL: composeURL)
+            let offered = await waitUntil(10) { window.model.toast?.action?.title == "Restore" }
+            window.restoreTypedText(nil)
+            var refilled = ""
+            for _ in 0..<50 {
+                refilled = (try? await formTab.webView.evaluateJavaScript("document.getElementById('body').value")) as? String ?? ""
+                if refilled == typed { break }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            check("form recovery", saved && drafts.map(\.field) == ["textarea#body"] && drafts.first?.page == "https://selftest.arcclone.test/compose"
+                  && offered && refilled == typed,
+                  ["fields": .array(drafts.map { .string($0.field) }), "offered": .bool(offered), "restored": .bool(refilled == typed)])
+            window.formDrafts?.removeAll()
+            window.tabs.close(formTab.id)
+
+            // Link Scrolling: scrolling one pane of a linked split moves the other to the same
+            // fraction of its (different) length; unlinked, it stays put.
+            func longPage(_ height: Int) -> String { "<!doctype html><title>Long \(height)</title><div style='height:\(height)px'></div>" }
+            let left = window.tabs.create(url: nil)
+            left.webView.loadHTMLString(longPage(6000), baseURL: URL(string: "https://selftest.arcclone.test/left")!)
+            let right = window.tabs.create(url: nil, activate: false)
+            right.webView.loadHTMLString(longPage(12000), baseURL: URL(string: "https://selftest.arcclone.test/right")!)
+            _ = await waitUntil(10) { left.title == "Long 6000" && right.title == "Long 12000" }
+            window.tabs.activate(left.id)
+            window.tabs.makeSplit(.twoColumns, with: [right.id])
+            window.toggleLinkScrolling(nil)
+            try? await Task.sleep(for: .milliseconds(300))
+            @MainActor func fraction(_ tab: Tab) async -> Double {
+                let value = try? await tab.webView.evaluateJavaScript("scrollY / (document.scrollingElement.scrollHeight - innerHeight)")
+                return (value as? Double) ?? (value as? NSNumber)?.doubleValue ?? -1
+            }
+            _ = try? await left.webView.evaluateJavaScript("scrollTo(0, 0.75 * (document.scrollingElement.scrollHeight - innerHeight))")
+            var followed = -1.0
+            for _ in 0..<30 {
+                followed = await fraction(right)
+                if abs(followed - 0.75) < 0.02 { break }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            window.toggleLinkScrolling(nil)
+            try? await Task.sleep(for: .milliseconds(300))
+            _ = try? await left.webView.evaluateJavaScript("scrollTo(0, 0)")
+            try? await Task.sleep(for: .milliseconds(500))
+            let stayed = await fraction(right)
+            check("link scrolling", abs(followed - 0.75) < 0.02 && abs(stayed - followed) < 0.02,
+                  ["followed": .number(followed), "afterUnlink": .number(stayed)])
+            window.tabs.exitSplit()
+            window.tabs.close(left.id)
+            window.tabs.close(right.id)
+
+            // Pausing idle split panes: a paused pane's page stops running (animation frames), shows
+            // a picture instead, and runs again when resumed.
+            let busyPage = "<!doctype html><title>Ticker</title><script>window.frames_ = 0; (function tick() { frames_++; requestAnimationFrame(tick); })();</script>"
+            let focusedPane = window.tabs.create(url: nil)
+            focusedPane.webView.loadHTMLString("<!doctype html><title>Focused</title>", baseURL: URL(string: "https://selftest.arcclone.test/focused")!)
+            let idlePane = window.tabs.create(url: nil, activate: false)
+            idlePane.webView.loadHTMLString(busyPage, baseURL: URL(string: "https://selftest.arcclone.test/ticker")!)
+            _ = await waitUntil(10) { focusedPane.title == "Focused" && idlePane.title == "Ticker" }
+            window.tabs.activate(focusedPane.id)
+            window.tabs.makeSplit(.twoColumns, with: [idlePane.id])
+            @MainActor func frames() async -> Double {
+                let value = try? await idlePane.webView.evaluateJavaScript("frames_")
+                return (value as? Double) ?? (value as? NSNumber)?.doubleValue ?? -1
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            let start = await frames()
+            try? await Task.sleep(for: .milliseconds(1500))
+            let running = await frames() - start
+            await window.freezeIdlePanes(threshold: 0)
+            let paused = window.contentController.isFrozen(idlePane.id) && idlePane.webView.isHidden
+            let before = await frames()
+            try? await Task.sleep(for: .milliseconds(1500))
+            window.contentController.thawAll()
+            let whilePaused = await frames() - before
+            let resumedFrames = await frames()
+            try? await Task.sleep(for: .milliseconds(500))
+            let resumed = await frames() > resumedFrames
+            check("pause idle panes", paused && running >= 20 && whilePaused <= max(5, running * 0.1) && resumed && !idlePane.webView.isHidden,
+                  ["framesRunning": .number(running), "framesWhilePaused": .number(whilePaused), "paused": .bool(paused), "resumed": .bool(resumed)])
+            window.tabs.exitSplit()
+            window.tabs.close(focusedPane.id)
+            window.tabs.close(idlePane.id)
+
+            // ⌘K reads the live menus: browser commands validate through the window's responder
+            // chain, text-editing commands and the palette itself stay out.
+            let palette = PaletteCommands.all(in: window.model).map(\.title)
+            // (Titles are as validation leaves them: "Toggle Sidebar" reads "Hide Sidebar" while it's shown.)
+            check("command palette", ["New Tab", "Reload Page", "Pin Tab", "Two Side by Side", "Hide Sidebar"].allSatisfy(palette.contains)
+                  && !palette.contains("Copy") && !palette.contains("Command Palette…"),
+                  ["count": .number(Double(palette.count)), "sample": .array(palette.prefix(8).map(JSONValue.string))])
+
             // ArcClone's own pages run without page JavaScript, keep the tab's address and stay out of history.
             let internalTab = window.tabs.create(url: nil, activate: false)
             internalTab.showInternalPage("<!doctype html><title>internal</title><script>document.title = 'scripts ran'</script>", for: nil)

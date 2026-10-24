@@ -1,6 +1,8 @@
 import SwiftUI
 
-/// State for the centered command bar (⌘T / ⌘L).
+/// State for the centered command bar: open or search (⌘T / ⌘L), or the command palette (⌘K),
+/// which also runs browser commands, switches spaces and opens extensions. In the palette, a
+/// leading ">" shows commands only.
 @MainActor @Observable
 final class CommandBarModel: Identifiable {
     enum Suggestion: Identifiable, Equatable {
@@ -9,6 +11,7 @@ final class CommandBarModel: Identifiable {
         case tab(id: UUID, title: String, url: URL?)
         case history(title: String, url: URL)
         case bookmark(title: String, url: URL)
+        case command(PaletteCommand)
 
         var id: String {
             switch self {
@@ -17,24 +20,52 @@ final class CommandBarModel: Identifiable {
             case .tab(let id, _, _): return "tab:\(id.uuidString)"
             case .history(_, let url): return "history:\(url.absoluteString)"
             case .bookmark(_, let url): return "bookmark:\(url.absoluteString)"
+            case .command(let command): return command.id
             }
         }
     }
 
     let id = UUID()
     let newTab: Bool
+    let isPalette: Bool
     var query: String { didSet { selection = 0 } }
     var selection = 0
     @ObservationIgnored private weak var window: WindowModel?
+    /// Read once when the palette opens (menu validation isn't free), not per keystroke.
+    @ObservationIgnored private let commands: [PaletteCommand]
+    /// SwiftUI reads `suggestions` several times per keystroke; history and bookmark search run once.
+    @ObservationIgnored private var cached: (query: String, suggestions: [Suggestion])?
 
-    init(newTab: Bool, query: String, window: WindowModel) {
+    init(newTab: Bool, query: String, window: WindowModel, palette: Bool = false) {
         self.newTab = newTab
         self.query = query
         self.window = window
+        isPalette = palette
+        commands = palette ? PaletteCommands.all(in: window) : []
     }
 
     var suggestions: [Suggestion] {
+        if let cached, cached.query == query { return cached.suggestions }
+        let result = computeSuggestions()
+        cached = (query, result)
+        return result
+    }
+
+    /// Commands matching `query`, best first (all of them, in menu order, for an empty query).
+    private func matchingCommands(_ query: String, limit: Int) -> [Suggestion] {
+        let words = query.lowercased().split(separator: " ")
+        guard !words.isEmpty else { return commands.prefix(limit).map(Suggestion.command) }
+        return commands.enumerated()
+            .compactMap { index, command in command.score(words).map { (score: $0, index: index, command: command) } }
+            .sorted { ($0.score, $0.index) < ($1.score, $1.index) }
+            .prefix(limit).map { .command($0.command) }
+    }
+
+    private func computeSuggestions() -> [Suggestion] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isPalette, q.hasPrefix(">") || q.isEmpty {
+            return matchingCommands(String(q.dropFirst(q.hasPrefix(">") ? 1 : 0)).trimmingCharacters(in: .whitespaces), limit: 60)
+        }
         guard !q.isEmpty, let window else { return [] }
         var out: [Suggestion] = []
         let resolver = Preferences.urlResolver
@@ -65,6 +96,8 @@ final class CommandBarModel: Identifiable {
                 if out.count >= 9 { break }
             }
         }
+        // Commands that match go right after "open" and "search", ahead of pages.
+        if isPalette { out.insert(contentsOf: matchingCommands(q, limit: 3), at: min(out.count, 2)) }
         return out
     }
 
@@ -84,6 +117,11 @@ final class CommandBarModel: Identifiable {
             controller.open(url, newTab: newTab)
         case .search(let q, _):
             if let url = Preferences.urlResolver.searchURL(for: q) { controller.open(url, newTab: newTab) }
+        case .command(let command):
+            Haptics.tap()
+            window.dismissCommandBar()
+            command.perform(in: window)
+            return
         case nil:
             return
         }
@@ -128,10 +166,11 @@ private struct CommandBarCard: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Image(systemName: bar.newTab ? "plus.magnifyingglass" : "magnifyingglass")
+                Image(systemName: bar.isPalette ? "command" : bar.newTab ? "plus.magnifyingglass" : "magnifyingglass")
                     .font(.system(size: 20, weight: .medium))
                     .foregroundStyle(.secondary)
-                TextField(bar.newTab ? "Search or enter address" : "Search or enter address to open here", text: $bar.query)
+                TextField(bar.isPalette ? "Search tabs, history and bookmarks, or type > for commands"
+                          : bar.newTab ? "Search or enter address" : "Search or enter address to open here", text: $bar.query)
                     .textFieldStyle(.plain)
                     .font(.system(size: 22, weight: .regular))
                     .focused($focused)
@@ -201,6 +240,7 @@ private struct SuggestionRow: View {
         case .tab(_, _, let url): FaviconView(url: url?.faviconGuess, size: 18)
         case .history: Image(systemName: "clock.arrow.circlepath").foregroundStyle(.secondary)
         case .bookmark: Image(systemName: "bookmark.fill").foregroundStyle(.tint)
+        case .command(let command): Image(systemName: command.symbol).foregroundStyle(.secondary)
         }
     }
 
@@ -209,6 +249,7 @@ private struct SuggestionRow: View {
         case .open(let url): return url.absoluteString
         case .search(let q, _): return q
         case .tab(_, let title, _), .history(let title, _), .bookmark(let title, _): return title
+        case .command(let command): return command.title
         }
     }
 
@@ -216,6 +257,7 @@ private struct SuggestionRow: View {
         switch suggestion {
         case .tab(_, _, let url): return url?.host
         case .history(_, let url), .bookmark(_, let url): return url.absoluteString
+        case .command(let command): return command.path.isEmpty ? nil : command.path
         default: return nil
         }
     }
@@ -227,6 +269,7 @@ private struct SuggestionRow: View {
         case .tab: return "Switch to Tab"
         case .history: return "History"
         case .bookmark: return "Bookmark"
+        case .command(let command): return command.shortcut ?? "Command"
         }
     }
 }

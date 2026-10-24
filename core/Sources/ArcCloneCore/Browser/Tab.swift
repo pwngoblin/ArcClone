@@ -18,7 +18,7 @@ public final class Tab: NSObject {
     /// or asleep cost no web view (or web content process) until they're shown again.
     public var webView: WKWebView {
         if let loadedWebView { return loadedWebView }
-        let created = factory.makeWebView(bridge: bridge)
+        let created = factory.makeWebView(bridge: bridge, space: spaceID)
         loadedWebView = created
         created.navigationDelegate = self
         created.uiDelegate = self
@@ -39,8 +39,8 @@ public final class Tab: NSObject {
     public private(set) var lastSelection: String?
     public private(set) var youtubeVideoID: String?
     public var isPinned = false
-    /// The space this tab belongs to (TabStore assigns it).
-    public var spaceID = UUID()
+    /// The space this tab belongs to (TabStore assigns it). Its web view uses that space's data store.
+    public var spaceID: UUID
     public private(set) var lastActivated = Date()
 
     private let bridge: ScriptMessageBridge
@@ -67,8 +67,11 @@ public final class Tab: NSObject {
     private let registry: ScriptRegistry
 
     /// `asleepWithTitle`: start unloaded (imported tabs), showing this title until first used.
-    public init(id: UUID = UUID(), factory: WebViewFactory, router: IPCRouter, url: URL?, pinned: Bool = false, asleepWithTitle: String? = nil) {
+    public init(id: UUID = UUID(), factory: WebViewFactory, router: IPCRouter, url: URL?, pinned: Bool = false,
+                space: UUID = UUID(), asleepWithTitle: String? = nil) {
         self.id = id
+        // Before anything loads: the first web view is made with this space's data store.
+        self.spaceID = space
         self.isPinned = pinned
         self.contentWorld = factory.registry.contentWorld
         self.siteSettings = factory.siteSettings
@@ -168,6 +171,16 @@ public final class Tab: NSObject {
     public private(set) var isSleeping = false
     /// Back/forward list and scroll position captured when the tab went to sleep.
     private var sleepState: Any?
+
+    /// The tab's space changed data store (Separate logins switched, or the tab moved): a new web
+    /// view on the right store, back where the page was. Unloaded tabs pick it up when they load.
+    func rebuildWebView() {
+        guard let view = loadedWebView else { return }
+        let state = view.interactionState
+        releaseWebView()
+        if let state { webView.interactionState = state } else if let url { load(url) }
+        notify()
+    }
 
     /// Unloads the page (its web content process can exit), keeping enough to restore it exactly.
     func sleep() {

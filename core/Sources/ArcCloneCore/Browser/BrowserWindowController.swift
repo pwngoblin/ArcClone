@@ -11,6 +11,16 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     let assistant: Assistant
     /// nil for private windows: they never record history.
     let history: History?
+    /// Long-field drafts (FormDrafts); nil in private windows, so nothing typed there is kept.
+    var formDrafts: FormDrafts?
+    /// The page each tab was last offered a restore for, so a page that updates its title
+    /// (page.didChange) is asked once, not on every change.
+    var formRestoreOffered: [UUID: String] = [:]
+    /// Link Scrolling: panes it's on in, and per target pane the position waiting to be applied
+    /// while the previous one is still in flight (so fast scrolling never queues up calls).
+    var scrollLinkedTabs: Set<UUID> = []
+    var scrollApplying: Set<UUID> = []
+    var scrollPending: [UUID: JSONValue] = [:]
     /// Searched by the command bar (read-only, also in private windows).
     weak var bookmarks: Bookmarks?
     let model: WindowModel
@@ -19,7 +29,9 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     private var snapshotScheduled = false
     private var browsingActivity: NSUserActivity?
     private let splitController = NSSplitViewController()
-    private let contentController = TabContentViewController()
+    let contentController = TabContentViewController()
+    /// The next check for split panes to pause (PaneFreezer); one wake-up, never polling.
+    var freezeTask: Task<Void, Never>?
     private var overlayHost: NSHostingView<CommandBarOverlay>?
     private let windowToolbar = WindowToolbar()
     private weak var sidebarHost: NSView?
@@ -74,7 +86,10 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         tabs.tabDelegate = self
         tabs.onChange = { [weak self] in self?.scheduleSnapshot() }
         tabs.onActiveChange = { [weak self] tab in self?.showTab(tab) }
-        tabs.onSplitChange = { [weak self] in self?.showTab(self?.tabs.active) }
+        tabs.onSplitChange = { [weak self] in
+            self?.showTab(self?.tabs.active)
+            self?.updateScrollLinks()
+        }
         tabs.onSpaceChange = { [weak self] forward in self?.model.spaceForward = forward }
         tabs.onTabAdded = { [weak self] tab in self?.extensionsTabOpened(tab); self?.sleeper?.reschedule() }
         tabs.onTabRemoved = { [weak self] tab in self?.extensionsTabClosed(tab, windowIsClosing: false); self?.sleeper?.reschedule() }
@@ -83,6 +98,11 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
             self?.sleeper?.reschedule()
         }
         contentController.onFocus = { [weak self] id in self?.tabs.activate(id) }
+        // Scrolling a paused pane is using it: its idle time starts again.
+        contentController.onResume = { [weak self] id in
+            self?.tabs.tab(id)?.markActivated()
+            self?.scheduleFreeze()
+        }
         registerPageHandlers()
         if !isPrivate { installSpaceSwipe() }
         sleeper = TabSleeper(store: tabs)
@@ -288,6 +308,7 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         // Every pane of a visible split must be awake.
         if let tab, let split = tabs.split, split.tabIDs.contains(tab.id) { split.tabIDs.compactMap(tabs.tab).forEach { $0.wake() } }
         contentController.display(active: tab, split: tabs.split) { [tabs] in tabs.tab($0) }
+        scheduleFreeze()
         window?.makeFirstResponder(tab?.webView)
         model.selection = tab?.lastSelection
     }

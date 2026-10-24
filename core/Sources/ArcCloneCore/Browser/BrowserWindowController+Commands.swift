@@ -40,6 +40,34 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
         model.presentCommandBar(newTab: false)
     }
 
+    @objc public func showCommandPalette(_ sender: Any?) {
+        model.presentCommandPalette()
+    }
+
+    /// History → Restore Typed Text: puts drafts for this page back into its empty fields.
+    @objc public func restoreTypedText(_ sender: Any?) {
+        guard let drafts = formDrafts, let tab = tabs.active, let url = tab.url else { return }
+        let saved = drafts.drafts(for: url)
+        guard !saved.isEmpty else { return }
+        let args: JSONValue = ["drafts": .array(saved.map { ["field": .string($0.field), "text": .string($0.text)] })]
+        Task { [weak self] in
+            let restored = (try? await tab.callInjection("form.restore", args))?["restored"]?.int ?? 0
+            self?.model.showToast(restored > 0 ? "Restored the text you typed" : "Nothing restored: those fields already have text")
+        }
+    }
+
+    /// A page with saved drafts loaded in the active tab: offer them back, once per page.
+    func offerFormRestore(_ tab: Tab) {
+        guard let drafts = formDrafts, tab.id == tabs.activeID, let url = tab.url, let page = FormDrafts.pageKey(url),
+              formRestoreOffered[tab.id] != page, !drafts.drafts(for: url).isEmpty else { return }
+        formRestoreOffered[tab.id] = page
+        Task { [weak self] in
+            // Only where there's a field to put it back into.
+            guard (try? await tab.callInjection("form.fields"))?["count"]?.int ?? 0 > 0 else { return }
+            self?.model.showToast("You typed text on this page earlier", action: "Restore") { self?.restoreTypedText(nil) }
+        }
+    }
+
     @objc public func reloadPage(_ sender: Any?) { tabs.active?.reload() }
     @objc public func hardReloadPage(_ sender: Any?) { tabs.active?.webView.reloadFromOrigin() }
     @objc public func goBack(_ sender: Any?) { tabs.active?.goBack() }
@@ -127,6 +155,44 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
         Haptics.tap()
     }
 
+    /// View → Split View → Link Scrolling.
+    @objc public func toggleLinkScrolling(_ sender: Any?) {
+        guard let split = tabs.split else { return }
+        tabs.setScrollLinked(!split.scrollLinked)
+        model.showToast(split.scrollLinked ? "Scrolling unlinked" : "Scrolling linked")
+    }
+
+    /// Turns Link Scrolling on in the panes of linked splits and off where it no longer applies.
+    func updateScrollLinks() {
+        let wanted = Set(tabs.splits.filter(\.scrollLinked).flatMap(\.tabIDs))
+        for id in wanted.symmetricDifference(scrollLinkedTabs) {
+            if let tab = tabs.tab(id) { setScrollLink(wanted.contains(id), in: tab) }
+        }
+        scrollLinkedTabs = wanted
+        scrollPending = scrollPending.filter { wanted.contains($0.key) }
+    }
+
+    func setScrollLink(_ on: Bool, in tab: Tab) {
+        guard tab.hasWebView else { return } // an unloaded pane links when its page loads
+        Task { _ = try? await tab.callInjection("scroll.link", ["on": .bool(on)], timeout: 5) }
+    }
+
+    /// One call in flight per pane; a newer position replaces any still waiting.
+    func applyScroll(_ position: JSONValue, to id: UUID) {
+        guard scrollLinkedTabs.contains(id), let tab = tabs.tab(id), tab.hasWebView else { return }
+        guard !scrollApplying.contains(id) else {
+            scrollPending[id] = position
+            return
+        }
+        scrollApplying.insert(id)
+        Task { [weak self] in
+            _ = try? await tab.callInjection("scroll.apply", position, timeout: 2)
+            guard let self else { return }
+            self.scrollApplying.remove(id)
+            if let next = self.scrollPending.removeValue(forKey: id) { self.applyScroll(next, to: id) }
+        }
+    }
+
     /// The Split View submenu, shared by the View menu and the toolbar.
     static func splitMenu() -> NSMenu {
         let menu = NSMenu(title: "Split View")
@@ -138,6 +204,10 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
             menu.addItem(item)
         }
         menu.addItem(.separator())
+        let link = NSMenuItem(title: "Link Scrolling", action: #selector(toggleLinkScrolling(_:)), keyEquivalent: "l")
+        link.keyEquivalentModifierMask = [.command, .control]
+        link.image = NSImage(systemSymbolName: "link", accessibilityDescription: "Link Scrolling")
+        menu.addItem(link)
         let exit = NSMenuItem(title: "Exit Split View", action: #selector(exitSplitView(_:)), keyEquivalent: "0")
         exit.keyEquivalentModifierMask = [.command, .control]
         menu.addItem(exit)
@@ -233,6 +303,11 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
             item.title = tabs.active?.isPinned == true ? "Unpin Tab" : "Pin Tab"
             return tabs.active != nil
         case #selector(exitSplitView(_:)): return tabs.split != nil
+        case #selector(toggleLinkScrolling(_:)):
+            item.state = tabs.split?.scrollLinked == true ? .on : .off
+            return tabs.split != nil
+        case #selector(restoreTypedText(_:)):
+            return tabs.active?.url.map { formDrafts?.drafts(for: $0).isEmpty == false } ?? false
         case #selector(nextSpace(_:)), #selector(previousSpace(_:)): return tabs.spaces.count > 1
         case #selector(splitView(_:)):
             item.state = (item.representedObject as? String) == tabs.split?.layout.rawValue ? .on : .off

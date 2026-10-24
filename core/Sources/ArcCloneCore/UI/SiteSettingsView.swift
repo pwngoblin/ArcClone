@@ -100,7 +100,8 @@ struct SiteSettingsView: View {
 
     /// Removes cookies, storage and caches for this site only (signs you out of it).
     private func clearSiteData() {
-        guard let store = controller?.factory.dataStore else { return }
+        // The active tab's store: a space with Separate logins keeps this site's data apart.
+        guard let store = controller.map({ $0.factory.dataStore(forSpace: $0.tabs.active?.spaceID) }) else { return }
         let target = host
         Task {
             let records = await store.dataRecords(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes())
