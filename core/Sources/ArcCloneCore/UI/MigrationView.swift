@@ -211,8 +211,14 @@ private struct BrowserCard: View {
             Label("Needs access", systemImage: "lock").font(.caption).foregroundStyle(.secondary)
         case .scanning:
             HStack(spacing: 6) { ProgressView().controlSize(.mini); Text("Looking…").font(.caption).foregroundStyle(.secondary) }
-        case .notFound:
-            Text("Not found on this Mac").font(.caption).foregroundStyle(.secondary)
+        case .notFound(let looked):
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Not found in \(looked). If it's installed, choose \(card.browser.root.displayPath).")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Button("Choose Folder…") { Task { await model.grant(card.browser.root) } }.controlSize(.small)
+            }
+        case .empty:
+            Text("Found, but it has no bookmarks or history yet").font(.caption).foregroundStyle(.secondary)
         case .found(let scan):
             Text(Self.describe(scan)).font(.caption).foregroundStyle(.green)
         case .unreadable(let reason):

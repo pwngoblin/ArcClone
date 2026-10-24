@@ -1,4 +1,5 @@
 import AppKit
+import SQLite3
 
 /// `ArcClone --self-test`: boots the real app, loads a fixture page and exercises every IPC path
 /// (chrome UI handshake, injection runtime, page events, native->page invoke, assistant),
@@ -93,6 +94,11 @@ enum SelfTest {
                        "end": JSONValue(ends.first.map { "\(Int($0.x)),\(Int($0.y))" }), "bounds": .string("\(Int(bounds.width))x\(Int(bounds.height))")])
             }
 
+            // Browser import inside the sandbox: a Chromium (Dia-style) profile with a WAL-mode History
+            // database, built in the container, found, counted and read through the private copy.
+            let migration = await Self.migrationProbe()
+            check("migration in sandbox", migration["ok"]?.bool == true, migration)
+
             // Page-world scripts must not be able to reach the native bridge.
             let leaked = try? await tab.webView.evaluateJavaScript("typeof (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.arc)")
             check("page world isolated", (leaked as? String) == "undefined", JSONValue(leaked as? String))
@@ -176,6 +182,30 @@ enum SelfTest {
             // The report is the self-test's output (stdout), not a log.
             FileHandle.standardOutput.write(Data((JSONValue.object(report).jsonString() + "\n").utf8))
             exit(failures.isEmpty ? 0 : 1)
+        }
+    }
+
+    /// Returns the scan and read counts as one string, or the error.
+    private static func migrationProbe() async -> JSONValue {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("arcclone-selftest-migration-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let profile = root.appendingPathComponent("Application Support/Dia/User Data/Default", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
+            var db: OpaquePointer?
+            guard sqlite3_open(profile.appendingPathComponent("History").path, &db) == SQLITE_OK else { return ["ok": false, "error": "create"] }
+            sqlite3_exec(db, "PRAGMA journal_mode=WAL; CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT, title TEXT, visit_count INTEGER, last_visit_time INTEGER, hidden INTEGER); INSERT INTO urls (url, title, visit_count, last_visit_time, hidden) VALUES ('https://selftest.example/', 'Self test', 2, 13300000000000000, 0), ('https://two.example/', 'Two', 1, 13300000000000000, 0);", nil, nil, nil)
+            defer { sqlite3_close(db) } // left open: recent rows stay in the -wal file, like a running browser
+            let granted: [MigrationRoot: URL] = [.applicationSupport: root.appendingPathComponent("Application Support", isDirectory: true)]
+            guard let folder = MigrationEngine.locate(.dia, in: granted) else { return ["ok": false, "error": "not located"] }
+            let scan = try await MigrationEngine.scan(.dia, folder: folder)
+            let history = try await MigrationEngine.readHistory(.dia, folder: folder)
+            // Also found when the Dia folder itself, or ~/Library, is what was granted.
+            let viaOwnFolder = MigrationEngine.locate(.dia, in: [.applicationSupport: folder]) != nil
+            let viaLibrary = MigrationEngine.locate(.dia, in: [.applicationSupport: root]) != nil
+            return ["ok": .bool(scan.history == 2 && history.count == 2 && viaOwnFolder && viaLibrary), "scanned": JSONValue(scan.history), "read": JSONValue(history.count)]
+        } catch {
+            return ["ok": false, "error": .string(Sanitize.errorMessage(error))]
         }
     }
 

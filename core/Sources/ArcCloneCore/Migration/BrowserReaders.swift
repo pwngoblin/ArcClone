@@ -77,10 +77,12 @@ enum ChromiumReader {
         return out
     }
 
-    static func historyCount(profile: URL) -> Int {
+    /// Throws when the database exists but can't be read, so the card says why instead of "not found".
+    static func historyCount(profile: URL) throws -> Int {
         let file = profile.appendingPathComponent("History")
+        guard FileManager.default.fileExists(atPath: file.path) else { return 0 }
         var count = 0
-        try? SQLiteReader.read(file, query: "SELECT COUNT(*) FROM urls WHERE hidden = 0") { count = Int($0.int(0)) }
+        try SQLiteReader.read(file, query: "SELECT COUNT(*) FROM urls WHERE hidden = 0") { count = Int($0.int(0)) }
         return min(count, MigrationLimits.maxHistoryRows)
     }
 
@@ -140,9 +142,11 @@ enum SafariReader {
         return latest.values.sorted { $0.lastVisit > $1.lastVisit }
     }
 
-    static func historyCount(in folder: URL) -> Int {
+    static func historyCount(in folder: URL) throws -> Int {
+        let file = folder.appendingPathComponent("History.db")
+        guard FileManager.default.fileExists(atPath: file.path) else { return 0 }
         var count = 0
-        try? SQLiteReader.read(folder.appendingPathComponent("History.db"), query: "SELECT COUNT(*) FROM history_items") { count = Int($0.int(0)) }
+        try SQLiteReader.read(file, query: "SELECT COUNT(*) FROM history_items") { count = Int($0.int(0)) }
         return min(count, MigrationLimits.maxHistoryRows)
     }
 }
@@ -204,10 +208,10 @@ enum FirefoxReader {
         return out
     }
 
-    static func counts(profile: URL) -> (bookmarks: Int, history: Int) {
+    static func counts(profile: URL) throws -> (bookmarks: Int, history: Int) {
         var bookmarks = 0, history = 0
         let file = profile.appendingPathComponent("places.sqlite")
-        try? SQLiteReader.read(file, query: "SELECT (SELECT COUNT(*) FROM moz_bookmarks WHERE type = 1), (SELECT COUNT(*) FROM moz_places WHERE visit_count > 0)") {
+        try SQLiteReader.read(file, query: "SELECT (SELECT COUNT(*) FROM moz_bookmarks WHERE type = 1), (SELECT COUNT(*) FROM moz_places WHERE visit_count > 0)") {
             bookmarks = Int($0.int(0)); history = Int($0.int(1))
         }
         return (min(bookmarks, MigrationLimits.maxBookmarks), min(history, MigrationLimits.maxHistoryRows))

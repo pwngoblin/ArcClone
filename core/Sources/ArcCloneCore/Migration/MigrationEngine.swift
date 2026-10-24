@@ -8,13 +8,48 @@ actor MigrationActor {
 
 /// Finds and reads other browsers' data inside folders the user granted.
 enum MigrationEngine {
-    /// The browser's own folder inside the granted folders, if it's there.
+    /// The browser's own folder inside the granted folders, if it's there. People grant different
+    /// levels in the folder picker, so any of these work: `Application Support` (expected), the
+    /// browser's own folder, `~/Library`, or the home folder. Safari likewise accepts `~/Library`.
     static func locate(_ browser: SourceBrowser, in granted: [MigrationRoot: URL]) -> URL? {
-        guard let root = granted[browser.root] else { return nil }
-        let folder = browser.relativePath.isEmpty ? root : root.appendingPathComponent(browser.relativePath, isDirectory: true)
+        candidates(browser, in: granted).first { isDirectory($0) && looksLikeData(browser, $0) }
+    }
+
+    static func candidates(_ browser: SourceBrowser, in granted: [MigrationRoot: URL]) -> [URL] {
+        let relative = browser == .safari ? "Safari" : browser.relativePath
+        var out: [URL] = []
+        for root in Set(granted.values) {
+            out.append(root.appendingPathComponent(relative, isDirectory: true))                      // Application Support / ~/Library (Safari)
+            out.append(root.appendingPathComponent("Application Support/\(relative)", isDirectory: true)) // ~/Library
+            out.append(root.appendingPathComponent("Library/Application Support/\(relative)", isDirectory: true)) // home
+            if browser == .safari { out.append(root.appendingPathComponent("Library/Safari", isDirectory: true)) }
+            // The browser's folder itself (or its "User Data").
+            let parts = relative.split(separator: "/").map(String.init)
+            if root.path.hasSuffix("/" + relative) || (parts.count == 1 && root.lastPathComponent == relative) { out.append(root) }
+            if root.lastPathComponent == "User Data", root.deletingLastPathComponent().path.hasSuffix("/" + relative) { out.append(root.deletingLastPathComponent()) }
+            if browser == .safari, root.lastPathComponent == "Safari" { out.append(root) }
+        }
+        return out
+    }
+
+    private static func isDirectory(_ url: URL) -> Bool {
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDirectory), isDirectory.boolValue else { return nil }
-        return folder
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    /// Guards against a same-named folder that isn't the browser's (e.g. "zen" from another app).
+    private static func looksLikeData(_ browser: SourceBrowser, _ folder: URL) -> Bool {
+        let fm = FileManager.default
+        switch browser.engine {
+        case .chromium:
+            let userData = browser.userDataPath.isEmpty ? folder : folder.appendingPathComponent(browser.userDataPath)
+            return fm.fileExists(atPath: userData.appendingPathComponent("Default").path) || fm.fileExists(atPath: userData.appendingPathComponent("Local State").path)
+                || fm.fileExists(atPath: folder.appendingPathComponent("StorableSidebar.json").path)
+        case .safari:
+            return fm.fileExists(atPath: folder.appendingPathComponent("Bookmarks.plist").path) || fm.fileExists(atPath: folder.appendingPathComponent("History.db").path)
+        case .firefox:
+            return fm.fileExists(atPath: folder.appendingPathComponent("Profiles").path) || fm.fileExists(atPath: folder.appendingPathComponent("profiles.ini").path)
+        }
     }
 
     /// Counts what's there, for the browser cards.
@@ -25,13 +60,13 @@ enum MigrationEngine {
             let userData = browser.userDataPath.isEmpty ? folder : folder.appendingPathComponent(browser.userDataPath, isDirectory: true)
             let profiles = try ChromiumReader.profiles(in: userData)
             let bookmarks = try profiles.reduce(0) { $0 + (try ChromiumReader.bookmarks(profile: $1)).count }
-            let history = profiles.reduce(0) { $0 + ChromiumReader.historyCount(profile: $1) }
+            let history = try profiles.reduce(0) { $0 + (try ChromiumReader.historyCount(profile: $1)) }
             let spaces = browser.supportsSpaces ? (try? ArcSidebarReader.spaces(in: folder))?.count ?? 0 : 0
             return BrowserScan(bookmarks: bookmarks, history: history, spaces: spaces)
         case .safari:
-            return BrowserScan(bookmarks: try SafariReader.bookmarks(in: folder).count, history: SafariReader.historyCount(in: folder), spaces: 0)
+            return BrowserScan(bookmarks: try SafariReader.bookmarks(in: folder).count, history: try SafariReader.historyCount(in: folder), spaces: 0)
         case .firefox:
-            let counts = try FirefoxReader.profiles(in: folder).map(FirefoxReader.counts(profile:))
+            let counts = try FirefoxReader.profiles(in: folder).map { try FirefoxReader.counts(profile: $0) }
             return BrowserScan(bookmarks: counts.reduce(0) { $0 + $1.bookmarks }, history: counts.reduce(0) { $0 + $1.history }, spaces: 0)
         }
     }

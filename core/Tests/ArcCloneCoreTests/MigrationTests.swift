@@ -202,6 +202,29 @@ private func chromeHistorySQL(_ rows: [(String, String, Int, Date)]) -> String {
     }
 }
 
+@Suite struct MigrationLocateTests {
+    /// Whatever level the user grants in the folder picker, the browser is found.
+    @Test func findsBrowsersFromAnyReasonableGrant() throws {
+        let fake = FakeLibrary()
+        defer { fake.remove() }
+        try fake.write("{}", to: "Dia/User Data/Local State", in: fake.appSupport)
+        try fake.write("{}", to: "Google/Chrome/Default/Bookmarks", in: fake.appSupport)
+        try FileManager.default.createDirectory(at: fake.safari, withIntermediateDirectories: true)
+        try Data().write(to: fake.safari.appendingPathComponent("Bookmarks.plist"))
+        let dia = fake.appSupport.appendingPathComponent("Dia")
+        let library = fake.home.appendingPathComponent("Library")
+        for grant in [fake.appSupport, dia, dia.appendingPathComponent("User Data"), library, fake.home] {
+            #expect(MigrationEngine.locate(.dia, in: [.applicationSupport: grant])?.standardizedFileURL == dia.standardizedFileURL, "\(grant.path)")
+        }
+        #expect(MigrationEngine.locate(.chrome, in: [.applicationSupport: library]) != nil)
+        #expect(MigrationEngine.locate(.safari, in: [.applicationSupport: library]) != nil) // ~/Library covers Safari too
+        #expect(MigrationEngine.locate(.chrome, in: [.applicationSupport: dia]) == nil)   // Dia's folder doesn't hold Chrome
+        // A same-named folder without browser data isn't mistaken for the browser.
+        try FileManager.default.createDirectory(at: fake.appSupport.appendingPathComponent("zen"), withIntermediateDirectories: true)
+        #expect(MigrationEngine.locate(.zen, in: [.applicationSupport: fake.appSupport]) == nil)
+    }
+}
+
 @Suite struct MigrationPermissionTests {
     /// A protected browser folder shows as a permission problem with guidance, not as "not found".
     @Test func protectedFoldersExplainThemselves() async throws {
