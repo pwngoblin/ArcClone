@@ -195,11 +195,62 @@ enum SelfTest {
             window.tabs.close(focusedPane.id)
             window.tabs.close(idlePane.id)
 
+            // Find (⌘F): Edit → Find opens the bar over the active page; WebKit finds the text and
+            // the count is right; a missing word says so; Done closes it.
+            func finderItem(_ action: NSTextFinder.Action) -> NSMenuItem {
+                let item = NSMenuItem(title: "", action: #selector(NSResponder.performTextFinderAction(_:)), keyEquivalent: "")
+                item.tag = action.rawValue
+                return item
+            }
+            window.tabs.activate(tab.id)
+            let canFind = window.validateMenuItem(finderItem(.showFindInterface))
+            window.performTextFinderAction(finderItem(.showFindInterface))
+            let barShown = window.contentController.isFindBarShown
+            window.find.query = "PARAGRAPH" // case-insensitive; the fixture has it twice
+            let counted = await waitUntil(5) { window.find.found == true && window.find.matches == 2 }
+            window.find.query = "no such words here"
+            let missing = await waitUntil(5) { window.find.found == false }
+            window.performTextFinderAction(finderItem(.hideFindInterface))
+            check("find in page", canFind && barShown && counted && missing && !window.contentController.isFindBarShown,
+                  ["validates": .bool(canFind), "shown": .bool(barShown), "matches": .number(Double(window.find.matches ?? -1)),
+                   "found": .bool(counted), "notFound": .bool(missing)])
+
+            // Tab drag and drop: a dragged tab carries its id inside the app (and its address for
+            // other apps); dropping it on a pinned tile pins it, between rows unpins it, on a space
+            // moves it there; links open where they're dropped, and only web links.
+            let dragStore = window.tabs
+            let pinned = dragStore.create(url: URL(string: "https://selftest.arcclone.test/pinned")!)
+            dragStore.setPinned(pinned.id, true)
+            let dragged = dragStore.create(url: URL(string: "https://selftest.arcclone.test/dragged")!)
+            window.model.refresh(from: dragStore)
+            let item = window.model.tabs.first { $0.id == dragged.id }
+            var roundTrip = false, exportsURL = false
+            if let item {
+                let provider = TabDrag.provider(for: item)
+                exportsURL = provider.canLoadObject(ofClass: URL.self)
+                if case .tab(let id)? = await TabDrag.load([provider]) { roundTrip = id == dragged.id }
+            }
+            let pinnedByDrop = window.model.dropOnPinned(.tab(dragged.id), before: pinned.id) && dragged.isPinned
+                && dragStore.tabs.firstIndex(of: dragged)! < dragStore.tabs.firstIndex(of: pinned)!
+            window.model.dropInList(.tab(dragged.id), atRow: 0)
+            let unpinnedByDrop = !dragged.isPinned
+            let away = dragStore.addSpace(name: "Drop Target", symbol: "star.fill", color: "#0A84FF", activate: false)
+            let movedToSpace = window.model.dropOnSpace(.tab(dragged.id), space: away.id) && dragged.spaceID == away.id
+            let tabCount = dragStore.tabs.count
+            let linkInSpace = window.model.dropOnSpace(.link(URL(string: "https://selftest.arcclone.test/link")!), space: away.id)
+                && dragStore.tabs.count == tabCount + 1 && dragStore.tabs.last?.spaceID == away.id && dragStore.tabs.last?.hasWebView == false
+            let scriptRefused = !window.model.dropOnSpace(.link(URL(string: "javascript:alert(1)")!), space: away.id)
+            check("tab drag and drop", roundTrip && exportsURL && pinnedByDrop && unpinnedByDrop && movedToSpace && linkInSpace && scriptRefused,
+                  ["roundTrip": .bool(roundTrip), "exportsURL": .bool(exportsURL), "pinned": .bool(pinnedByDrop), "unpinned": .bool(unpinnedByDrop),
+                   "movedToSpace": .bool(movedToSpace), "linkOpensInSpace": .bool(linkInSpace), "scriptLinkRefused": .bool(scriptRefused)])
+            dragStore.deleteSpace(away.id)
+            dragStore.close(pinned.id)
+
             // ⌘K reads the live menus: browser commands validate through the window's responder
             // chain, text-editing commands and the palette itself stay out.
             let palette = PaletteCommands.all(in: window.model).map(\.title)
             // (Titles are as validation leaves them: "Toggle Sidebar" reads "Hide Sidebar" while it's shown.)
-            check("command palette", ["New Tab", "Reload Page", "Pin Tab", "Two Side by Side", "Hide Sidebar"].allSatisfy(palette.contains)
+            check("command palette", ["New Tab", "Reload Page", "Pin Tab", "Two Side by Side", "Hide Sidebar", "Find…"].allSatisfy(palette.contains)
                   && !palette.contains("Copy") && !palette.contains("Command Palette…"),
                   ["count": .number(Double(palette.count)), "sample": .array(palette.prefix(8).map(JSONValue.string))])
 

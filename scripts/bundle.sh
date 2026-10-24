@@ -75,6 +75,13 @@ cat > "$OUT/Contents/Info.plist" <<PLIST
   <!-- A browser must load any site; ATS still applies to the app's own connections. -->
   <key>NSAppTransportSecurity</key>
   <dict><key>NSAllowsArbitraryLoadsInWebContent</key><true/></dict>
+  <!-- A tab dragged in the sidebar (TabDragDrop.swift); only ever offered inside the app. -->
+  <key>UTExportedTypeDeclarations</key>
+  <array><dict>
+    <key>UTTypeIdentifier</key><string>dev.arcclone.browser.tab</string>
+    <key>UTTypeDescription</key><string>ArcClone Tab</string>
+    <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+  </dict></array>
   <!-- Handoff: continue the active tab in Safari on another device. -->
   <key>NSUserActivityTypes</key>
   <array><string>NSUserActivityTypeBrowsingWeb</string></array>
