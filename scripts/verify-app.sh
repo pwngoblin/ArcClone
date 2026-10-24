@@ -2,6 +2,8 @@
 # Audits a built ArcClone.app against the project's security baseline. Run by bundle.sh and CI;
 # any failure exits non-zero. Usage: scripts/verify-app.sh [path/to/ArcClone.app]
 set -euo pipefail
+# Never trust an inherited PATH: only the system tool directories (Xcode tools are shims in /usr/bin).
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
 
 APP="${1:-$(cd "$(dirname "$0")/.." && pwd)/build/ArcClone.app}"
 BIN="$APP/Contents/MacOS/ArcClone"
@@ -14,6 +16,8 @@ pass() { echo "✔ $*"; }
 if codesign --verify --strict --deep "$APP" 2>/dev/null; then pass "signature and sealed resources verify"; else fail "codesign --verify --strict failed"; fi
 flags="$(codesign -dv "$APP" 2>&1 | sed -n 's/.*flags=\(0x[0-9a-f]*\)(\(.*\)).*/\2/p')"
 [[ ",$flags," == *",runtime,"* ]] && pass "hardened runtime enabled" || fail "hardened runtime missing (flags: $flags)"
+[[ ",$flags," == *",library-validation,"* && ",$flags," == *",restrict,"* ]] \
+  && pass "library validation and restrict flags set" || fail "library-validation/restrict flags missing (flags: $flags)"
 
 # --- Entitlements: exact allowlist ----------------------------------------------------------
 ALLOWED="com.apple.security.app-sandbox com.apple.security.network.client com.apple.security.files.downloads.read-write
@@ -22,9 +26,10 @@ com.apple.security.device.camera com.apple.security.device.microphone com.apple.
 entitlements="$(codesign -d --entitlements - --xml "$APP" 2>/dev/null | plutil -convert json -o - - 2>/dev/null || echo '{}')"
 keys="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); [print(k) for k,v in d.items() if v not in (False, [], None)]' "$entitlements")"
 grep -qx "com.apple.security.app-sandbox" <<< "$keys" && pass "App Sandbox enabled" || fail "App Sandbox not enabled"
-for key in $keys; do
+while IFS= read -r key; do
+  [ -n "$key" ] || continue
   grep -qw -- "$key" <<< "$ALLOWED" || fail "entitlement not in allowlist: $key"
-done
+done <<< "$keys"
 # Spelled out so a reviewer sees what is forbidden and why.
 for key in com.apple.security.cs.disable-library-validation com.apple.security.cs.allow-dyld-environment-variables \
            com.apple.security.cs.allow-unsigned-executable-memory com.apple.security.cs.allow-jit \
@@ -37,13 +42,15 @@ grep -q "temporary-exception" <<< "$keys" && fail "sandbox temporary exception p
 
 # --- Dynamic library loading ----------------------------------------------------------------
 rpaths="$(otool -l "$BIN" | awk '/cmd LC_RPATH/{getline; getline; print $2}' | sort -u)"
-for rpath in $rpaths; do
+while IFS= read -r rpath; do
+  [ -n "$rpath" ] || continue
   [ "$rpath" = "/usr/lib/swift" ] || fail "unexpected LC_RPATH: $rpath (dylib hijacking surface)"
-done
+done <<< "$rpaths"
 deps="$(otool -L "$BIN" | tail -n +2 | awk '{print $1}')"
-for dep in $deps; do
+while IFS= read -r dep; do
+  [ -n "$dep" ] || continue
   case "$dep" in /System/*|/usr/lib/*) ;; *) fail "loads a non-system library: $dep" ;; esac
-done
+done <<< "$deps"
 pass "only system libraries, no stray rpaths"
 
 # --- Info.plist -------------------------------------------------------------------------------

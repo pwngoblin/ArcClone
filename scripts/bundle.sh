@@ -8,6 +8,8 @@
 #   UNIVERSAL=1        build arm64 + x86_64 (default: host architecture only)
 #   CODESIGN_IDENTITY  signing identity, e.g. "Developer ID Application: …" (default: ad-hoc "-")
 set -euo pipefail
+# Never trust an inherited PATH: only the system tool directories (Xcode tools are shims in /usr/bin).
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/build/ArcClone.app"
@@ -18,8 +20,10 @@ IDENTITY="${CODESIGN_IDENTITY:--}"
 
 ARCH_FLAGS=()
 [ "${UNIVERSAL:-0}" = "1" ] && ARCH_FLAGS=(--arch arm64 --arch x86_64)
-(cd "$ROOT/core" && swift build -c release ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"})
-BIN="$(cd "$ROOT/core" && swift build -c release ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} --show-bin-path)/ArcClone"
+# Release: -O (SwiftPM's release default), full link-time optimization and dead-code stripping.
+RELEASE_FLAGS=(-c release --experimental-lto-mode=full -Xlinker -dead_strip)
+(cd "$ROOT/core" && swift build "${RELEASE_FLAGS[@]}" ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"})
+BIN="$(cd "$ROOT/core" && swift build "${RELEASE_FLAGS[@]}" ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} --show-bin-path)/ArcClone"
 
 rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$RES"
@@ -37,7 +41,7 @@ strip -rSTx "$EXE"
 cp -R "$ROOT/injections" "$RES/injections"
 find "$OUT" -name .DS_Store -delete
 
-ICONSET="$(mktemp -d)/AppIcon.iconset"
+ICONSET="$(umask 077 && mktemp -d)/AppIcon.iconset"
 swift "$ROOT/scripts/make-icon.swift" "$ICONSET"
 iconutil -c icns "$ICONSET" -o "$OUT/Contents/Resources/AppIcon.icns"
 rm -rf "$(dirname "$ICONSET")"
@@ -93,7 +97,9 @@ cat > "$OUT/Contents/Info.plist" <<PLIST
 PLIST
 plutil -lint -s "$OUT/Contents/Info.plist"
 
-SIGN_FLAGS=(--force --options runtime --entitlements "$ROOT/scripts/ArcClone.entitlements" --sign "$IDENTITY")
+# runtime: hardened runtime; library: only Apple- or same-team-signed libraries load;
+# restrict: dyld ignores DYLD_* variables and the binary refuses debugger-style injection.
+SIGN_FLAGS=(--force --options runtime,library,restrict --entitlements "$ROOT/scripts/ArcClone.entitlements" --sign "$IDENTITY")
 [ "$IDENTITY" != "-" ] && SIGN_FLAGS+=(--timestamp)
 codesign "${SIGN_FLAGS[@]}" "$OUT"
 "$ROOT/scripts/verify-app.sh" "$OUT"
