@@ -66,6 +66,15 @@
         "youtube.com",
         "*.youtube.com"
       ]
+    },
+    {
+      "id": "cosmetic-filter",
+      "file": "modules/cosmetic-filter.js",
+      "injectionTime": "documentEnd",
+      "mainFrameOnly": true,
+      "matches": [
+        "*"
+      ]
     }
   ]
 }

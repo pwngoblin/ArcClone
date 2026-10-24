@@ -41,6 +41,14 @@ extension BrowserWindowController {
             return .null
         }
 
+        // Procedural hiding filters for the frame's real origin (never a URL the page reports).
+        router.on("adblock.procedural", from: pageOnly) { [weak self] ctx, _ in
+            guard let self, case .page(_, true, let origin) = ctx.source, let host = origin?.host,
+                  let blocker = self.factory.adBlocker, blocker.isEnabled,
+                  !(self.factory.siteSettings?.adsAllowed(for: origin) ?? false) else { return ["filters": []] }
+            return ["filters": try JSONValue.from(blocker.proceduralFilters(for: host))]
+        }
+
         router.on("runtime.error", from: pageOnly, as: PagePayload.RuntimeError.self) { ctx, p in
             // Only errors raised inside our own injection files are reported.
             guard let source = p.source, source.hasPrefix("arc-injection://"), source.count < 200 else { return .null }

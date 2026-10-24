@@ -9,11 +9,12 @@ enum SelfTest {
     <!doctype html><html lang="en"><head><title>ArcClone Self Test</title>
     <meta name="description" content="Fixture page for the self test">
     <link rel="icon" href="/icon.svg"></head>
-    <body><nav><a href="/a">Home</a><a href="/b">About</a></nav>
+    <body style="overflow: hidden"><nav><a href="/a">Home</a><a href="/b">About</a></nav>
     <article><h1>Self test heading</h1>
     <p>The quick brown fox jumps over the lazy dog. This paragraph exists so that the readable content extractor has enough text to score, with commas, clauses, and sentences.</p>
     <p>A second paragraph adds more weight to the article container, making it the obvious choice for extraction over the navigation links above.</p>
     <h2>Details</h2><ul><li>First item</li><li>Second item</li></ul></article>
+    <aside class="card" id="sponsored-card"><span>Sponsored</span></aside><aside class="card" id="plain-card"><span>Related</span></aside>
     <footer>Footer text</footer></body></html>
     """
 
@@ -28,6 +29,11 @@ enum SelfTest {
 
             check("window.ready", await waitUntil(10) { window.window?.isVisible == true })
 
+            // In-page (procedural) filters for the fixture's site, as a downloaded list would provide.
+            window.factory.adBlocker?.useProceduralFilters(["selftest.arcclone.test": [
+                ProceduralFilter(selector: "aside.card span", steps: [.init(type: "has-text", arg: "/^sponsored$/i"), .init(type: "upward", arg: "1")]),
+                ProceduralFilter(selector: "body", steps: [], style: "overflow: auto"),
+            ]])
             let tab = window.tabs.create(url: nil)
             tab.webView.loadHTMLString(fixture, baseURL: URL(string: "https://selftest.arcclone.test/article")!)
             let titled = await waitUntil(10) {
@@ -57,6 +63,18 @@ enum SelfTest {
                 check("unknown injection rejected", false)
             } catch let e as IPCError { check("unknown injection rejected", e.code == "unknown_handler", .string(e.code)) }
             catch { check("unknown injection rejected", false, .string("\(error)")) }
+
+            var cosmetic: [String] = []
+            for _ in 0..<50 {
+                let state = try? await tab.webView.evaluateJavaScript("""
+                [getComputedStyle(document.getElementById('sponsored-card')).display, getComputedStyle(document.getElementById('plain-card')).display,
+                 getComputedStyle(document.body).overflow].join(',')
+                """)
+                cosmetic = (state as? String)?.components(separatedBy: ",") ?? []
+                if cosmetic == ["none", "block", "auto"] { break }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            check("procedural filters", cosmetic == ["none", "block", "auto"], .array(cosmetic.map(JSONValue.string)))
 
             // Page-world scripts must not be able to reach the native bridge.
             let leaked = try? await tab.webView.evaluateJavaScript("typeof (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.arc)")
