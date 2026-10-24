@@ -162,6 +162,39 @@ enum SelfTest {
             window.tabs.close(left.id)
             window.tabs.close(right.id)
 
+            // Pausing idle split panes: a paused pane's page stops running (animation frames), shows
+            // a picture instead, and runs again when resumed.
+            let busyPage = "<!doctype html><title>Ticker</title><script>window.frames_ = 0; (function tick() { frames_++; requestAnimationFrame(tick); })();</script>"
+            let focusedPane = window.tabs.create(url: nil)
+            focusedPane.webView.loadHTMLString("<!doctype html><title>Focused</title>", baseURL: URL(string: "https://selftest.arcclone.test/focused")!)
+            let idlePane = window.tabs.create(url: nil, activate: false)
+            idlePane.webView.loadHTMLString(busyPage, baseURL: URL(string: "https://selftest.arcclone.test/ticker")!)
+            _ = await waitUntil(10) { focusedPane.title == "Focused" && idlePane.title == "Ticker" }
+            window.tabs.activate(focusedPane.id)
+            window.tabs.makeSplit(.twoColumns, with: [idlePane.id])
+            @MainActor func frames() async -> Double {
+                let value = try? await idlePane.webView.evaluateJavaScript("frames_")
+                return (value as? Double) ?? (value as? NSNumber)?.doubleValue ?? -1
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            let start = await frames()
+            try? await Task.sleep(for: .milliseconds(1500))
+            let running = await frames() - start
+            await window.freezeIdlePanes(threshold: 0)
+            let paused = window.contentController.isFrozen(idlePane.id) && idlePane.webView.isHidden
+            let before = await frames()
+            try? await Task.sleep(for: .milliseconds(1500))
+            window.contentController.thawAll()
+            let whilePaused = await frames() - before
+            let resumedFrames = await frames()
+            try? await Task.sleep(for: .milliseconds(500))
+            let resumed = await frames() > resumedFrames
+            check("pause idle panes", paused && running >= 20 && whilePaused <= max(5, running * 0.1) && resumed && !idlePane.webView.isHidden,
+                  ["framesRunning": .number(running), "framesWhilePaused": .number(whilePaused), "paused": .bool(paused), "resumed": .bool(resumed)])
+            window.tabs.exitSplit()
+            window.tabs.close(focusedPane.id)
+            window.tabs.close(idlePane.id)
+
             // ⌘K reads the live menus: browser commands validate through the window's responder
             // chain, text-editing commands and the palette itself stay out.
             let palette = PaletteCommands.all(in: window.model).map(\.title)

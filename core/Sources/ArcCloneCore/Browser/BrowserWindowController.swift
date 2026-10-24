@@ -29,7 +29,9 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     private var snapshotScheduled = false
     private var browsingActivity: NSUserActivity?
     private let splitController = NSSplitViewController()
-    private let contentController = TabContentViewController()
+    let contentController = TabContentViewController()
+    /// The next check for split panes to pause (PaneFreezer); one wake-up, never polling.
+    var freezeTask: Task<Void, Never>?
     private var overlayHost: NSHostingView<CommandBarOverlay>?
     private let windowToolbar = WindowToolbar()
     private weak var sidebarHost: NSView?
@@ -96,6 +98,11 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
             self?.sleeper?.reschedule()
         }
         contentController.onFocus = { [weak self] id in self?.tabs.activate(id) }
+        // Scrolling a paused pane is using it: its idle time starts again.
+        contentController.onResume = { [weak self] id in
+            self?.tabs.tab(id)?.markActivated()
+            self?.scheduleFreeze()
+        }
         registerPageHandlers()
         if !isPrivate { installSpaceSwipe() }
         sleeper = TabSleeper(store: tabs)
@@ -301,6 +308,7 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         // Every pane of a visible split must be awake.
         if let tab, let split = tabs.split, split.tabIDs.contains(tab.id) { split.tabIDs.compactMap(tabs.tab).forEach { $0.wake() } }
         contentController.display(active: tab, split: tabs.split) { [tabs] in tabs.tab($0) }
+        scheduleFreeze()
         window?.makeFirstResponder(tab?.webView)
         model.selection = tab?.lastSelection
     }

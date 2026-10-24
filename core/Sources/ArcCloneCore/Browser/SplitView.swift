@@ -92,6 +92,8 @@ final class TabContentViewController: NSViewController {
     private var clickMonitor: Any?
     /// Called when the user clicks into a pane that isn't the active tab.
     var onFocus: (@MainActor (UUID) -> Void)?
+    /// Called when a paused pane is scrolled, which resumes it without focusing it.
+    var onResume: (@MainActor (UUID) -> Void)?
 
     override func loadView() {
         let root = NSView()
@@ -139,11 +141,28 @@ final class TabContentViewController: NSViewController {
             rebuild(layout: nil, tabs: [active])
         }
         panes.forEach { $0.isFocused = panes.count > 1 && $0.tabID == active.id }
+        // The pane you're in always runs.
+        panes.first { $0.tabID == active.id }?.thaw()
     }
+
+    // MARK: Pausing idle panes (PaneFreezer)
+
+    func isFrozen(_ id: UUID) -> Bool { panes.first { $0.tabID == id }?.isFrozen ?? false }
+
+    /// Covers an unfocused pane with `snapshot` and hides its web view, which WebKit then treats
+    /// as not visible: its timers, animation frames and rendering are suspended
+    /// (`inactiveSchedulingPolicy = .suspend`).
+    func freeze(_ id: UUID, snapshot: NSImage) {
+        guard panes.count > 1, let pane = panes.first(where: { $0.tabID == id }), !pane.isFocused else { return }
+        pane.freeze(snapshot)
+    }
+
+    func thawAll() { panes.forEach { $0.thaw() } }
 
     private func rebuild(layout: SplitLayout?, tabs: [Tab]) {
         container.subviews.forEach { $0.removeFromSuperview() }
-        panes = tabs.map { PaneView(tab: $0) }
+        panes.forEach { $0.thaw() }
+        panes = tabs.map { tab in PaneView(tab: tab) { [weak self] in self?.onResume?(tab.id) } }
         shown = (layout, tabs.map(\.id))
         guard !panes.isEmpty else { return }
         let content: NSView
@@ -206,21 +225,28 @@ private final class EvenSplitView: NSSplitView {
     }
 }
 
-/// One rounded card holding a tab's web view.
+/// One rounded card holding a tab's web view, or a still picture of it while it's paused.
 private final class PaneView: NSView {
     let tabID: UUID
     var isFocused = false { didSet { updateBorder() } }
+    private weak var web: NSView?
+    private var cover: FrozenPaneView?
+    private let resumed: () -> Void
+    var isFrozen: Bool { cover != nil }
 
-    init(tab: Tab) {
+    init(tab: Tab, resumed: @escaping () -> Void) {
         tabID = tab.id
+        self.resumed = resumed
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 10
         layer?.masksToBounds = true
         let web = tab.webView
         web.removeFromSuperview()
+        web.isHidden = false
         web.translatesAutoresizingMaskIntoConstraints = false
         addSubview(web)
+        self.web = web
         NSLayoutConstraint.activate([
             web.leadingAnchor.constraint(equalTo: leadingAnchor),
             web.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -232,6 +258,31 @@ private final class PaneView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    func freeze(_ snapshot: NSImage) {
+        guard cover == nil, let web else { return }
+        let cover = FrozenPaneView(snapshot: snapshot) { [weak self] in
+            self?.thaw()
+            self?.resumed()
+        }
+        cover.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(cover, positioned: .above, relativeTo: web)
+        NSLayoutConstraint.activate([
+            cover.leadingAnchor.constraint(equalTo: leadingAnchor),
+            cover.trailingAnchor.constraint(equalTo: trailingAnchor),
+            cover.topAnchor.constraint(equalTo: topAnchor),
+            cover.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        self.cover = cover
+        web.isHidden = true
+    }
+
+    func thaw() {
+        guard let cover else { return }
+        web?.isHidden = false
+        cover.removeFromSuperview()
+        self.cover = nil
+    }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -245,6 +296,46 @@ private final class PaneView: NSView {
             layer?.borderColor = (isFocused ? accent : NSColor.separatorColor).cgColor
         }
     }
+}
+
+/// A paused pane: its last picture and a "Paused" badge. Scrolling it resumes the page (a click
+/// focuses the pane, which resumes it too).
+private final class FrozenPaneView: NSView {
+    private let resume: () -> Void
+
+    init(snapshot: NSImage, resume: @escaping () -> Void) {
+        self.resume = resume
+        super.init(frame: .zero)
+        let picture = NSImageView(image: snapshot)
+        picture.imageScaling = .scaleAxesIndependently
+        picture.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(picture)
+        let badge = NSVisualEffectView()
+        badge.material = .hudWindow
+        badge.state = .active
+        badge.wantsLayer = true
+        badge.layer?.cornerRadius = 11
+        badge.translatesAutoresizingMaskIntoConstraints = false
+        let label = NSTextField(labelWithString: "Paused to save energy · click to resume")
+        label.font = .systemFont(ofSize: 11, weight: .medium)
+        label.textColor = .secondaryLabelColor
+        label.translatesAutoresizingMaskIntoConstraints = false
+        badge.addSubview(label)
+        addSubview(badge)
+        NSLayoutConstraint.activate([
+            picture.leadingAnchor.constraint(equalTo: leadingAnchor), picture.trailingAnchor.constraint(equalTo: trailingAnchor),
+            picture.topAnchor.constraint(equalTo: topAnchor), picture.bottomAnchor.constraint(equalTo: bottomAnchor),
+            label.leadingAnchor.constraint(equalTo: badge.leadingAnchor, constant: 10), label.trailingAnchor.constraint(equalTo: badge.trailingAnchor, constant: -10),
+            label.centerYAnchor.constraint(equalTo: badge.centerYAnchor), badge.heightAnchor.constraint(equalToConstant: 22),
+            badge.centerXAnchor.constraint(equalTo: centerXAnchor), badge.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+        ])
+        setAccessibilityLabel("Paused page. Click to resume.")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func scrollWheel(with event: NSEvent) { resume() }
 }
 
 extension NSColor {
