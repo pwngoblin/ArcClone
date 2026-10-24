@@ -18,6 +18,10 @@ public final class ScriptMessageBridge: NSObject, WKScriptMessageHandlerWithRepl
         self.resolveSource = resolveSource
     }
 
+    /// The tab moved to another window (Little Lily → Open in Lily): its pages' messages now reach
+    /// that window's routes. The handler, its content world and its checks stay as they are.
+    public func rebind(router: IPCRouter) { self.router = router }
+
     public func attach(to controller: WKUserContentController) {
         controller.addScriptMessageHandler(self, contentWorld: contentWorld, name: name)
     }

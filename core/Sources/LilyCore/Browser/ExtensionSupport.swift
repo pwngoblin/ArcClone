@@ -63,7 +63,8 @@ extension Tab: WKWebExtensionTab {
 extension BrowserWindowController: WKWebExtensionWindow {
     public func tabs(for context: WKWebExtensionContext) -> [any WKWebExtensionTab] { tabs.tabs }
     public func activeTab(for context: WKWebExtensionContext) -> (any WKWebExtensionTab)? { tabs.active }
-    public func windowType(for context: WKWebExtensionContext) -> WKWebExtension.WindowType { .normal }
+    /// Little Lily is a secondary, single-page window, like a popup to extensions.
+    public func windowType(for context: WKWebExtensionContext) -> WKWebExtension.WindowType { isLittle ? .popup : .normal }
     public func windowState(for context: WKWebExtensionContext) -> WKWebExtension.WindowState {
         guard let window else { return .normal }
         if window.styleMask.contains(.fullScreen) { return .fullscreen }

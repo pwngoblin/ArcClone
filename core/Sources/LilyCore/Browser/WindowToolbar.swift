@@ -13,11 +13,15 @@ final class WindowToolbar: NSObject, NSToolbarDelegate {
     static let split = NSToolbarItem.Identifier("Lily.split")
     static let adBlock = NSToolbarItem.Identifier("Lily.adBlock")
     static let extensions = NSToolbarItem.Identifier("Lily.extensions")
+    static let copyLink = NSToolbarItem.Identifier("Lily.copyLink")
+    static let openInLily = NSToolbarItem.Identifier("Lily.openInLily")
 
     let toolbar: NSToolbar
+    private let style: BrowserWindowController.Style
 
-    override init() {
-        toolbar = NSToolbar(identifier: "LilyBrowserToolbar")
+    init(style: BrowserWindowController.Style = .regular) {
+        self.style = style
+        toolbar = NSToolbar(identifier: style == .little ? "LilyLittleToolbar" : "LilyBrowserToolbar")
         super.init()
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
@@ -25,9 +29,11 @@ final class WindowToolbar: NSObject, NSToolbarDelegate {
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        // Little Lily: page navigation, then what you do with a page you only came to look at.
+        if style == .little { return [Self.back, Self.forward, Self.reload, .flexibleSpace, Self.copyLink, Self.openInLily] }
         // Navigation sits at the start of the content side: over the sidebar, the traffic lights
         // plus four buttons overflowed narrow sidebars and pushed Reload into the » menu.
-        [.toggleSidebar, .sidebarTrackingSeparator, Self.back, Self.forward, Self.reload, .flexibleSpace,
+        return [.toggleSidebar, .sidebarTrackingSeparator, Self.back, Self.forward, Self.reload, .flexibleSpace,
          Self.split, Self.extensions, Self.adBlock, Self.darkMode, Self.siteSettings, Self.newTab]
     }
 
@@ -56,6 +62,8 @@ final class WindowToolbar: NSObject, NSToolbarDelegate {
         case Self.adBlock: return button(id, "Block Ads on This Site", "shield.lefthalf.filled", #selector(BrowserWindowController.toggleSiteAdBlocking(_:)))
         case Self.darkMode: return button(id, "Dark Mode for This Site", "moon", #selector(BrowserWindowController.toggleSiteDarkMode(_:)))
         case Self.siteSettings: return button(id, "Site Settings", "slider.horizontal.3", #selector(BrowserWindowController.showSiteSettings(_:)))
+        case Self.copyLink: return button(id, "Copy Link", "link", #selector(BrowserWindowController.copyPageURL(_:)))
+        case Self.openInLily: return button(id, "Open in Lily", "arrow.up.left.and.arrow.down.right", #selector(BrowserWindowController.openInLily(_:)))
         default: return nil
         }
     }

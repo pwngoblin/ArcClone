@@ -25,6 +25,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     private var migrationAccess: MigrationAccess?
     private var migrationWindow: MigrationWindowController?
     private var windows: [BrowserWindowController] = []
+    /// Links from other apps that arrive while Lily is still starting (a cold launch from a link)
+    /// wait here until the windows can be made.
+    private var launched = false
+    private var pendingLinks: [URL] = []
+    /// Where the next Little Lily window goes, so several cascade instead of stacking.
+    private var littleCascade: NSPoint?
     private var settingsWindow: SettingsWindowController?
     private var saveScheduled = false
 
@@ -113,6 +119,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         let controller = makeWindow()
         if ProcessInfo.processInfo.arguments.contains("--self-test") {
             controller.showWindowCentered()
+            launched = true
             SelfTest.run(window: controller, assistant: assistant)
             return
         }
@@ -128,6 +135,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         }
         controller.showWindowCentered()
         NSApp.activate()
+        launched = true
+        let waiting = pendingLinks
+        pendingLinks = []
+        if !waiting.isEmpty { open(waiting) }
     }
 
     /// The encrypted session save is async, so quitting waits for it.
@@ -187,15 +198,68 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     }
 
     public func application(_ application: NSApplication, open urls: [URL]) {
-        let target = primaryWindow ?? makeWindow()
-        for url in urls {
-            if url.isFileURL { target.tabs.openFile(url) } else { target.tabs.create(url: url) }
-        }
-        target.showWindow(nil)
+        guard launched else { return pendingLinks += urls }
+        open(urls)
     }
 
-    /// The saved session belongs to the first regular (non-private) window.
-    private var primaryWindow: BrowserWindowController? { windows.first { !$0.isPrivate } }
+    /// Links from other apps: web pages in Little Lily (when that's on), files and everything else
+    /// as tabs in the main window.
+    private func open(_ urls: [URL]) {
+        let little = Preferences.flag(Preferences.Key.linksOpenInLittleLily, default: true)
+        var target: BrowserWindowController?
+        for url in urls {
+            if little, ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+                openLittle(url)
+                continue
+            }
+            let main = target ?? primaryWindow ?? makeWindow()
+            target = main
+            if url.isFileURL { main.tabs.openFile(url) } else { main.tabs.create(url: url) }
+        }
+        target?.showWindow(nil)
+    }
+
+    /// The saved session belongs to the first regular window (not private, not Little Lily).
+    private var primaryWindow: BrowserWindowController? { windows.first { !$0.isPrivate && !$0.isLittle } }
+
+    /// The main window for Little Lily to hand pages to; made (empty) if there isn't one.
+    private func mainWindowForLittle() -> BrowserWindowController {
+        if let primary = primaryWindow { return primary }
+        let controller = makeWindow()
+        controller.showWindowCentered()
+        return controller
+    }
+
+    /// A Little Lily window for `url`, or the one already showing it, brought forward.
+    func openLittle(_ url: URL) {
+        if let open = windows.first(where: { $0.isLittle && $0.tabs.active?.url == url }) {
+            open.showWindow(nil)
+            open.window?.makeKeyAndOrderFront(nil)
+            return
+        }
+        let controller = makeWindow(style: .little)
+        controller.tabs.create(url: url)
+        showLittle(controller)
+    }
+
+    /// File → New Little Lily Window (⌥⌘N): an empty one, with the address bar open.
+    @objc public func newLittleLilyWindow(_ sender: Any?) {
+        let controller = makeWindow(style: .little)
+        showLittle(controller)
+        controller.model.presentCommandBar(newTab: true)
+    }
+
+    private func showLittle(_ controller: BrowserWindowController) {
+        guard let window = controller.window else { return }
+        if let point = littleCascade {
+            littleCascade = window.cascadeTopLeft(from: point)
+        } else {
+            window.center()
+            littleCascade = window.cascadeTopLeft(from: NSPoint(x: window.frame.minX, y: window.frame.maxY))
+        }
+        controller.showWindow(nil)
+        NSApp.activate()
+    }
 
     func openInNewWindow(_ url: URL, isPrivate: Bool) {
         let controller = makeWindow(isPrivate: isPrivate)
@@ -238,7 +302,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
                 (NSApp.keyWindow?.windowController as? BrowserWindowController).flatMap { $0.isPrivate ? nil : $0 } ?? self?.primaryWindow
             }
             manager.openTab = { [weak self] url, active in
-                guard let target = manager.focusedWindow() ?? self?.primaryWindow else { return nil }
+                // chrome.tabs.create from a Little Lily window opens in the main window.
+                guard let focused = manager.focusedWindow() ?? self?.primaryWindow,
+                      let target = focused.isLittle ? self?.mainWindowForLittle() : focused else { return nil }
                 return target.tabs.create(url: url, activate: active)
             }
             extensionRuntime = manager
@@ -327,14 +393,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         NSWorkspace.shared.open(AppInfo.helpURL)
     }
 
-    private func makeWindow(isPrivate: Bool = false) -> BrowserWindowController {
+    private func makeWindow(isPrivate: Bool = false, style: BrowserWindowController.Style = .regular) -> BrowserWindowController {
         // Each private window gets its own in-memory data store: no cookies or caches touch disk,
         // and private windows can't see each other's sessions.
         let factory = isPrivate
             ? WebViewFactory(registry: registry, dataStore: .nonPersistent(), siteSettings: siteSettings, savesSiteChanges: false, adBlocker: adBlocker)
             : self.factory!
-        let controller = BrowserWindowController(factory: factory, assistant: assistant, history: isPrivate ? nil : history, isPrivate: isPrivate)
+        let controller = BrowserWindowController(factory: factory, assistant: assistant, history: isPrivate ? nil : history,
+                                                 isPrivate: isPrivate, style: style)
         controller.bookmarks = bookmarks
+        controller.mainWindow = { [weak self] in self?.mainWindowForLittle() }
+        controller.openLittle = { [weak self] url in self?.openLittle(url) }
         controller.formDrafts = isPrivate ? nil : formDrafts
         controller.onClose = { [weak self] closed in
             guard let self else { return }

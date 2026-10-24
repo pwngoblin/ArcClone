@@ -7,7 +7,10 @@ import WebKit
 final class BrowserWebView: WKWebView {
     /// Called just before WebKit is asked to open the right-clicked link in a new window, so the
     /// tab can route that request into split view instead of a plain new tab.
-    var willOpenLinkInSplit: (() -> Void)?
+    /// Where the next link opened from the context menu should go, set just before WebKit asks
+    /// for a new window (`Tab.webView(_:createWebViewWith:…)`).
+    enum LinkTarget { case split, little }
+    var willOpenLink: ((LinkTarget) -> Void)?
 
     /// WebKit's menu item identifiers (stable strings) → our title (nil keeps WebKit's) and symbol.
     static let restyle: [String: (title: String?, symbol: String)] = [
@@ -52,6 +55,11 @@ final class BrowserWebView: WKWebView {
             split.target = self
             split.representedObject = newTab
             menu.insertItem(split, at: index + 1)
+            let little = NSMenuItem(title: "Open Link in Little Lily", action: #selector(openLinkInLittle(_:)), keyEquivalent: "")
+            little.image = NSImage(systemSymbolName: "macwindow", accessibilityDescription: nil)
+            little.target = self
+            little.representedObject = newTab
+            menu.insertItem(little, at: index + 2)
         }
     }
 
@@ -64,10 +72,13 @@ final class BrowserWebView: WKWebView {
     }
 
     /// WebKit keeps the right-clicked link to itself; its own "open in new window" item knows it.
-    /// Mark the next new-window request as a split, then let that item run.
-    @objc private func openLinkInSplit(_ sender: NSMenuItem) {
+    /// Mark where the next new-window request goes, then let that item run.
+    @objc private func openLinkInSplit(_ sender: NSMenuItem) { openLink(sender, in: .split) }
+    @objc private func openLinkInLittle(_ sender: NSMenuItem) { openLink(sender, in: .little) }
+
+    private func openLink(_ sender: NSMenuItem, in target: LinkTarget) {
         guard let newTab = sender.representedObject as? NSMenuItem, let action = newTab.action else { return }
-        willOpenLinkInSplit?()
+        willOpenLink?(target)
         NSApp.sendAction(action, to: newTab.target, from: newTab)
     }
 }

@@ -56,6 +56,7 @@ struct GeneralSettingsView: View {
     @AppStorage(Preferences.Key.restoreSession) private var restoreSession = true
     @AppStorage(Preferences.Key.haptics) private var haptics = true
     @AppStorage(Preferences.Key.webDeveloperFeatures) private var webDeveloper = false
+    @AppStorage(Preferences.Key.linksOpenInLittleLily) private var linksInLittle = true
     @State private var isDefaultBrowser = DefaultBrowser.isDefault
     @State private var defaultBrowserError: String?
 
@@ -65,6 +66,11 @@ struct GeneralSettingsView: View {
                 ForEach(Preferences.SearchEngine.allCases) { Text($0.displayName).tag($0.rawValue) }
             }
             TextField("Homepage:", text: $homepage, prompt: Text(Preferences.defaultHomepage))
+            Toggle("Open links from other apps in Little Lily", isOn: $linksInLittle)
+            LabeledContent("") {
+                Text("A small window for one page. Open in Lily (⇧⌘O) moves it into your main window as it is; closing it leaves it in History.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             Toggle("Haptic feedback on the trackpad", isOn: $haptics)
             Toggle("Show features for web developers", isOn: $webDeveloper)
                 .onChange(of: webDeveloper) { (NSApp.delegate as? AppDelegate)?.webDeveloperFeaturesChanged() }
