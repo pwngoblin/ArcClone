@@ -160,20 +160,25 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         // Rubber-band when there's no space in that direction.
         let offset = swipeTarget(for: raw) == nil ? raw * 0.2 : raw
         model.spaceDragOffset = offset
-        let crossed = abs(offset) >= swipeThreshold && swipeTarget(for: raw) != nil
-        if crossed != swipeCrossed {
-            swipeCrossed = crossed
-            Haptics.snap()
-        }
+        // Arms past the threshold, disarms only well below it, so finger jitter at the edge doesn't
+        // flip it back and forth. One tick when it arms is the swipe's only haptic.
+        let armed = swipeTarget(for: raw) != nil && abs(offset) >= (swipeCrossed ? swipeThreshold * 0.7 : swipeThreshold)
+        if armed && !swipeCrossed { Haptics.snap() }
+        swipeCrossed = armed
     }
 
     private func finishSwipe(cancelled: Bool) {
         let offset = swipeDelta.width
         swipeDelta = .zero
         if !cancelled, swipeCrossed, let step = swipeTarget(for: offset) {
-            model.spaceDragOffset = 0
-            tabs.switchSpace(by: step)
-            Haptics.step()
+            // One animated update: the new space and the offset returning to 0 land together, so the
+            // old list keeps moving from where the fingers left it instead of jumping back first.
+            // (The sidebar model normally refreshes a run-loop turn later; here it must not.)
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
+                tabs.switchSpace(by: step)
+                model.refresh(from: tabs)
+                model.spaceDragOffset = 0
+            }
         } else {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { model.spaceDragOffset = 0 }
         }

@@ -12,14 +12,20 @@ struct SidebarView: View {
                 .padding(.bottom, 6)
             switch window.panel {
             case .tabs:
-                VStack(spacing: 0) {
-                    if !window.isPrivate, let space = window.currentSpace { SpaceHeader(space: space, window: window) }
-                    TabListView(window: window)
+                // The drag offset moves the container, so the outgoing and incoming spaces share it
+                // and a committed swipe continues from where the fingers left the list.
+                ZStack {
+                    VStack(spacing: 0) {
+                        if !window.isPrivate, let space = window.currentSpace { SpaceHeader(space: space, window: window) }
+                        TabListView(window: window)
+                    }
+                    .id(window.currentSpaceID)
+                    .transition(.push(from: window.spaceForward ? .trailing : .leading))
                 }
                 .offset(x: window.spaceDragOffset)
                 .opacity(1 - min(0.35, abs(window.spaceDragOffset) / 500))
-                .id(window.currentSpaceID)
-                .transition(.push(from: window.spaceForward ? .trailing : .leading))
+                .clipped()
+                .transition(.move(edge: .leading).combined(with: .opacity))
             case .assistant:
                 AssistantPanelView(chat: window.assistant, window: window)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
