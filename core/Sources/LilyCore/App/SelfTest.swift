@@ -377,6 +377,24 @@ enum SelfTest {
             check("user agent matches Safari", agent.hasSuffix(window.factory.applicationNameForUserAgent) && !agent.contains("Lily")
                   && agent.contains("AppleWebKit/605.1.15"), ["userAgent": .string(agent)])
 
+            // Handoff, receiving: a page continued from another device opens as the active tab of
+            // the main window (trackers removed as for any opened link), through the selector
+            // AppKit calls.
+            let continuedSelector = NSSelectorFromString("application:continueUserActivity:restorationHandler:")
+            let answers = (NSApp.delegate as AnyObject?)?.responds(to: continuedSelector) == true
+            var continued = false
+            if let app = NSApp.delegate as? AppDelegate {
+                let activity = NSUserActivity(activityType: NSUserActivityTypeBrowsingWeb)
+                activity.webpageURL = URL(string: "https://selftest.lily.test/continued?ref=phone&utm_source=handoff")!
+                let accepted = app.application(NSApp, continue: activity) { _ in }
+                let arrived = await waitUntil(5) { window.tabs.active?.url?.path == "/continued" }
+                continued = accepted && arrived
+            }
+            let opened = window.tabs.active?.url?.absoluteString ?? ""
+            check("handoff continue", answers && continued && opened == "https://selftest.lily.test/continued?ref=phone",
+                  ["delegateAnswers": .bool(answers), "opened": .string(opened)])
+            if continued, let id = window.tabs.activeID { window.tabs.close(id) }
+
             // ⌘K reads the live menus: browser commands validate through the window's responder
             // chain, text-editing commands and the palette itself stay out.
             let palette = PaletteCommands.all(in: window.model).map(\.title)
