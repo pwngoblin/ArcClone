@@ -24,7 +24,7 @@ ArcClone is written in Swift with AppKit and SwiftUI and renders pages with WebK
 - **Split view**: two side by side, two stacked, three columns, three rows, or a 2×2 grid. Click a pane to focus it. Each split appears in the sidebar as one pill arranged like the split, and you can keep several splits at once.
 - **Command bar** (⌘T, ⌘L): opens addresses, searches with your chosen engine, and suggests open tabs and history.
 - **Private windows** (⇧⌘N): in-memory website data that is never saved, no history, no extensions, and a request to macOS to keep the window out of screen capture.
-- **Sleeping tabs**: background tabs unused for 15 minutes (configurable, 5 in Low Power Mode) unload their page to free memory and come back where you left off. Tabs playing media, using the camera or microphone, or in a visible split stay awake. Memory pressure from macOS puts eligible tabs to sleep immediately.
+- **Sleeping tabs**: background tabs unused for 15 minutes (configurable, 5 in Low Power Mode) release their web view entirely to free memory and come back where you left off. Tabs playing media, using the camera or microphone, or in a visible split stay awake. Memory pressure from macOS puts eligible tabs to sleep immediately. Restored and imported tabs load only when you first open them, so thousands of tabs cost about a kilobyte each.
 - Tabs, pinned tabs, spaces and opened files (*File → Open File…*) are restored on launch.
 
 **Pages**
@@ -122,6 +122,7 @@ make            # build core/
 make run        # run the development build from the repository
 make check      # Swift tests (what CI runs)
 make test       # Swift tests, then the end-to-end self-test
+make perf       # performance gate: 5,000-tab memory and search speed, tab virtualization
 make app        # build/ArcClone.app, then scripts/verify-app.sh
 make dmg        # build/ArcClone-<version>.dmg
 ```
