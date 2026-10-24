@@ -10,6 +10,7 @@ extension BrowserWindowController {
         router.on("page.didChange", from: pageOnly, as: PagePayload.DidChange.self) { [weak self] ctx, p in
             guard let self, case .page(let tabID, true, let origin) = ctx.source, let tab = self.tabs.tab(tabID) else { return .null }
             let metadata = try PagePayload.metadata(p, origin: origin)
+            guard !ErrorPage.isInternal(metadata.url) else { return .null } // ArcClone's own pages aren't history
             tab.applyMetadata(metadata)
             self.history?.record(url: metadata.url, title: metadata.title)
             self.recordForAssistant(tabID, "page.didChange", metadata.json)

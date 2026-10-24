@@ -44,7 +44,12 @@ public final class WebViewFactory {
         // Like Safari: media with sound waits for a click (abuse, battery); muted autoplay still works.
         config.mediaTypesRequiringUserActionForPlayback = [.audio]
         config.preferences.isElementFullscreenEnabled = true
+        // No drive-by pop-ups or tab-nabbing windows: new windows need a user gesture.
         config.preferences.javaScriptCanOpenWindowsAutomatically = false
+        // Unreadably tiny text is a common trick for hidden content and layout-exhaustion pages.
+        config.preferences.minimumFontSize = 9
+        // Hosts known to support HTTPS are upgraded by WebKit before any request goes out.
+        config.upgradeKnownHostsToHTTPS = true
         config.preferences.isFraudulentWebsiteWarningEnabled = true
         // Pages that aren't visible (background tabs) have their timers and rendering suspended.
         config.preferences.inactiveSchedulingPolicy = .suspend

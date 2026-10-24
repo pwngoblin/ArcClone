@@ -94,6 +94,20 @@ enum SelfTest {
                        "end": JSONValue(ends.first.map { "\(Int($0.x)),\(Int($0.y))" }), "bounds": .string("\(Int(bounds.width))x\(Int(bounds.height))")])
             }
 
+            // ArcClone's own pages run without page JavaScript, keep the tab's address and stay out of history.
+            let internalTab = window.tabs.create(url: nil, activate: false)
+            internalTab.showInternalPage("<!doctype html><title>internal</title><script>document.title = 'scripts ran'</script>", for: nil)
+            var internalTitle = ""
+            for _ in 0..<50 {
+                try? await Task.sleep(for: .milliseconds(100))
+                internalTitle = (try? await internalTab.webView.evaluateJavaScript("document.title")) as? String ?? ""
+                if !internalTitle.isEmpty { break }
+            }
+            let recorded = window.history?.visits.contains { ErrorPage.isInternal($0.url) } ?? false
+            check("internal pages without scripts", internalTitle == "internal" && !recorded && !ErrorPage.isInternal(internalTab.url),
+                  ["title": .string(internalTitle), "recorded": .bool(recorded)])
+            window.tabs.close(internalTab.id)
+
             // Browser import inside the sandbox: a Chromium (Dia-style) profile with a WAL-mode History
             // database, built in the container, found, counted and read through the private copy.
             let migration = await Self.migrationProbe()
