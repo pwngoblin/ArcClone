@@ -8,6 +8,7 @@ final class CommandBarModel: Identifiable {
         case search(String, engine: String)
         case tab(id: UUID, title: String, url: URL?)
         case history(title: String, url: URL)
+        case bookmark(title: String, url: URL)
 
         var id: String {
             switch self {
@@ -15,6 +16,7 @@ final class CommandBarModel: Identifiable {
             case .search(let q, _): return "search:\(q)"
             case .tab(let id, _, _): return "tab:\(id.uuidString)"
             case .history(_, let url): return "history:\(url.absoluteString)"
+            case .bookmark(_, let url): return "bookmark:\(url.absoluteString)"
             }
         }
     }
@@ -44,8 +46,20 @@ final class CommandBarModel: Identifiable {
         let tabs = window.tabs.filter { $0.id != window.activeID || newTab }
             .filter { $0.title.lowercased().contains(needle) || ($0.url?.absoluteString.lowercased().contains(needle) ?? false) }
         out += tabs.prefix(4).map { .tab(id: $0.id, title: $0.title, url: $0.url) }
-        if let history = window.controller?.history {
+        if let bookmarks = (NSApp.delegate as? AppDelegate)?.bookmarks {
             let open = Set(out.compactMap { if case .tab(_, _, let url) = $0 { url } else { nil } })
+            for link in bookmarks.search(q, limit: 3) where !open.contains(link.url!) {
+                out.append(.bookmark(title: link.title.isEmpty ? link.url!.absoluteString : link.title, url: link.url!))
+            }
+        }
+        if let history = window.controller?.history {
+            let open = Set(out.compactMap { suggestion -> URL? in
+                switch suggestion {
+                case .tab(_, _, let url): return url
+                case .bookmark(_, let url): return url
+                default: return nil
+                }
+            })
             for visit in history.search(q, limit: 12) where !open.contains(visit.url) {
                 out.append(.history(title: visit.title.isEmpty ? visit.url.absoluteString : visit.title, url: visit.url))
                 if out.count >= 9 { break }
@@ -66,7 +80,7 @@ final class CommandBarModel: Identifiable {
         switch pick {
         case .tab(let id, _, _):
             controller.tabs.activate(id)
-        case .open(let url), .history(_, let url):
+        case .open(let url), .history(_, let url), .bookmark(_, let url):
             controller.open(url, newTab: newTab)
         case .search(let q, _):
             if let url = Preferences.urlResolver.searchURL(for: q) { controller.open(url, newTab: newTab) }
@@ -186,6 +200,7 @@ private struct SuggestionRow: View {
         case .search: Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
         case .tab(_, _, let url): FaviconView(url: url?.faviconGuess, size: 18)
         case .history: Image(systemName: "clock.arrow.circlepath").foregroundStyle(.secondary)
+        case .bookmark: Image(systemName: "bookmark.fill").foregroundStyle(.tint)
         }
     }
 
@@ -193,14 +208,14 @@ private struct SuggestionRow: View {
         switch suggestion {
         case .open(let url): return url.absoluteString
         case .search(let q, _): return q
-        case .tab(_, let title, _), .history(let title, _): return title
+        case .tab(_, let title, _), .history(let title, _), .bookmark(let title, _): return title
         }
     }
 
     private var subtitle: String? {
         switch suggestion {
         case .tab(_, _, let url): return url?.host
-        case .history(_, let url): return url.absoluteString
+        case .history(_, let url), .bookmark(_, let url): return url.absoluteString
         default: return nil
         }
     }
@@ -211,6 +226,7 @@ private struct SuggestionRow: View {
         case .search(_, let engine): return "Search \(engine)"
         case .tab: return "Switch to Tab"
         case .history: return "History"
+        case .bookmark: return "Bookmark"
         }
     }
 }

@@ -9,6 +9,7 @@ enum MainMenu {
         main.addItem(submenu(editMenu()))
         main.addItem(submenu(viewMenu()))
         main.addItem(submenu(historyMenu()))
+        main.addItem(submenu(bookmarksMenu()))
         main.addItem(submenu(tabMenu()))
         main.addItem(submenu(developMenu()))
         let window = windowMenu()
@@ -61,6 +62,8 @@ enum MainMenu {
         m.addItem(item("New Private Window", #selector(AppDelegate.newPrivateWindow(_:)), "n", [.command, .shift]))
         m.addItem(item("Open File…", #selector(AppDelegate.openDocument(_:)), "o"))
         m.addItem(item("Open Location…", #selector(BrowserWindowController.focusAddressBar(_:)), "l"))
+        m.addItem(.separator())
+        m.addItem(item("Import from Another Browser…", #selector(AppDelegate.showMigration(_:))))
         m.addItem(.separator())
         m.addItem(item("Close Tab", #selector(BrowserWindowController.closeTab(_:)), "w"))
         m.addItem(item("Close Window", #selector(NSWindow.performClose(_:)), "w", [.command, .shift]))
@@ -151,6 +154,14 @@ enum MainMenu {
         m.addItem(item("Show All History", #selector(AppDelegate.showHistory(_:)), "y"))
         m.addItem(.separator())
         m.addItem(item("Clear Browsing Data…", #selector(AppDelegate.clearBrowsingData(_:)), "\u{8}", [.command, .shift]))
+        return m
+    }
+
+    /// Imported bookmarks are added below these items when the menu opens (`BookmarksMenuDelegate`).
+    private static func bookmarksMenu() -> NSMenu {
+        let m = NSMenu(title: "Bookmarks")
+        m.addItem(item("Import from Another Browser…", #selector(AppDelegate.showMigration(_:))))
+        m.addItem(item("Remove All Bookmarks…", #selector(AppDelegate.removeAllBookmarks(_:))))
         return m
     }
 
