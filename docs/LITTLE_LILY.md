@@ -5,14 +5,15 @@ where links from other apps (Mail, Slack, Notes…) open, so they don't pile up 
 window. If the page turns out to be worth keeping, **Open in Lily** moves it into the main window,
 as it is: same scroll position, same form input, same video time, no reload.
 
-Status: **designed, not built.** This document is the plan the implementation follows.
+Status: **built** (`Browser/LittleLily.swift`, the `.little` style of `BrowserWindowController`).
+Where the build differs from the first plan, it says so below ("Built as").
 
 ## What it does
 
 | | Little Lily | Main window |
 |---|---|---|
 | Content | one page | tabs, spaces, splits |
-| Chrome | a slim title bar: site, lock, Open in Lily, Copy Link, close | sidebar, toolbar |
+| Chrome | the native title bar (page title, site as subtitle) and a toolbar: back, forward, reload, Copy Link, Open in Lily | sidebar, toolbar |
 | Size | small (about 900 × 640), remembered | large, remembered |
 | On close | the page is gone (it's in history) | tabs restored next launch |
 | Session | never restored | restored |
@@ -45,10 +46,16 @@ more than one tab. Everything that hangs off the window controller then works wi
 - **Security**: the same `WebViewFactory`, content worlds, bridge checks and navigation policy.
 
 What `style: .little` changes, in `BrowserWindowController`:
-- `buildLayout()`: no sidebar split item; the content controller fills the window, under a
-  SwiftUI `LittleLilyBar` (title-bar accessory) bound to the same `WindowModel`.
-- `TabStore` rejects a second tab: `create` from a page (window.open, Open Link in New Tab) is
-  routed to the main window instead (`tabDelegate` → `AppDelegate.mainWindow`).
+- `buildLayout()`: no sidebar split item; the content controller fills the window.
+  *Built as:* the native title bar (page title; the site as `window.subtitle`) and a native
+  `NSToolbar` (`WindowToolbar(style: .little)`), not a SwiftUI bar: a SwiftUI view in the title
+  bar breaks dragging the window by it, and the system already shows title and subtitle.
+- Never a second tab: a page's new window (`target=_blank`, Open Link in New Tab or Split View),
+  ⌘T, a new-tab address from the command bar and `chrome.tabs.create` all go to the main window.
+  *Built as:* routing in the window controller and `AppDelegate`, not a limit inside `TabStore`,
+  so the store stays the same for every window. Commands that need more than one tab (split,
+  pin, tab numbers, next/previous tab, spaces, reopen closed tab, the sidebar) validate to off,
+  and ⌘W closes the window.
 - No session saving (`onSessionChange` not wired), no space UI, no split view (its menu items
   validate to off), no `TabSleeper` or `PaneFreezer` (a one-tab window is always the active tab).
 - Window frame autosaved under its own name (`LilyLittleWindow`).
@@ -99,18 +106,22 @@ Links clicked inside Lily never open Little Lily on their own.
 
 | File | What |
 |---|---|
-| `Browser/BrowserWindowController.swift` | `Style` (`.regular`, `.little`), layout and wiring per style |
-| `Browser/TabStore.swift` | `detach`, `adopt`, and the one-tab limit for `.little` |
-| `Browser/Tab.swift` | `rebind(router:)` |
-| `Browser/LittleLily.swift` | opening, Open in Lily, cascade and reuse of windows, the preference |
-| `UI/LittleLilyBar.swift` | the slim title bar (site, lock, Open in Lily, Copy Link) |
-| `App/MainMenu.swift`, `App/AppDelegate.swift` | New Little Lily Window, external-link routing |
+| `Browser/BrowserWindowController.swift` (+`Commands`) | `Style` (`.regular`, `.little`), layout, routing and command validation per style |
+| `Browser/TabStore.swift` | `detach`, `adopt` |
+| `Browser/Tab.swift`, `IPC/ScriptMessageBridge.swift` | `rebind(router:)` |
+| `Browser/LittleLily.swift` | Open in Lily, moving a tab between windows, opening in the main window |
+| `Browser/WindowToolbar.swift` | Little Lily's toolbar (back, forward, reload, Copy Link, Open in Lily) |
+| `Browser/BrowserWebView.swift` | Open Link in Little Lily in the page's context menu |
+| `App/AppDelegate.swift`, `App/MainMenu.swift`, Settings → General | external-link routing (and links that arrive during launch), reuse and cascading of windows, New Little Lily Window, Open in Lily, the setting |
 
 ### Resource use
 
 A Little Lily window is one tab and one web content process, with no sidebar and no timers. When it
 closes, the tab is torn down like a closed tab (the page is in history). Promoting it costs nothing:
 the web view moves as is.
+
+Links that arrive while Lily is still starting (a cold launch from a link) wait until the windows
+can be made; before, such a link could reach window creation before startup had finished.
 
 ### Tests
 
