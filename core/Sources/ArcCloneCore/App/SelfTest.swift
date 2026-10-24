@@ -286,6 +286,21 @@ enum SelfTest {
                   ["enabled": .bool(inspectorOn), "inspectable": .bool(page.isInspectable), "inspectElement": .bool(extras ?? false),
                    "developMenu": .bool(developMenuShown), "canShow": .bool(WebInspector.canShow(for: page))])
 
+            // The menu bar: no items a browser doesn't need, and the shortcuts moved into submenus
+            // still work (⌘1 goes to the first tab).
+            func items(_ menu: NSMenu) -> [NSMenuItem] { menu.items.flatMap { [$0] + ($0.submenu.map(items) ?? []) } }
+            if let edit = NSApp.mainMenu?.item(withTitle: "Edit")?.submenu { edit.delegate?.menuNeedsUpdate?(edit) }
+            let all = NSApp.mainMenu.map(items) ?? []
+            let removed = all.filter { item in
+                [#selector(NSApplication.orderFrontCharacterPalette(_:)), NSSelectorFromString("startDictation:"),
+                 #selector(NSTextView.startSpeaking(_:)), #selector(NSText.checkSpelling(_:)),
+                 #selector(NSTextView.orderFrontSubstitutionsPanel(_:)), NSSelectorFromString("toggleTabBar:")].contains(item.action)
+            }.map(\.title)
+            let importItems = all.filter { $0.action == #selector(AppDelegate.showMigration(_:)) }.count
+            let firstTabKey = all.first { $0.action == #selector(BrowserWindowController.selectTabByNumber(_:)) && $0.tag == 1 }
+            check("menu bar", removed.isEmpty && importItems == 1 && firstTabKey?.keyEquivalent == "1" && firstTabKey?.menu?.title == "Go to Tab",
+                  ["unwanted": .array(removed.map(JSONValue.string)), "importItems": .number(Double(importItems))])
+
             // ⌘K reads the live menus: browser commands validate through the window's responder
             // chain, text-editing commands and the palette itself stay out.
             let palette = PaletteCommands.all(in: window.model).map(\.title)

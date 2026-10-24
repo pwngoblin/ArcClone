@@ -2,6 +2,17 @@ import AppKit
 
 @MainActor
 enum MainMenu {
+    /// Before the menu is built: no system items a browser doesn't need, and no macOS window tabs
+    /// (ArcClone has its own), which would otherwise add tab-bar items to View and Window.
+    static func disableSystemItems() {
+        UserDefaults.standard.register(defaults: ["NSDisabledDictationMenuItem": true, "NSDisabledCharacterPaletteMenuItem": true])
+        NSWindow.allowsAutomaticWindowTabbing = false
+    }
+
+    /// Current macOS adds Emoji & Symbols to Edit despite the default, so it's dropped whenever the
+    /// menu updates (before it opens, and before a key equivalent is looked up).
+    private static let editDelegate = EditMenuDelegate()
+
     static func build() -> NSMenu {
         let main = NSMenu()
         main.addItem(submenu(appMenu()))
@@ -78,6 +89,7 @@ enum MainMenu {
 
     private static func editMenu() -> NSMenu {
         let m = NSMenu(title: "Edit")
+        m.delegate = editDelegate
         m.addItem(item("Undo", Selector(("undo:")), "z"))
         m.addItem(item("Redo", Selector(("redo:")), "z", [.command, .shift]))
         m.addItem(.separator())
@@ -100,27 +112,10 @@ enum MainMenu {
         find.addItem(previous)
         m.addItem(submenu(find))
 
-        let spelling = NSMenu(title: "Spelling and Grammar")
-        spelling.addItem(item("Show Spelling and Grammar", #selector(NSText.showGuessPanel(_:)), ":"))
-        spelling.addItem(item("Check Document Now", #selector(NSText.checkSpelling(_:)), ";"))
-        spelling.addItem(.separator())
-        spelling.addItem(item("Check Spelling While Typing", #selector(NSTextView.toggleContinuousSpellChecking(_:))))
-        spelling.addItem(item("Check Grammar With Spelling", #selector(NSTextView.toggleGrammarChecking(_:))))
-        m.addItem(submenu(spelling))
-
-        let substitutions = NSMenu(title: "Substitutions")
-        substitutions.addItem(item("Show Substitutions", #selector(NSTextView.orderFrontSubstitutionsPanel(_:))))
-        substitutions.addItem(.separator())
-        substitutions.addItem(item("Smart Quotes", #selector(NSTextView.toggleAutomaticQuoteSubstitution(_:))))
-        substitutions.addItem(item("Smart Dashes", #selector(NSTextView.toggleAutomaticDashSubstitution(_:))))
-        substitutions.addItem(item("Text Replacement", #selector(NSTextView.toggleAutomaticTextReplacement(_:))))
-        m.addItem(submenu(substitutions))
-
-        let speech = NSMenu(title: "Speech")
-        speech.addItem(item("Start Speaking", #selector(NSTextView.startSpeaking(_:))))
-        speech.addItem(item("Stop Speaking", #selector(NSTextView.stopSpeaking(_:))))
-        m.addItem(submenu(speech))
-        // AppKit appends AutoFill, Start Dictation and Emoji & Symbols to the menu titled "Edit".
+        // Spelling, Substitutions and Speech aren't here: WebKit's own menu in a text field offers
+        // them where they apply. AppKit adds AutoFill (password and contact fill) and Writing Tools
+        // to the menu titled "Edit"; Start Dictation and Emoji & Symbols are turned off
+        // (`MainMenu.disableSystemItems`), and Fn/Globe and Fn-E still do both.
         return m
     }
 
@@ -162,7 +157,6 @@ enum MainMenu {
     /// Imported bookmarks are added below these items when the menu opens (`BookmarksMenuDelegate`).
     private static func bookmarksMenu() -> NSMenu {
         let m = NSMenu(title: "Bookmarks")
-        m.addItem(item("Import from Another Browser…", #selector(AppDelegate.showMigration(_:))))
         m.addItem(item("Remove All Bookmarks…", #selector(AppDelegate.removeAllBookmarks(_:))))
         return m
     }
@@ -176,9 +170,12 @@ enum MainMenu {
         m.addItem(item("Next Space", #selector(BrowserWindowController.nextSpace(_:)), "]", [.command, .option]))
         m.addItem(item("Previous Space", #selector(BrowserWindowController.previousSpace(_:)), "[", [.command, .option]))
         m.addItem(.separator())
+        // ⌘1–⌘9 in one submenu: the shortcuts work from there without nine items in the menu.
+        let goTo = NSMenu(title: "Go to Tab")
         for n in 1...9 {
-            m.addItem(item(n == 9 ? "Last Tab" : "Tab \(n)", #selector(BrowserWindowController.selectTabByNumber(_:)), "\(n)", tag: n))
+            goTo.addItem(item(n == 9 ? "Last Tab" : "Tab \(n)", #selector(BrowserWindowController.selectTabByNumber(_:)), "\(n)", tag: n))
         }
+        m.addItem(submenu(goTo))
         return m
     }
 
@@ -215,5 +212,14 @@ enum MainMenu {
         m.addItem(.separator())
         m.addItem(item("Bring All to Front", #selector(NSApplication.arrangeInFront(_:))))
         return m
+    }
+}
+
+@MainActor
+private final class EditMenuDelegate: NSObject, NSMenuDelegate {
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        for item in menu.items where item.action == #selector(NSApplication.orderFrontCharacterPalette(_:)) { menu.removeItem(item) }
+        // A separator AppKit left at the end once its item is gone.
+        while menu.items.last?.isSeparatorItem == true { menu.removeItem(at: menu.items.count - 1) }
     }
 }

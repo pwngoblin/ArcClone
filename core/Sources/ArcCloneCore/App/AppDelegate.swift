@@ -33,6 +33,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     public func applicationDidFinishLaunching(_ notification: Notification) {
         paths = AppPaths.resolve()
         Log.app.info("Resources at \(self.paths.root.path, privacy: .public)")
+        MainMenu.disableSystemItems()
         NSApp.mainMenu = MainMenu.build()
         MainMenu.updateDevelopMenu()
         AppearanceStyle.applyAppAppearance()
