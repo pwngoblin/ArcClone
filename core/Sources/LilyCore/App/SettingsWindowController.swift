@@ -51,7 +51,7 @@ final class SettingsWindowController: NSWindowController {
 }
 
 struct GeneralSettingsView: View {
-    @AppStorage(Preferences.Key.searchEngine) private var searchEngine = Preferences.SearchEngine.google.rawValue
+    @AppStorage(Preferences.Key.searchEngine) private var searchEngine = Preferences.defaultSearchEngine.rawValue
     @AppStorage(Preferences.Key.homepage) private var homepage = Preferences.defaultHomepage
     @AppStorage(Preferences.Key.restoreSession) private var restoreSession = true
     @AppStorage(Preferences.Key.haptics) private var haptics = true
@@ -289,6 +289,7 @@ struct PrivacySettingsView: View {
     @AppStorage(Preferences.Key.httpsFirst) private var httpsFirst = true
     @AppStorage(Preferences.Key.removeLinkTracking) private var removeLinkTracking = true
     @AppStorage(Preferences.Key.handoff) private var handoff = false
+    @AppStorage(Preferences.Key.fraudulentSiteWarnings) private var fraudWarnings = true
     @AppStorage(Preferences.Key.historyRetentionDays) private var retention = History.defaultRetentionDays
     @AppStorage(Preferences.Key.clearHistoryOnQuit) private var clearHistoryOnQuit = false
     @AppStorage(Preferences.Key.clearWebsiteDataOnQuit) private var clearDataOnQuit = false
@@ -330,6 +331,9 @@ struct PrivacySettingsView: View {
             Toggle("Continue pages on other devices (Handoff)", isOn: $handoff)
                 .onChange(of: handoff) { (NSApp.delegate as? AppDelegate)?.handoffChanged() }
                 .help("Shares the address and title of the page you're on with every device signed in to your Apple account")
+            Toggle("Warn about fraudulent websites", isOn: $fraudWarnings)
+                .onChange(of: fraudWarnings) { (NSApp.delegate as? AppDelegate)?.fraudWarningsChanged() }
+                .help("Checks pages against lists of known phishing and malware sites, as Safari does. Lily sends only part of a hash of each address, relayed by Apple, never the address itself.")
             Picker("Keep history:", selection: $retention) {
                 Text("One day").tag(1)
                 Text("One week").tag(7)

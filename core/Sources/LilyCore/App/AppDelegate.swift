@@ -400,6 +400,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     /// Settings → Privacy → Handoff switched: stop (or start) advertising pages at once.
     func handoffChanged() { windows.forEach { $0.updateHandoff() } }
 
+    /// Settings → Privacy → fraudulent-site warnings switched: open pages follow at once.
+    func fraudWarningsChanged() {
+        let on = Preferences.warnsAboutFraudulentSites
+        for tab in windows.flatMap(\.tabs.tabs) where tab.hasWebView { tab.webView.configuration.preferences.isFraudulentWebsiteWarningEnabled = on }
+    }
+
     func webDeveloperFeaturesChanged() {
         MainMenu.updateDevelopMenu()
         windows.forEach { $0.applyWebInspector() }

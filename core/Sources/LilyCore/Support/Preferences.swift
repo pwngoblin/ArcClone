@@ -23,6 +23,8 @@ public enum Preferences {
         public static let haptics = "HapticFeedback"
         /// Minutes before an unused background tab sleeps; 0 means never.
         public static let sleepTabsAfter = "SleepTabsAfterMinutes"
+        /// Fraudulent-site warnings; on by default (Preferences.warnsAboutFraudulentSites).
+        public static let fraudulentSiteWarnings = "FraudulentSiteWarnings"
         /// Links from other apps open in Little Lily (on by default, as in Arc) or as tabs.
         public static let linksOpenInLittleLily = "LinksOpenInLittleLily"
         /// Handoff of the active page to your other devices; off by default (it shares the page's
@@ -81,9 +83,16 @@ public enum Preferences {
     public static var restoresSession: Bool { flag(Key.restoreSession, default: true) }
     public static var opensTabsNextToCurrent: Bool { flag(Key.newTabsNextToCurrent, default: true) }
 
+    /// DuckDuckGo by default: it doesn't build a profile of your searches. Changing the engine in
+    /// Settings → General is kept; only an unset choice uses the default.
+    public static let defaultSearchEngine = SearchEngine.duckDuckGo
+
     public static var searchEngine: SearchEngine {
-        UserDefaults.standard.string(forKey: Key.searchEngine).flatMap(SearchEngine.init(rawValue:)) ?? .google
+        UserDefaults.standard.string(forKey: Key.searchEngine).flatMap(SearchEngine.init(rawValue:)) ?? defaultSearchEngine
     }
+
+    /// Fraudulent-site warnings (WebKit's Safe Browsing, relayed by Apple). On by default.
+    public static var warnsAboutFraudulentSites: Bool { flag(Key.fraudulentSiteWarnings, default: true) }
 
     /// Address-bar resolver using the user's search engine.
     public static var urlResolver: URLResolver { URLResolver(searchTemplate: searchEngine.template) }

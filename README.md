@@ -102,7 +102,7 @@ Lily is written in Swift with AppKit and SwiftUI and renders pages with WebKit (
 
 ## Privacy
 
-No account, no telemetry, no analytics, no crash reporting of its own. What Lily stores stays on your Mac, encrypted; what it sends is what browsing needs. Site icons in lists come from your own visits, never by contacting the sites in them; trackers are taken out of links; Lily presents exactly as this Mac's Safari so it doesn't stand out; Handoff is off unless you turn it on; private windows keep nothing, and their downloads don't record where they came from. Everything Lily keeps (and for how long), everything it sends (and to whom), and what isn't covered yet: [docs/PRIVACY.md](docs/PRIVACY.md).
+No account, no telemetry, no analytics, no crash reporting of its own, and DuckDuckGo as the default search engine. What Lily stores stays on your Mac, encrypted; what it sends is what browsing needs. Site icons in lists come from your own visits, never by contacting the sites in them; trackers are taken out of links; Lily presents exactly as this Mac's Safari so it doesn't stand out; Handoff is off unless you turn it on; private windows keep nothing, and their downloads don't record where they came from. Everything Lily keeps (and for how long), everything it sends (and to whom), and what isn't covered yet: [docs/PRIVACY.md](docs/PRIVACY.md).
 
 ## Security
 

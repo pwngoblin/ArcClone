@@ -47,10 +47,10 @@ private, so they don't appear in Console or crash reports.
 |---|---|---|---|
 | You open a page | the request, with Safari's user agent | that website (and the sites it loads) | the ad and tracker blocker, link tracking protection, HTTPS-First |
 | A tab is open | a request for its site's icon, once per session | that same website | — |
-| You search from the address bar | the search text | your search engine (Google by default; DuckDuckGo, Bing, Kagi, Ecosia in Settings → General) | the search engine choice. Nothing is sent while you type: there are no remote suggestions. |
+| You search from the address bar | the search text | your search engine (DuckDuckGo by default; Google, Bing, Kagi, Ecosia in Settings → General) | the search engine choice. Nothing is sent while you type: there are no remote suggestions. |
 | Ad blocking with filter lists on | a weekly download of each list | the list's maintainer (EasyList, uBlock, AdGuard, Peter Lowe), who sees your IP address | Settings → Privacy → filter lists (the built-in list needs no download) |
 | You add an extension from the store | the extension's ID, without cookies or stored logins | Google (Chrome Web Store) | only when you ask |
-| Fraudulent-site warnings | parts of hashes of addresses, checked against lists of known fraud sites | Apple, which relays the lookups to its Safe Browsing providers | — (on, as in Safari) |
+| Fraudulent-site warnings | parts of hashes of addresses, checked against lists of known fraud sites | Apple, which relays the lookups to its Safe Browsing providers | Settings → Privacy → *Warn about fraudulent websites* (on by default, as in Safari) |
 | Handoff | the current page's address and title | your devices on your Apple account | **off by default**; Settings → Privacy → *Continue pages on other devices* |
 | You use the assistant | the page's text and your question | Ollama on your Mac, or the Ollama host you set (HTTPS, optionally pinned) | the assistant's server setting |
 | Links from other apps | nothing extra: they open in Little Lily or a tab | — | — |
@@ -79,8 +79,6 @@ address from both and keeps the quarantine itself, so the file is still checked.
 
 Honest limits, so you can decide for yourself:
 
-- **The default search engine is Google.** Choose another in Settings → General.
-- **Fraudulent-site warnings can't be turned off in Lily.** They use hashed address prefixes relayed by Apple, the same as Safari.
 - **WebKit writes cookies and site storage itself**, inside Lily's container. FileVault and the sandbox protect them, but Lily doesn't encrypt them a second time. *Clear cookies and website data when Lily quits* removes them.
 - **No Global Privacy Control or Do Not Track signal** is sent. WebKit gives apps no way to add the header to every request.
 - **macOS's own quarantine log** may keep a system-wide record of downloads that Lily can't edit. The file-level scrub described above is verified by tests run outside the sandbox.
