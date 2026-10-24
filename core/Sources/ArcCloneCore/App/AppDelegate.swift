@@ -69,7 +69,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         }
         siteSettings = SiteSettings(directory: ProcessInfo.processInfo.arguments.contains("--self-test") ? nil : paths.applicationSupport)
         await siteSettings.load()
-        adBlocker = AdBlocker()
+        adBlocker = AdBlocker(directory: ProcessInfo.processInfo.arguments.contains("--self-test") ? nil : paths.applicationSupport)
         await adBlocker.prepare()
         factory = WebViewFactory(registry: registry, siteSettings: siteSettings, adBlocker: adBlocker)
         if #available(macOS 15.4, *), !ProcessInfo.processInfo.arguments.contains("--self-test") {

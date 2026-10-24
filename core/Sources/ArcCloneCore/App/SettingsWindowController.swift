@@ -261,7 +261,6 @@ struct PrivacySettingsView: View {
     @Bindable var adBlocker: AdBlocker
     let clearBrowsingData: @MainActor () -> Void
     @AppStorage(Preferences.Key.adBlock) private var blockAds = true
-    @AppStorage(Preferences.Key.easyList) private var easyList = false
     @AppStorage(Preferences.Key.httpsFirst) private var httpsFirst = true
     @AppStorage(Preferences.Key.historyRetentionDays) private var retention = History.defaultRetentionDays
     @AppStorage(Preferences.Key.clearHistoryOnQuit) private var clearHistoryOnQuit = false
@@ -271,15 +270,28 @@ struct PrivacySettingsView: View {
         Form {
             Toggle("Block ads and trackers", isOn: $blockAds)
                 .onChange(of: blockAds) { _, _ in adBlocker.settingsChanged() }
-            Toggle("Use EasyList and EasyPrivacy (downloaded weekly)", isOn: $easyList)
-                .disabled(!blockAds)
-                .onChange(of: easyList) { _, on in
-                    if on { Task { await adBlocker.updateFilterLists() } } else { adBlocker.settingsChanged() }
+            LabeledContent("Filter lists:") {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(FilterLists.all) { list in
+                        Toggle(isOn: Binding(get: { adBlocker.isListEnabled(list.id) },
+                                             set: { adBlocker.setList(list.id, enabled: $0) })) {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(list.name)
+                                Text(list.summary).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    Text("Downloaded from each list's maintainer and updated weekly.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
+                .disabled(!blockAds)
+            }
             LabeledContent("") {
                 HStack {
-                    Text(adBlocker.status).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                    if easyList && blockAds {
+                    if adBlocker.isUpdating { ProgressView().controlSize(.small) }
+                    Text(adBlocker.status).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if blockAds && !adBlocker.enabledLists.isEmpty {
                         Button("Update Now") { Task { await adBlocker.updateFilterLists() } }
                             .controlSize(.small).disabled(adBlocker.isUpdating)
                     }
