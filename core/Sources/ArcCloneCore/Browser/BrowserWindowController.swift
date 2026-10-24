@@ -22,6 +22,7 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     private let windowToolbar = WindowToolbar()
     private weak var sidebarHost: NSView?
     private var swipeMonitor: Any?
+    private var sleeper: TabSleeper?
     private var swipeDelta = CGSize.zero
     private var swipeAxis: SwipeAxis = .idle
     private var swipeCrossed = false
@@ -76,6 +77,7 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         contentController.onFocus = { [weak self] id in self?.tabs.activate(id) }
         registerPageHandlers()
         if !isPrivate { installSpaceSwipe() }
+        sleeper = TabSleeper(store: tabs)
         if let extensionController { registerWithExtensions(extensionController) }
     }
 
@@ -253,7 +255,14 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
 
     // MARK: Tab display
 
+    /// Memory pressure: sleep every background tab that can sleep.
+    func sleepBackgroundTabs() {
+        Task { await sleeper?.sweep(force: true) }
+    }
+
     private func showTab(_ tab: Tab?) {
+        // Every pane of a visible split must be awake.
+        if let tab, let split = tabs.split, split.tabIDs.contains(tab.id) { split.tabIDs.compactMap(tabs.tab).forEach { $0.wake() } }
         contentController.display(active: tab, split: tabs.split) { [tabs] in tabs.tab($0) }
         window?.makeFirstResponder(tab?.webView)
         model.selection = tab?.lastSelection
@@ -317,6 +326,7 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         onClose = nil
         onSessionChange = nil
         commandBarObservation?.cancel()
+        sleeper?.stop()
         if let swipeMonitor { NSEvent.removeMonitor(swipeMonitor) }
         contentController.tearDown()
         model.assistant.detach()

@@ -5,7 +5,11 @@ import SwiftUI
 @MainActor
 final class FaviconLoader {
     static let shared = FaviconLoader()
-    private let cache = NSCache<NSURL, NSImage>()
+    private let cache: NSCache<NSURL, NSImage> = {
+        let cache = NSCache<NSURL, NSImage>()
+        cache.countLimit = 400
+        return cache
+    }()
     private var inFlight: [URL: Task<NSImage?, Never>] = [:]
     private let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral

@@ -101,6 +101,7 @@ struct GeneralSettingsView: View {
 
 struct TabsSettingsView: View {
     @AppStorage(Preferences.Key.newTabsNextToCurrent) private var nextToCurrent = true
+    @AppStorage(Preferences.Key.sleepTabsAfter) private var sleepAfter = TabSleeper.defaultMinutes
 
     var body: some View {
         Form {
@@ -109,6 +110,18 @@ struct TabsSettingsView: View {
                 Text("At the end of the list").tag(false)
             }
             .pickerStyle(.radioGroup)
+            Picker("Sleep unused tabs after:", selection: $sleepAfter) {
+                Text("5 minutes").tag(5)
+                Text("15 minutes").tag(15)
+                Text("30 minutes").tag(30)
+                Text("1 hour").tag(60)
+                Text("Never").tag(0)
+            }
+            .frame(width: 260)
+            LabeledContent("") {
+                Text("Sleeping tabs release their memory and use no CPU; they reload where you left off when you open them. Tabs playing media or using the camera stay awake, and Low Power Mode sleeps tabs after 5 minutes.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             LabeledContent("Shortcuts:") {
                 Text("⌘T new tab · ⌘W close · ⇧⌘T reopen · ⌘D pin · ⌘1–⌘9 jump · ⌃Tab cycle")
                     .font(.caption).foregroundStyle(.secondary)

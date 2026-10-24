@@ -21,6 +21,8 @@ public enum Preferences {
         public static let clearWebsiteDataOnQuit = "ClearWebsiteDataOnQuit"
         public static let adBlock = "BlockAdsAndTrackers"
         public static let haptics = "HapticFeedback"
+        /// Minutes before an unused background tab sleeps; 0 means never.
+        public static let sleepTabsAfter = "SleepTabsAfterMinutes"
         public static let easyList = "UseEasyList"
         public static let easyListUpdated = "EasyListUpdated"
     }

@@ -99,7 +99,46 @@ public final class Tab: NSObject {
     public func reload() { webView.reload() }
     public func stop() { webView.stopLoading() }
 
-    public func markActivated() { lastActivated = Date() }
+    public func markActivated() {
+        lastActivated = Date()
+        wake()
+    }
+
+    // MARK: Sleeping (memory and energy)
+
+    /// True while the page is unloaded to save memory; the tab still shows its title and icon.
+    public private(set) var isSleeping = false
+    /// Back/forward list and scroll position captured when the tab went to sleep.
+    private var sleepState: Any?
+
+    /// Unloads the page (its web content process can exit), keeping enough to restore it exactly.
+    func sleep() {
+        guard !isSleeping, let url, url.scheme == "https" || url.scheme == "http" else { return }
+        sleepState = webView.interactionState
+        isSleeping = true
+        isLoading = false
+        webView.load(URLRequest(url: URL(string: "about:blank")!))
+        notify()
+    }
+
+    /// Restores the page as it was (history and scroll position) when the tab is used again.
+    func wake() {
+        guard isSleeping else { return }
+        isSleeping = false
+        if let sleepState {
+            webView.interactionState = sleepState
+        } else if let url {
+            load(url)
+        }
+        sleepState = nil
+        notify()
+    }
+
+    /// Media, camera and microphone keep a tab awake.
+    func isBusy() async -> Bool {
+        if isLoading || webView.cameraCaptureState != .none || webView.microphoneCaptureState != .none { return true }
+        return await webView.requestMediaPlaybackState() == .playing
+    }
 
     // MARK: Injection calls (native -> page)
 
@@ -226,18 +265,20 @@ public final class Tab: NSObject {
         }
         observations = [
             watch(\.title) { tab in
+                guard !tab.isSleeping else { return } // keep showing the page that went to sleep
                 if let t = tab.webView.title, !t.isEmpty { tab.title = t }
                 tab.notify()
             },
             watch(\.url) { tab in
+                guard !tab.isSleeping else { return }
                 if let u = tab.webView.url {
                     if tab.url?.host != u.host { tab.faviconURL = nil }
                     tab.url = u
                 }
                 tab.notify()
             },
-            watch(\.isLoading) { tab in tab.isLoading = tab.webView.isLoading; tab.notify() },
-            watch(\.estimatedProgress) { tab in tab.progress = tab.webView.estimatedProgress; tab.notify() },
+            watch(\.isLoading) { tab in guard !tab.isSleeping else { return }; tab.isLoading = tab.webView.isLoading; tab.notify() },
+            watch(\.estimatedProgress) { tab in guard !tab.isSleeping else { return }; tab.progress = tab.webView.estimatedProgress; tab.notify() },
             watch(\.canGoBack) { tab in tab.notify() },
             watch(\.canGoForward) { tab in tab.notify() },
         ]
