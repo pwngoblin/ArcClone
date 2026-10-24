@@ -8,6 +8,27 @@
 
 ---
 
+## Product Vision, UX, & Engineering Philosophy
+- **Product Manager Mindset**: Act as both an elite systems engineer and a visionary product manager. Evaluate every feature through the lens of user delight, workflow friction reduction, architectural elegance, and distinct competitive value on macOS.
+- **Extreme Resource Efficiency (Green/Lean Computing)**: Ruthlessly minimize CPU cycles, RAM footprint, disk I/O, and battery/energy impact. Every module must target zero background wake-ups, aggressive memory recycling, and maximum performance on Apple Silicon (M-series unified memory optimization).
+
+---
+
+## Cross-Browser Migration Engine (`core/migration/`)
+- Provide a robust, frictionless native migration module to import bookmarks, browsing history, and open tabs from major macOS browsers (**Google Chrome, Apple Safari, Zen, Arc, Dia**).
+- Use `NSOpenPanel` with **Security-Scoped Bookmarks** to acquire explicit user permissions safely outside the sandbox.
+- Parse SQLite databases (`SQLITE_OPEN_READONLY`) and property lists asynchronously inside dedicated `actor` boundaries (`MigrationActor`) with zero main-thread blocking.
+- Implement automated deduplication and normalization of URLs/timestamps to unify profiles cleanly.
+
+---
+
+## Tab Virtualization, Hibernation, & High-Scale Performance (`core/tabs/`)
+- **Metadata-First Architecture**: Support 5,000+ tabs effortlessly by storing background tabs purely as lightweight value types (`struct TabItem`), keeping active `WKWebView` instances strictly limited to the visible viewport pool.
+- **Automatic Hibernation**: Unload `WKWebView` instances for background tabs idle for over 30 minutes, freeing memory while preserving state metadata.
+- **UI Virtualization**: Utilize SwiftUI lazy containers (`LazyVGrid`) for tab sidebars and exposés to maintain a rock-solid 60/120Hz frame rate under massive loads.
+
+---
+
 ## macOS & Apple Secure Application Development Standards
 All code written for this project must strictly comply with Apple’s platform security guidelines, macOS hardening requirements, OWASP defensive patterns, and threat-mitigation frameworks (zero trust, zero leakage, and absolute attack surface minimization):
 
