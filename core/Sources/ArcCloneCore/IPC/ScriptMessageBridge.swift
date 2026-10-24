@@ -22,6 +22,11 @@ public final class ScriptMessageBridge: NSObject, WKScriptMessageHandlerWithRepl
         controller.addScriptMessageHandler(self, contentWorld: contentWorld, name: name)
     }
 
+    /// Web pages and local files the user opened; never `webkit-extension:` and similar.
+    nonisolated static func acceptsMessages(fromScheme scheme: String) -> Bool {
+        ["https", "http", "file"].contains(scheme.lowercased())
+    }
+
     public func detach(from controller: WKUserContentController) {
         controller.removeScriptMessageHandler(forName: name, contentWorld: contentWorld)
     }
@@ -29,6 +34,12 @@ public final class ScriptMessageBridge: NSObject, WKScriptMessageHandlerWithRepl
     public func userContentController(_ userContentController: WKUserContentController,
                                       didReceive message: WKScriptMessage,
                                       replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void) {
+        // Only our injected scripts, and only on web pages: not another content world (extension
+        // content scripts have their own), and not extension pages opened in a tab.
+        guard message.world == contentWorld, Self.acceptsMessages(fromScheme: message.frameInfo.securityOrigin.protocol) else {
+            replyHandler(IPCReply.failure(.forbidden(name)).jsonString(), nil)
+            return
+        }
         guard let router, let source = resolveSource(message) else {
             replyHandler(IPCReply.failure(.unavailable("Receiver is gone")).jsonString(), nil)
             return
