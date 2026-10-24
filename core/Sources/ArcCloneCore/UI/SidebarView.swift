@@ -174,6 +174,9 @@ private struct TabListView: View {
                     case .tab(let tab):
                         TabRow(tab: tab, window: window)
                             .listRowBackground(ActiveRowBackground(active: tab.id == window.activeID))
+                            // Reordering stays with onMove; this lets the row also be dropped on a
+                            // pinned tile, a space or a split, or into another app as its address.
+                            .itemProvider { TabDrag.provider(for: tab) }
                     case .split(let layout, let members):
                         SplitPill(layout: layout, members: members, window: window)
                             .listRowInsets(EdgeInsets(top: 3, leading: 6, bottom: 3, trailing: 6))
@@ -181,6 +184,10 @@ private struct TabListView: View {
                     }
                 }
                 .onMove { window.moveItems(from: $0, to: $1) }
+                // A pinned tile dragged down unpins there; a link dragged in opens there.
+                .onInsert(of: [.arcCloneTab, .url]) { row, providers in
+                    Task { if let drop = await TabDrag.load(providers) { window.dropInList(drop, atRow: row) } }
+                }
                 Button { window.newTab() } label: {
                     Label("New Tab", systemImage: "plus").foregroundStyle(.secondary)
                 }
@@ -232,12 +239,8 @@ private struct PinnedTile: View {
         .onHover { hovering = $0 }
         .help(tab.title)
         .contextMenu { TabContextMenu(tab: tab, window: window) }
-        .draggable(tab.id.uuidString)
-        .dropDestination(for: String.self) { ids, _ in
-            guard let id = ids.first.flatMap(UUID.init(uuidString:)) else { return false }
-            window.movePinned(id, before: tab.id)
-            return true
-        } isTargeted: { dropTargeted = $0 }
+        .onDrag { TabDrag.provider(for: tab) }
+        .tabDropTarget($dropTargeted) { window.dropOnPinned($0, before: tab.id) }
         .scaleEffect(hovering ? 1.03 : 1)
         .animation(.spring(response: 0.25, dampingFraction: 0.7), value: hovering)
     }
@@ -249,6 +252,7 @@ private struct SplitPill: View {
     let layout: SplitLayout
     let members: [WindowModel.TabItem]
     let window: WindowModel
+    @State private var dropTargeted = false
     @AppStorage(AppearanceStyle.Key.accent) private var accent = AppearanceStyle.defaultAccent
 
     var body: some View {
@@ -270,7 +274,9 @@ private struct SplitPill: View {
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
             .fill(isActive ? AnyShapeStyle(Color(hex: accent).opacity(0.12)) : AnyShapeStyle(.quaternary.opacity(0.5))))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .strokeBorder(isActive ? Color(hex: accent).opacity(0.45) : .clear, lineWidth: 1))
+            .strokeBorder(dropTargeted ? Color.accentColor : isActive ? Color(hex: accent).opacity(0.45) : .clear, lineWidth: dropTargeted ? 2 : 1))
+        // A tab dropped here joins the split (while there's room for another pane).
+        .tabDropTarget($dropTargeted) { drop in members.first.map { window.dropOnSplit(drop, joining: $0.id) } ?? false }
         .overlay(alignment: .topTrailing) {
             Image(systemName: layout.symbol).font(.system(size: 8, weight: .semibold)).foregroundStyle(.tertiary).padding(4)
         }
@@ -455,22 +461,7 @@ private struct SpaceSwitcher: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            ForEach(window.spaces) { space in
-                let current = space.id == window.currentSpaceID
-                Button { window.switchSpace(to: space.id) } label: {
-                    Image(systemName: space.symbol)
-                        .font(.system(size: current ? 12 : 9, weight: .semibold))
-                        .foregroundStyle(current ? Color(hex: space.color) : .secondary)
-                        .frame(width: 20, height: 20)
-                        .background(current ? Color(hex: space.color).opacity(0.18) : .clear, in: Circle())
-                }
-                .buttonStyle(.plain)
-                .help(space.name)
-                .contextMenu {
-                    Button(role: .destructive) { window.deleteSpace(space.id) } label: { Label("Delete Space", systemImage: "trash") }
-                        .disabled(window.spaces.count < 2)
-                }
-            }
+            ForEach(window.spaces) { space in SpaceSwitcherButton(space: space, window: window) }
             Button { adding = true } label: { Image(systemName: "plus").font(.system(size: 10, weight: .bold)).frame(width: 20, height: 20) }
                 .buttonStyle(.plain).foregroundStyle(.secondary).help("New Space")
                 .popover(isPresented: $adding) {
@@ -480,6 +471,33 @@ private struct SpaceSwitcher: View {
                 }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.75), value: window.currentSpaceID)
+    }
+}
+
+/// One space in the footer switcher. A tab dropped on it moves to that space; a link opens there.
+private struct SpaceSwitcherButton: View {
+    let space: Space
+    let window: WindowModel
+    @State private var dropTargeted = false
+
+    var body: some View {
+        let current = space.id == window.currentSpaceID
+        Button { window.switchSpace(to: space.id) } label: {
+            Image(systemName: space.symbol)
+                .font(.system(size: current || dropTargeted ? 12 : 9, weight: .semibold))
+                .foregroundStyle(current || dropTargeted ? Color(hex: space.color) : .secondary)
+                .frame(width: 20, height: 20)
+                .background(current || dropTargeted ? Color(hex: space.color).opacity(dropTargeted ? 0.35 : 0.18) : .clear, in: Circle())
+                .scaleEffect(dropTargeted ? 1.2 : 1)
+                .animation(.spring(response: 0.25, dampingFraction: 0.7), value: dropTargeted)
+        }
+        .buttonStyle(.plain)
+        .help(space.name)
+        .tabDropTarget($dropTargeted) { window.dropOnSpace($0, space: space.id) }
+        .contextMenu {
+            Button(role: .destructive) { window.deleteSpace(space.id) } label: { Label("Delete Space", systemImage: "trash") }
+                .disabled(window.spaces.count < 2)
+        }
     }
 }
 

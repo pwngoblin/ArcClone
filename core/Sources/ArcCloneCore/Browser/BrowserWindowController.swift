@@ -30,6 +30,8 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     private var browsingActivity: NSUserActivity?
     private let splitController = NSSplitViewController()
     let contentController = TabContentViewController()
+    /// Find in page (⌘F, ⌘G, ⇧⌘G), for the active tab (FindInPage.swift).
+    lazy var find = FindModel(controller: self)
     /// The next check for split panes to pause (PaneFreezer); one wake-up, never polling.
     var freezeTask: Task<Void, Never>?
     private var overlayHost: NSHostingView<CommandBarOverlay>?
@@ -309,8 +311,15 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         if let tab, let split = tabs.split, split.tabIDs.contains(tab.id) { split.tabIDs.compactMap(tabs.tab).forEach { $0.wake() } }
         contentController.display(active: tab, split: tabs.split) { [tabs] in tabs.tab($0) }
         scheduleFreeze()
+        find.activeTabChanged()
         window?.makeFirstResponder(tab?.webView)
         model.selection = tab?.lastSelection
+    }
+
+    /// Edit → Find…, Find Next, Find Previous; the item's tag is the NSTextFinder.Action.
+    override public func performTextFinderAction(_ sender: Any?) {
+        guard let tag = (sender as? NSValidatedUserInterfaceItem)?.tag else { return }
+        find.perform(NSTextFinder.Action(rawValue: tag))
     }
 
     func focusActivePage() {
@@ -374,6 +383,7 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         sleeper?.stop()
         if let swipeMonitor { NSEvent.removeMonitor(swipeMonitor) }
         contentController.tearDown()
+
         model.assistant.detach()
         tabs.tabs.forEach { assistant.context.ingest(tabID: $0.id, type: "tab.closed", payload: .null) }
         tabs.closeAll()

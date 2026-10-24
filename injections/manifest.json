@@ -93,6 +93,15 @@
       "matches": [
         "*"
       ]
+    },
+    {
+      "id": "find-count",
+      "file": "modules/find-count.js",
+      "injectionTime": "documentEnd",
+      "mainFrameOnly": true,
+      "matches": [
+        "*"
+      ]
     }
   ]
 }

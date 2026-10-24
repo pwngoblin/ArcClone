@@ -86,6 +86,9 @@ public struct SplitGroup: Equatable, Sendable {
 @MainActor
 final class TabContentViewController: NSViewController {
     private let container = NSView()
+    /// Where the Find bar (⌘F) sits, above the panes; zero height while it's hidden.
+    private let findSlot = NSView()
+    private lazy var findHeight = findSlot.heightAnchor.constraint(equalToConstant: 0)
     private let emptyLabel = NSTextField(labelWithString: "Press ⌘T to open a tab")
     private var panes: [PaneView] = []
     private var shown: (layout: SplitLayout?, ids: [UUID]) = (nil, [])
@@ -98,11 +101,17 @@ final class TabContentViewController: NSViewController {
     override func loadView() {
         let root = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
+        findSlot.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(findSlot)
         root.addSubview(container)
         NSLayoutConstraint.activate([
+            findSlot.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 2),
+            findSlot.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -8),
+            findSlot.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
+            findHeight,
             container.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 2),
             container.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -8),
-            container.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
+            container.topAnchor.constraint(equalTo: findSlot.bottomAnchor),
             container.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -8),
         ])
         emptyLabel.textColor = .tertiaryLabelColor
@@ -144,6 +153,24 @@ final class TabContentViewController: NSViewController {
         // The pane you're in always runs.
         panes.first { $0.tabID == active.id }?.thaw()
     }
+
+    // MARK: Find bar (⌘F)
+
+    /// Shows `bar` above the panes, or removes it (nil).
+    func setFindBar(_ bar: NSView?) {
+        _ = view
+        findSlot.subviews.forEach { $0.removeFromSuperview() }
+        guard let bar else { findHeight.constant = 0; return }
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        findSlot.addSubview(bar)
+        NSLayoutConstraint.activate([
+            bar.leadingAnchor.constraint(equalTo: findSlot.leadingAnchor), bar.trailingAnchor.constraint(equalTo: findSlot.trailingAnchor),
+            bar.topAnchor.constraint(equalTo: findSlot.topAnchor), bar.bottomAnchor.constraint(equalTo: findSlot.bottomAnchor),
+        ])
+        findHeight.constant = FindBarView.height
+    }
+
+    var isFindBarShown: Bool { !findSlot.subviews.isEmpty }
 
     // MARK: Pausing idle panes (PaneFreezer)
 

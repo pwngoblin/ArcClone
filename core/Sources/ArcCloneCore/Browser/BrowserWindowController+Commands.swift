@@ -303,6 +303,8 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
             item.title = tabs.active?.isPinned == true ? "Unpin Tab" : "Pin Tab"
             return tabs.active != nil
         case #selector(exitSplitView(_:)): return tabs.split != nil
+        case #selector(performTextFinderAction(_:)):
+            return find.canPerform(NSTextFinder.Action(rawValue: item.tag))
         case #selector(toggleLinkScrolling(_:)):
             item.state = tabs.split?.scrollLinked == true ? .on : .off
             return tabs.split != nil
