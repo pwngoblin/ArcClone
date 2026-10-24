@@ -278,6 +278,16 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
     }
 
 
+    /// Develop → Show Web Inspector (⌥⌘I), for the active tab.
+    @objc public func showWebInspector(_ sender: Any?) {
+        if let web = tabs.active?.webView { WebInspector.show(for: web) }
+    }
+
+    /// Web developer features switched: every open page follows.
+    func applyWebInspector() {
+        tabs.tabs.filter(\.hasWebView).forEach { WebInspector.apply(to: $0.webView) }
+    }
+
     @objc public func reloadInjections(_ sender: Any?) {
         do {
             try factory.registry.reload()
@@ -303,6 +313,7 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
             item.title = tabs.active?.isPinned == true ? "Unpin Tab" : "Pin Tab"
             return tabs.active != nil
         case #selector(exitSplitView(_:)): return tabs.split != nil
+        case #selector(showWebInspector(_:)): return WebInspector.canShow(for: tabs.active.flatMap { $0.hasWebView ? $0.webView : nil })
         case #selector(performTextFinderAction(_:)):
             return find.canPerform(NSTextFinder.Action(rawValue: item.tag))
         case #selector(toggleLinkScrolling(_:)):

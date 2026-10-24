@@ -182,11 +182,23 @@ enum MainMenu {
         return m
     }
 
+    /// Shown only with web developer features on (Settings → General), and always in debug builds.
+    static let developMenuTitle = "Develop"
+
     private static func developMenu() -> NSMenu {
-        let m = NSMenu(title: "Develop")
+        let m = NSMenu(title: developMenuTitle)
+        m.addItem(item("Show Web Inspector", #selector(BrowserWindowController.showWebInspector(_:)), "i", [.command, .option]))
+        #if DEBUG
+        m.addItem(.separator())
         m.addItem(item("Reload Injections", #selector(BrowserWindowController.reloadInjections(_:)), "i", [.command, .option, .shift]))
         m.addItem(item("Reload Assistant Settings", #selector(BrowserWindowController.reloadAssistant(_:))))
+        #endif
         return m
+    }
+
+    /// Shows or hides the Develop menu to match the setting.
+    static func updateDevelopMenu() {
+        NSApp.mainMenu?.item(withTitle: developMenuTitle)?.isHidden = !WebInspector.isEnabled
     }
 
     private static func helpMenu() -> NSMenu {

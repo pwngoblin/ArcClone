@@ -34,6 +34,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         paths = AppPaths.resolve()
         Log.app.info("Resources at \(self.paths.root.path, privacy: .public)")
         NSApp.mainMenu = MainMenu.build()
+        MainMenu.updateDevelopMenu()
         AppearanceStyle.applyAppAppearance()
         watchMemoryPressure()
         Task { await launch() }
@@ -311,6 +312,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     @objc func openHistoryItem(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
         openFromHistory(url, newTab: true)
+    }
+
+    /// Settings → General → web developer features: the Develop menu, and every open page and
+    /// extension page, follow at once.
+    func webDeveloperFeaturesChanged() {
+        MainMenu.updateDevelopMenu()
+        windows.forEach { $0.applyWebInspector() }
+        if #available(macOS 15.4, *) { (extensionRuntime as? ExtensionManager)?.applyInspectable() }
     }
 
     @objc public func showHelp(_ sender: Any?) {

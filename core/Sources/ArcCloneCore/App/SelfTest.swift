@@ -274,6 +274,18 @@ enum SelfTest {
             tiles.forEach { dragStore.close($0.id) }
             board.releaseGlobally()
 
+            // Web developer features: open pages follow the setting (inspectable, Inspect Element),
+            // and the Develop menu is shown only with it on.
+            let inspectorOn = WebInspector.isEnabled
+            let page = tab.webView
+            let extras = page.configuration.preferences.responds(to: NSSelectorFromString("_setDeveloperExtrasEnabled:"))
+                ? page.configuration.preferences.value(forKey: "developerExtrasEnabled") as? Bool : inspectorOn
+            let developMenuShown = NSApp.mainMenu?.item(withTitle: MainMenu.developMenuTitle)?.isHidden == false
+            check("web inspector", page.isInspectable == inspectorOn && extras == inspectorOn && developMenuShown == inspectorOn
+                  && (!inspectorOn || WebInspector.canShow(for: page)),
+                  ["enabled": .bool(inspectorOn), "inspectable": .bool(page.isInspectable), "inspectElement": .bool(extras ?? false),
+                   "developMenu": .bool(developMenuShown), "canShow": .bool(WebInspector.canShow(for: page))])
+
             // ⌘K reads the live menus: browser commands validate through the window's responder
             // chain, text-editing commands and the palette itself stay out.
             let palette = PaletteCommands.all(in: window.model).map(\.title)
