@@ -324,6 +324,7 @@ What's not finished, what's deliberately unsupported, and what still needs a per
 - The manual steps in the test plans of PRs #44–#48 (Separate logins with two accounts, ⌘K, restoring typed text after closing a tab, Link Scrolling, a pane pausing after 5 minutes, Add from Store).
 
 **Not done yet**
+- **Little Lily**, a single-page window for links from other apps (like Little Arc): designed in [docs/LITTLE_LILY.md](docs/LITTLE_LILY.md), not built yet.
 - **Optimizing for size.** `-Osize` would make the binary about 31% smaller (3.6 → 2.5 MB), but CLAUDE.md requires `-O` for release builds, so it stays `-O` until that rule changes.
 - **More of the UI in AppKit.** The pinned tiles are native; the rest of the sidebar, the command bar, Settings, History and the assistant are SwiftUI (the regular tab list is SwiftUI's `List`, which AppKit's table view backs).
 - **Writing Tools** stays in the Edit menu: macOS adds it, with no supported way to leave it out.
