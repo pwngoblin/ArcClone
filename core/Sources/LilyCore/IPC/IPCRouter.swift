@@ -42,6 +42,9 @@ public final class IPCRouter {
     static let burst = 60.0
     static let perSecond = 20.0
     private var buckets: [UUID: (tokens: Double, at: Date)] = [:]
+    /// The clock the buckets refill by; tests set a fixed one so the burst doesn't depend on how
+    /// fast the machine runs.
+    var now: () -> Date = Date.init
 
     private var routes: [String: Route] = [:]
     public var onUnhandledEvent: (@MainActor (IPCContext, String, JSONValue) -> Void)?
@@ -55,7 +58,8 @@ public final class IPCRouter {
 
     public var registeredTypes: [String] { routes.keys.sorted() }
 
-    private func take(for tab: UUID, now: Date = Date()) -> Bool {
+    private func take(for tab: UUID) -> Bool {
+        let now = now()
         var bucket = buckets[tab] ?? (Self.burst, now)
         bucket.tokens = min(Self.burst, bucket.tokens + now.timeIntervalSince(bucket.at) * Self.perSecond)
         bucket.at = now

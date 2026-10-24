@@ -33,7 +33,7 @@ enum SelfTest {
             // Pages render (scroll, animation frames) only in a window that's on screen. When
             // another app or Space covers Lily, checks that measure rendering say so instead of
             // failing for a reason that isn't Lily's.
-            func notOnScreen() -> String? {
+            @MainActor func notOnScreen() -> String? {
                 window.window?.occlusionState.contains(.visible) == true ? nil : "window not on screen"
             }
 
@@ -276,7 +276,7 @@ enum SelfTest {
             }
             window.model.refresh(from: dragStore)
             try? await Task.sleep(for: .milliseconds(400))
-            func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+            @MainActor func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
             let grid = window.window?.contentView.flatMap { views($0).compactMap { $0 as? NSCollectionView }.first }
             let shown = grid?.numberOfItems(inSection: 0) ?? -1
             let board = NSPasteboard(name: NSPasteboard.Name("dev.lily.selftest.drag"))
