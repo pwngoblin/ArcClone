@@ -12,6 +12,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     private(set) var history: History!
     private(set) var siteSettings: SiteSettings!
     private(set) var adBlocker: AdBlocker!
+    /// ExtensionManager on macOS 15.4+.
+    private(set) var extensions: AnyObject?
     private var historyWindow: HistoryWindowController?
     private let historyMenuDelegate = HistoryMenuDelegate()
     private var windows: [BrowserWindowController] = []
@@ -55,6 +57,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         adBlocker = AdBlocker()
         await adBlocker.prepare()
         factory = WebViewFactory(registry: registry, siteSettings: siteSettings, adBlocker: adBlocker)
+        if #available(macOS 15.4, *), !ProcessInfo.processInfo.arguments.contains("--self-test") {
+            let manager = ExtensionManager()
+            manager.windows = { [weak self] in self?.windows.filter { !$0.isPrivate } ?? [] }
+            manager.focusedWindow = { [weak self] in
+                (NSApp.keyWindow?.windowController as? BrowserWindowController).flatMap { $0.isPrivate ? nil : $0 } ?? self?.primaryWindow
+            }
+            manager.openTab = { [weak self] url, active in
+                guard let target = manager.focusedWindow() ?? self?.primaryWindow else { return nil }
+                return target.tabs.create(url: url, activate: active)
+            }
+            extensions = manager
+            factory.extensionController = manager.controller
+            Task { await manager.loadAll() }
+        }
         assistant = Assistant(configuration: .fromPreferences())
         sessionStore = SessionStore(directory: paths.applicationSupport)
         // The self-test must not leave its fixture pages in the user's real history.
@@ -176,9 +192,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         controller.newTab(nil)
     }
 
+    @objc public func showExtensionsSettings(_ sender: Any?) {
+        showSettings(sender)
+        settingsWindow?.select(pane: "Extensions")
+    }
+
     @objc public func showSettings(_ sender: Any?) {
         if settingsWindow == nil {
-            settingsWindow = SettingsWindowController(siteSettings: siteSettings, adBlocker: adBlocker,
+            settingsWindow = SettingsWindowController(siteSettings: siteSettings, adBlocker: adBlocker, extensions: extensions,
                                                       clearBrowsingData: { [weak self] in self?.clearBrowsingData(nil) },
                                                       onAgentSettingsChanged: { [weak self] in self?.assistant.reconfigure(.fromPreferences()) })
         }
