@@ -31,7 +31,7 @@ ArcClone is written in Swift with AppKit and SwiftUI and renders pages with WebK
 - **Site settings** per website (toolbar button or ⌥⌘,): zoom, appearance, JavaScript, ads, camera and microphone, and clearing the site's data.
 - **Dark mode for websites** (⌥⌘D): use the site's own dark theme, or *Force Dark* to invert sites without one while keeping images and video natural.
 - **Site security**: the lock next to the address shows whether the connection is secure (or mixes in insecure content), the certificate's subject, issuer and expiry with the system certificate viewer, your settings for the site, and whether it stores data.
-- **Ad and tracker blocking** with WebKit content rules: a built-in list, optional EasyList + EasyPrivacy (Settings → Privacy), YouTube ad skipping, and a toolbar shield to allow ads on a site.
+- **Ad and tracker blocking** with WebKit content rules: a built-in list, YouTube ad skipping, and a toolbar shield to allow ads on a site. Filter lists can be turned on in Settings → Privacy: EasyList, EasyPrivacy, uBlock filters, uBlock filters – Privacy, Peter Lowe's list and AdGuard Annoyances. They're downloaded weekly and converted from Adblock Plus / uBlock Origin syntax, including exceptions, `$domain=`, `$important`, `$badfilter`, element hiding, and procedural filters (`:has-text()`, `:upward()`, `:style()` limited to layout properties) that run in the page. Scriptlets (`+js`), redirects and other filters that would run list-supplied code, or that WebKit can't express exactly, are skipped.
 - **HTTPS-First**: `http://` addresses are tried over HTTPS first; falling back to HTTP asks you.
 - **Downloads**: a progress ring and badge in the sidebar, and a popover with progress, time remaining, cancel, retry (resuming when possible) and Show in Finder.
 - **Web extensions** (macOS 15.4+): Chrome, Firefox and Safari web extensions from an unpacked folder or .zip, with every permission shown before installing (Settings → Extensions).
@@ -97,7 +97,8 @@ The assistant sends page text to Ollama over HTTP on this Mac. While Ollama isn'
 ```
 core/          Swift package: the app (AppKit + SwiftUI), tabs (WKWebView), page IPC, assistant, storage
 injections/    JavaScript run inside web pages in an isolated content world: page metadata, text
-               extraction, selection, YouTube transcripts and ad skipping, dark mode
+               extraction, selection, YouTube transcripts and ad skipping, dark mode,
+               procedural element hiding
 scripts/       Packaging (bundle, icon, entitlements, DMG) and the security audit
 .github/       CI, the DMG/release workflow, branch hygiene, the PR template
 ```
