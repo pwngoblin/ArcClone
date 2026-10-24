@@ -4,9 +4,16 @@ import Foundation
 /// Google's public CRX download, fetched without cookies or cache, capped in size, and verified
 /// (`CRX3`) before it's unpacked, audited and pinned like any other extension.
 enum ChromeWebStore {
-    /// The Chrome version reported to the update service; extensions that need a newer Chrome
-    /// than this aren't offered.
-    static let productVersion = "130.0"
+    /// The Chrome version reported to the update service, which answers "no update" for any
+    /// extension whose `minimum_chrome_version` is newer (1Password needs 137+). Derived from the
+    /// date so it never goes stale: Chrome 120 shipped on 5 Dec 2023 and a new major version
+    /// follows every four weeks. Holiday gaps make this run a version or two ahead, which the
+    /// service accepts; running behind is what hides extensions.
+    static func productVersion(on date: Date = Date()) -> String {
+        let chrome120 = Date(timeIntervalSince1970: 1_701_734_400) // 2023-12-05 UTC
+        let releases = max(0, Int(date.timeIntervalSince(chrome120) / (28 * 86_400)))
+        return "\(120 + releases).0"
+    }
     private static let storeHosts: Set<String> = ["chromewebstore.google.com", "chrome.google.com"]
     /// Where the update service redirects downloads.
     private static let downloadHosts = ["google.com", "googleusercontent.com", "gvt1.com"]
@@ -31,7 +38,7 @@ enum ChromeWebStore {
     static func downloadURL(for id: String) -> URL? {
         guard isExtensionID(id) else { return nil }
         var components = URLComponents(string: "https://clients2.google.com/service/update2/crx")
-        components?.percentEncodedQuery = "response=redirect&prodversion=\(productVersion)&acceptformat=crx3&x=id%3D\(id)%26installsource%3Dondemand%26uc"
+        components?.percentEncodedQuery = "response=redirect&prodversion=\(productVersion())&acceptformat=crx3&x=id%3D\(id)%26installsource%3Dondemand%26uc"
         return components?.url
     }
 

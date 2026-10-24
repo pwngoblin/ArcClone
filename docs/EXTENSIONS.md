@@ -52,8 +52,9 @@ Settings → Extensions → **Add Extension…** accepts an unpacked folder (wit
 
 1. ArcClone downloads the package from Google's update service, with no cookies, cache or stored credentials, at most 200 MB, and only over HTTPS from Google's hosts:
    ```
-   https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130.0&acceptformat=crx3&x=id%3D<ID>%26installsource%3Dondemand%26uc
+   https://clients2.google.com/service/update2/crx?response=redirect&prodversion=<current Chrome>&acceptformat=crx3&x=id%3D<ID>%26installsource%3Dondemand%26uc
    ```
+   The reported Chrome version is worked out from the date (Chrome's four-week release cycle). The store answers "no download" when an extension needs a newer Chrome than the one reported; 1Password, for example, needs 137 or later.
 2. **Verify the signature.** Only CRX3 is accepted. Every RSA (2048-bit or larger) and P-256 signature in the header must verify over the signed header and the zip. One of the signing keys must hash to the requested ID, and another must be the Chrome Web Store's publisher key (the same hash Chromium pins). So a download that was swapped, damaged, is a different extension or didn't come through the store is refused before it's unpacked.
 3. From there it's the same as adding a file: unpack, audit, approve, pin. The record remembers the store ID.
 
