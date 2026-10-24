@@ -105,8 +105,20 @@ private func extensionZip() -> Data {
 
     @Test func downloadURLIsGooglesOnDemandEndpoint() throws {
         let url = try #require(ChromeWebStore.downloadURL(for: id))
-        #expect(url.absoluteString == "https://clients2.google.com/service/update2/crx?response=redirect&prodversion=\(ChromeWebStore.productVersion)&acceptformat=crx3&x=id%3D\(id)%26installsource%3Dondemand%26uc")
+        #expect(url.absoluteString == "https://clients2.google.com/service/update2/crx?response=redirect&prodversion=\(ChromeWebStore.productVersion())&acceptformat=crx3&x=id%3D\(id)%26installsource%3Dondemand%26uc")
         #expect(ChromeWebStore.downloadURL(for: "not-an-id&x=1") == nil)
+    }
+
+    @Test func reportsTheCurrentChromeVersion() {
+        func on(_ day: String) -> String { ChromeWebStore.productVersion(on: ISO8601DateFormatter().date(from: day + "T12:00:00Z")!) }
+        #expect(on("2023-12-05") == "120.0")
+        // Never behind a real stable release (that's what hid 1Password), at most a few ahead,
+        // since the four-week cadence skips Chrome's holiday gaps.
+        for (day, stable) in [("2025-01-14", 132), ("2025-05-27", 137), ("2025-09-02", 140)] {
+            let reported = Int(on(day).dropLast(2))!
+            #expect((stable...(stable + 3)).contains(reported), "\(day): \(reported)")
+        }
+        #expect(on("2020-01-01") == "120.0") // a wrong clock never reports something ancient
     }
 
     @Test func extensionIDsUseChromesEncoding() {
