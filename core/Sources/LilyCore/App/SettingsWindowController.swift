@@ -288,6 +288,7 @@ struct PrivacySettingsView: View {
     @AppStorage(Preferences.Key.adBlock) private var blockAds = true
     @AppStorage(Preferences.Key.httpsFirst) private var httpsFirst = true
     @AppStorage(Preferences.Key.removeLinkTracking) private var removeLinkTracking = true
+    @AppStorage(Preferences.Key.handoff) private var handoff = false
     @AppStorage(Preferences.Key.historyRetentionDays) private var retention = History.defaultRetentionDays
     @AppStorage(Preferences.Key.clearHistoryOnQuit) private var clearHistoryOnQuit = false
     @AppStorage(Preferences.Key.clearWebsiteDataOnQuit) private var clearDataOnQuit = false
@@ -326,6 +327,9 @@ struct PrivacySettingsView: View {
             Toggle("Upgrade connections to HTTPS (HTTPS-First)", isOn: $httpsFirst)
             Toggle("Remove trackers from links", isOn: $removeLinkTracking)
                 .help("Strips click and campaign identifiers (utm_…, fbclid, gclid and similar) from links you open, click or copy")
+            Toggle("Continue pages on other devices (Handoff)", isOn: $handoff)
+                .onChange(of: handoff) { (NSApp.delegate as? AppDelegate)?.handoffChanged() }
+                .help("Shares the address and title of the page you're on with every device signed in to your Apple account")
             Picker("Keep history:", selection: $retention) {
                 Text("One day").tag(1)
                 Text("One week").tag(7)

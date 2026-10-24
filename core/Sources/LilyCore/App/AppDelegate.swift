@@ -38,7 +38,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         paths = AppPaths.resolve()
-        Log.app.info("Resources at \(self.paths.root.path, privacy: .public)")
+        // Private: the path includes the macOS user name.
+        Log.app.info("Resources at \(self.paths.root.path, privacy: .private)")
         MainMenu.disableSystemItems()
         NSApp.mainMenu = MainMenu.build()
         MainMenu.updateDevelopMenu()
@@ -386,6 +387,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
 
     /// Settings → General → web developer features: the Develop menu, and every open page and
     /// extension page, follow at once.
+    /// Settings → Privacy → Handoff switched: stop (or start) advertising pages at once.
+    func handoffChanged() { windows.forEach { $0.updateHandoff() } }
+
     func webDeveloperFeaturesChanged() {
         MainMenu.updateDevelopMenu()
         windows.forEach { $0.applyWebInspector() }
