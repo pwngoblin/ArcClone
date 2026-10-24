@@ -20,13 +20,6 @@ public final class WebViewFactory {
     public var extensionController: AnyObject?
     /// Compatibility-mode content scripts (macOS 14–15.3); nil in private windows.
     var extensionScripts: ExtensionScriptInjector?
-    /// Web Inspector is a development tool: release builds don't let it attach to tabs or the chrome.
-    #if DEBUG
-    public var inspectable = true
-    #else
-    public var inspectable = false
-    #endif
-
     /// Presents as Safari so sites don't serve degraded "unknown browser" pages.
     /// Exactly Safari's: an extra "ArcClone" token would make every user easy to fingerprint.
     public var applicationNameForUserAgent = "Version/18.0 Safari/605.1.15"
@@ -94,6 +87,7 @@ public final class WebViewFactory {
         config.preferences.inactiveSchedulingPolicy = .suspend
         config.defaultWebpagePreferences.allowsContentJavaScript = true
         config.defaultWebpagePreferences.preferredContentMode = .desktop
+        WebInspector.configure(config.preferences)
 
         if #available(macOS 15.4, *), let extensions = extensionController as? WKWebExtensionController {
             config.webExtensionController = extensions
@@ -109,7 +103,7 @@ public final class WebViewFactory {
         let webView = BrowserWebView(frame: .zero, configuration: makeConfiguration(bridge: bridge, space: space))
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = true
-        webView.isInspectable = inspectable
+        webView.isInspectable = WebInspector.isEnabled
         webView.underPageBackgroundColor = .windowBackgroundColor
         return webView
     }

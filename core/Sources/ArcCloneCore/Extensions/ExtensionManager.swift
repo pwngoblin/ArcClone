@@ -39,9 +39,7 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
             let context = WKWebExtensionContext(for: try await WKWebExtension(resourceBaseURL: entry.folder))
             guard contexts[entry.id] == nil, library.entry(entry.id) != nil else { return }
             context.uniqueIdentifier = entry.id
-            #if DEBUG
-            context.isInspectable = true
-            #endif
+            context.isInspectable = WebInspector.isEnabled
             // Only what the user approved at install time.
             for name in record.grantedPermissions { context.setPermissionStatus(.grantedExplicitly, for: WKWebExtension.Permission(rawValue: name)) }
             for pattern in record.grantedPatterns {
@@ -62,6 +60,11 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     // MARK: Toolbar
 
     func hasOptions(_ id: String) -> Bool { contexts[id]?.optionsPageURL != nil }
+
+    /// Web developer features switched: extension pages become (or stop being) inspectable.
+    func applyInspectable() {
+        contexts.values.forEach { $0.isInspectable = WebInspector.isEnabled }
+    }
 
     func openOptions(_ id: String) {
         guard let url = contexts[id]?.optionsPageURL else { return }

@@ -37,8 +37,11 @@ report "no print/NSLog/debugPrint/dump in app code (use os.Logger)" \
 report "no shell or process spawning (system, popen, NSTask, Process)" \
   "$(scan '(^|[^.[:alnum:]_])(system|popen|posix_spawn)\(|NSTask|(^|[^.[:alnum:]_])Process\(' "${SWIFT[@]}")"
 
+# The one exception: a parameter AppKit itself declares as a pointer (a delegate method's
+# signature), on a line ending in "// AppKit API signature". unsafeBitCast and Unmanaged never are.
 report "no unsafe pointer types" \
-  "$(scan 'Unsafe(Mutable)?(Raw)?(Buffer)?Pointer|unsafeBitCast|Unmanaged<' "${SWIFT[@]}")"
+  "$({ scan 'Unsafe(Mutable)?(Raw)?(Buffer)?Pointer' "${SWIFT[@]}" | grep -v '// AppKit API signature$' || true
+       scan 'unsafeBitCast|Unmanaged<' "${SWIFT[@]}"; })"
 
 xpc=""
 for file in "${SWIFT[@]}"; do

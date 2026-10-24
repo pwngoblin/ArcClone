@@ -246,6 +246,61 @@ enum SelfTest {
             dragStore.deleteSpace(away.id)
             dragStore.close(pinned.id)
 
+            // Pinned tiles are a native collection view: the tiles are on screen, an AppKit drag's
+            // pasteboard reads back as the tab, and dropping a tile further right lands exactly in
+            // the gap shown (1 before 3 → 2, 1, 3).
+            let tiles = (1...3).map { n -> Tab in
+                let tab = dragStore.create(url: URL(string: "https://selftest.arcclone.test/pin\(n)")!, activate: false)
+                dragStore.setPinned(tab.id, true)
+                return tab
+            }
+            window.model.refresh(from: dragStore)
+            try? await Task.sleep(for: .milliseconds(400))
+            func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+            let grid = window.window?.contentView.flatMap { views($0).compactMap { $0 as? NSCollectionView }.first }
+            let shown = grid?.numberOfItems(inSection: 0) ?? -1
+            let board = NSPasteboard(name: NSPasteboard.Name("dev.arcclone.selftest.drag"))
+            board.clearContents()
+            var appKitRoundTrip = false
+            if let first = window.model.tabs.first(where: { $0.id == tiles[0].id }) {
+                board.writeObjects([TabDrag.pasteboardItem(for: first)])
+                if case .tab(let id)? = TabDrag.read(board) { appKitRoundTrip = id == tiles[0].id }
+            }
+            _ = window.model.dropOnPinned(.tab(tiles[0].id), before: tiles[2].id)
+            let pinnedOrder = dragStore.tabs.filter(\.isPinned).map(\.id)
+            let reordered = pinnedOrder == [tiles[1].id, tiles[0].id, tiles[2].id]
+            check("native pinned tiles", shown == 3 && appKitRoundTrip && reordered,
+                  ["tilesShown": .number(Double(shown)), "pasteboardRoundTrip": .bool(appKitRoundTrip), "dropsInGap": .bool(reordered)])
+            tiles.forEach { dragStore.close($0.id) }
+            board.releaseGlobally()
+
+            // Web developer features: open pages follow the setting (inspectable, Inspect Element),
+            // and the Develop menu is shown only with it on.
+            let inspectorOn = WebInspector.isEnabled
+            let page = tab.webView
+            let extras = page.configuration.preferences.responds(to: NSSelectorFromString("_setDeveloperExtrasEnabled:"))
+                ? page.configuration.preferences.value(forKey: "developerExtrasEnabled") as? Bool : inspectorOn
+            let developMenuShown = NSApp.mainMenu?.item(withTitle: MainMenu.developMenuTitle)?.isHidden == false
+            check("web inspector", page.isInspectable == inspectorOn && extras == inspectorOn && developMenuShown == inspectorOn
+                  && (!inspectorOn || WebInspector.canShow(for: page)),
+                  ["enabled": .bool(inspectorOn), "inspectable": .bool(page.isInspectable), "inspectElement": .bool(extras ?? false),
+                   "developMenu": .bool(developMenuShown), "canShow": .bool(WebInspector.canShow(for: page))])
+
+            // The menu bar: no items a browser doesn't need, and the shortcuts moved into submenus
+            // still work (⌘1 goes to the first tab).
+            func items(_ menu: NSMenu) -> [NSMenuItem] { menu.items.flatMap { [$0] + ($0.submenu.map(items) ?? []) } }
+            if let edit = NSApp.mainMenu?.item(withTitle: "Edit")?.submenu { edit.delegate?.menuNeedsUpdate?(edit) }
+            let all = NSApp.mainMenu.map(items) ?? []
+            let removed = all.filter { item in
+                [#selector(NSApplication.orderFrontCharacterPalette(_:)), NSSelectorFromString("startDictation:"),
+                 #selector(NSTextView.startSpeaking(_:)), #selector(NSText.checkSpelling(_:)),
+                 #selector(NSTextView.orderFrontSubstitutionsPanel(_:)), NSSelectorFromString("toggleTabBar:")].contains(item.action)
+            }.map(\.title)
+            let importItems = all.filter { $0.action == #selector(AppDelegate.showMigration(_:)) }.count
+            let firstTabKey = all.first { $0.action == #selector(BrowserWindowController.selectTabByNumber(_:)) && $0.tag == 1 }
+            check("menu bar", removed.isEmpty && importItems == 1 && firstTabKey?.keyEquivalent == "1" && firstTabKey?.menu?.title == "Go to Tab",
+                  ["unwanted": .array(removed.map(JSONValue.string)), "importItems": .number(Double(importItems))])
+
             // ⌘K reads the live menus: browser commands validate through the window's responder
             // chain, text-editing commands and the palette itself stay out.
             let palette = PaletteCommands.all(in: window.model).map(\.title)

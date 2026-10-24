@@ -44,6 +44,29 @@ enum TabDrag {
         return provider
     }
 
+    /// A dragged tile for AppKit drags (pinned tiles): the tab's id under the in-app type, and its
+    /// web address for other apps. The id is a random identifier with no meaning outside ArcClone.
+    @MainActor
+    static func pasteboardItem(for tab: WindowModel.TabItem) -> NSPasteboardItem {
+        let item = NSPasteboardItem()
+        item.setString(tab.id.uuidString, forType: NSPasteboard.PasteboardType(UTType.arcCloneTab.identifier))
+        if let url = tab.url, url.scheme?.hasPrefix("http") == true {
+            item.setString(url.absoluteString, forType: .URL)
+            item.setString(url.absoluteString, forType: .string)
+        }
+        return item
+    }
+
+    /// What an AppKit drag carries: one of our tabs (from a tile or a list row), or a link.
+    @MainActor
+    static func read(_ pasteboard: NSPasteboard) -> TabDrop? {
+        if let raw = pasteboard.string(forType: NSPasteboard.PasteboardType(UTType.arcCloneTab.identifier)), let id = UUID(uuidString: raw) {
+            return .tab(id)
+        }
+        if let url = (pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL])?.first { return .link(url) }
+        return nil
+    }
+
     /// What the first provider holds, for List's `onInsert` (which hands over providers, not values).
     /// The providers stay on the main actor; only the loaded bytes or URL cross back.
     @MainActor

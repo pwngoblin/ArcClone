@@ -55,6 +55,7 @@ struct GeneralSettingsView: View {
     @AppStorage(Preferences.Key.homepage) private var homepage = Preferences.defaultHomepage
     @AppStorage(Preferences.Key.restoreSession) private var restoreSession = true
     @AppStorage(Preferences.Key.haptics) private var haptics = true
+    @AppStorage(Preferences.Key.webDeveloperFeatures) private var webDeveloper = false
     @State private var isDefaultBrowser = DefaultBrowser.isDefault
     @State private var defaultBrowserError: String?
 
@@ -65,6 +66,12 @@ struct GeneralSettingsView: View {
             }
             TextField("Homepage:", text: $homepage, prompt: Text(Preferences.defaultHomepage))
             Toggle("Haptic feedback on the trackpad", isOn: $haptics)
+            Toggle("Show features for web developers", isOn: $webDeveloper)
+                .onChange(of: webDeveloper) { (NSApp.delegate as? AppDelegate)?.webDeveloperFeaturesChanged() }
+            LabeledContent("") {
+                Text("Adds Inspect Element to the page menu, Develop → Show Web Inspector (⌥⌘I), and lets Safari's Develop menu inspect ArcClone's pages. Inspected pages can read and change what's on them, so leave it off unless you need it.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             Picker("On launch, open:", selection: $restoreSession) {
                 Text("Tabs from last time").tag(true)
                 Text("The homepage").tag(false)
