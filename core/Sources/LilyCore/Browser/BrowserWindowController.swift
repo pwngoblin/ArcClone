@@ -383,8 +383,15 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
 
     // MARK: Handoff
 
-    /// Advertises the active tab so it can be continued in Safari on another device.
-    private func updateHandoff() {
+    /// Advertises the active tab so it can be continued in Safari on another device, only when
+    /// Handoff is turned on (Settings → Privacy): it shares the page's address and title with every
+    /// device on your Apple account.
+    func updateHandoff() {
+        guard Preferences.flag(Preferences.Key.handoff, default: false) else {
+            browsingActivity?.invalidate()
+            browsingActivity = nil
+            return
+        }
         guard window?.isKeyWindow == true, !isPrivate else { return }
         guard let tab = tabs.active, let url = tab.url, url.scheme == "http" || url.scheme == "https" else {
             browsingActivity?.resignCurrent()

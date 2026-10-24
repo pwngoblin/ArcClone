@@ -129,6 +129,8 @@ public final class Tab: NSObject {
     // MARK: Navigation
 
     public func load(_ url: URL) {
+        // Typed, pasted, opened from another app, the command bar, a new tab from a link.
+        let url = LinkTracking.cleaned(url)
         if url.scheme == "data" { allowedDataURL = url }
         if url.isFileURL { allowedFileURL = url }
         if url.isFileURL {
@@ -407,6 +409,13 @@ extension Tab: WKNavigationDelegate {
                           inBackground: !navigationAction.modifierFlags.contains(.shift))
             return (.cancel, preferences)
         }
+        // A clicked link that carries tracking parameters loads without them (and without the
+        // Referer the click would have sent). Redirects and form posts aren't touched.
+        if isLink, isMainFrame, (navigationAction.request.httpMethod ?? "GET") == "GET", LinkTracking.isEnabled,
+           let url = navigationAction.request.url, let clean = LinkTracking.stripped(url) {
+            Task { [weak self] in self?.webView.load(URLRequest(url: clean)) }
+            return (.cancel, preferences)
+        }
         if let url = navigationAction.request.url, navigationAction.targetFrame?.isMainFrame ?? true,
            (navigationAction.request.httpMethod ?? "GET") == "GET", navigationAction.navigationType != .backForward,
            url.scheme?.lowercased() == "http", let host = url.host?.lowercased() {
@@ -515,12 +524,12 @@ extension Tab: WKNavigationDelegate {
     }
 
     public func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
-        DownloadManager.shared.track(download)
+        DownloadManager.shared.track(download, privately: !factory.dataStore.isPersistent)
         delegate?.tabDidStartDownload(self)
     }
 
     public func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
-        DownloadManager.shared.track(download)
+        DownloadManager.shared.track(download, privately: !factory.dataStore.isPersistent)
         delegate?.tabDidStartDownload(self)
     }
 

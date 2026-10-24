@@ -245,7 +245,7 @@ private struct SplitPill: View {
         ForEach(tabs) { tab in
             let focused = tab.id == window.activeID
             HStack(spacing: 5) {
-                FaviconView(url: tab.favicon ?? tab.url?.faviconGuess, size: 14)
+                FaviconView(page: tab.url, fetch: tab.isSleeping ? nil : tab.favicon ?? tab.url?.faviconGuess, remember: !window.isPrivate, size: 14)
                 if !compact { Text(tab.title).font(.system(size: 12)).lineLimit(1).truncationMode(.tail) }
             }
             .frame(maxWidth: .infinity, alignment: compact ? .center : .leading)
@@ -268,7 +268,8 @@ private struct TabRow: View {
     var body: some View {
         HStack(spacing: 8) {
             ZStack {
-                FaviconView(url: tab.favicon ?? tab.url?.faviconGuess, size: 16)
+                // A sleeping or restored tab's site isn't open: its kept icon only, no request.
+                FaviconView(page: tab.url, fetch: tab.isSleeping ? nil : tab.favicon ?? tab.url?.faviconGuess, remember: !window.isPrivate, size: 16)
                     .opacity(tab.isSleeping ? 0.45 : 1)
                     .saturation(tab.isSleeping ? 0 : 1)
                 if tab.isLoading { ProgressView().controlSize(.mini).scaleEffect(0.8) }

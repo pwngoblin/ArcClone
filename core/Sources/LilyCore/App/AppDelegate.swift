@@ -38,7 +38,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         paths = AppPaths.resolve()
-        Log.app.info("Resources at \(self.paths.root.path, privacy: .public)")
+        // Private: the path includes the macOS user name.
+        Log.app.info("Resources at \(self.paths.root.path, privacy: .private)")
         MainMenu.disableSystemItems()
         NSApp.mainMenu = MainMenu.build()
         MainMenu.updateDevelopMenu()
@@ -105,6 +106,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         // The self-test must not leave its fixture pages in the user's real history.
         let isSelfTest = ProcessInfo.processInfo.arguments.contains("--self-test")
         history = History(directory: isSelfTest ? nil : paths.applicationSupport)
+        // Kept site icons follow history: whatever history forgets, its icons go too.
+        await FaviconLoader.shared.load(directory: isSelfTest ? nil : paths.applicationSupport)
+        history.onForget = { FaviconLoader.shared.forget($0) }
         await history.load()
         formDrafts = FormDrafts(directory: isSelfTest ? nil : paths.applicationSupport)
         await formDrafts.load()
@@ -168,13 +172,23 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
     @objc public func clearBrowsingData(_ sender: Any?) {
         let alert = NSAlert()
         alert.messageText = "Clear all browsing data?"
-        alert.informativeText = "This removes your browsing history, cookies, caches, site storage, the saved session, saved typed text and the assistant's context. Open tabs stay open, and you'll be signed out of websites."
+        alert.informativeText = "This removes your browsing history (and the site icons kept from it), cookies, caches, site storage, the saved session, saved typed text, the downloads list and the assistant's context. Open tabs stay open, and you'll be signed out of websites. Downloaded files stay in your Downloads folder."
+        // Site settings are kept per site, so they're also a list of sites you've been to.
+        let forgetSites = NSButton(checkboxWithTitle: "Also forget site settings (zoom, permissions, dark mode)", target: nil, action: nil)
+        forgetSites.state = .on
+        alert.accessoryView = forgetSites
         alert.addButton(withTitle: "Clear")
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
         guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let alsoSites = forgetSites.state == .on
         Task {
             await factory.removeAllWebsiteData()
+            DownloadManager.shared.clearFinished()
+            if alsoSites {
+                siteSettings.removeAll()
+                await siteSettings.flush()
+            }
             await sessionStore.clear()
             history.clear()
             await history.flush()
@@ -383,6 +397,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
 
     /// Settings → General → web developer features: the Develop menu, and every open page and
     /// extension page, follow at once.
+    /// Settings → Privacy → Handoff switched: stop (or start) advertising pages at once.
+    func handoffChanged() { windows.forEach { $0.updateHandoff() } }
+
     func webDeveloperFeaturesChanged() {
         MainMenu.updateDevelopMenu()
         windows.forEach { $0.applyWebInspector() }
@@ -412,6 +429,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
                 Task { await self.sessionStore.save(session) }
             }
             self.windows.removeAll { $0 === closed }
+            // The last private window: nothing it downloaded stays listed.
+            if closed.isPrivate, !self.windows.contains(where: \.isPrivate) { DownloadManager.shared.forgetPrivate() }
         }
         controller.onSessionChange = { [weak self] in self?.scheduleSave() }
         windows.append(controller)

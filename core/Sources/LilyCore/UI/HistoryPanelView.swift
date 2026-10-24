@@ -64,7 +64,7 @@ private struct HistoryPanelRow: View {
             window.controller?.open(visit.url, newTab: NSEvent.modifierFlags.contains(.command))
         } label: {
             HStack(spacing: 8) {
-                FaviconView(url: visit.url.faviconGuess, size: 14)
+                FaviconView(page: visit.url, size: 14)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(visit.title.isEmpty ? visit.url.absoluteString : visit.title).lineLimit(1)
                     Text(visit.url.host ?? "").font(.caption2).foregroundStyle(.secondary).lineLimit(1)

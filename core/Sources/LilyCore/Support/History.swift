@@ -133,14 +133,27 @@ public final class History {
 
     // MARK: Removal
 
+    /// What was just forgotten, so data that would still reveal it goes too (kept site icons).
+    public enum Forgotten: Equatable, Sendable {
+        case all
+        case since(Date)
+        case before(Date)
+        case sites(Set<String>)
+    }
+    @ObservationIgnored public var onForget: (@MainActor (Forgotten) -> Void)?
+
     public func remove(_ ids: Set<UUID>) {
+        let removed = Set(visits.filter { ids.contains($0.id) }.compactMap { $0.url.host?.lowercased() })
         visits.removeAll { ids.contains($0.id) }
+        let remaining = Set(visits.compactMap { $0.url.host?.lowercased() })
+        if !removed.subtracting(remaining).isEmpty { onForget?(.sites(removed.subtracting(remaining))) }
         scheduleSave()
     }
 
     /// Removes visits newer than `date` (Clear History: last hour, today, …); nil clears everything.
     public func clear(since date: Date? = nil) {
         if let date { visits.removeAll { $0.visitedAt >= date } } else { visits.removeAll() }
+        onForget?(date.map(Forgotten.since) ?? .all)
         scheduleSave()
     }
 
@@ -149,7 +162,9 @@ public final class History {
     private func prune() {
         if retentionDays > 0 {
             let cutoff = now().addingTimeInterval(-Double(retentionDays) * 86_400)
+            let before = visits.count
             visits.removeAll { $0.visitedAt < cutoff }
+            if visits.count != before { onForget?(.before(cutoff)) }
         }
         if visits.count > Self.maxEntries { visits.removeLast(visits.count - Self.maxEntries) }
     }

@@ -116,7 +116,7 @@ final class PinnedTabsView: NSView, NSCollectionViewDelegate {
     }
 
     private func configure(_ tile: PinnedTileItem, _ tab: WindowModel.TabItem) {
-        tile.configure(tab, active: tab.id == activeID, accent: accent) { [weak self] in
+        tile.configure(tab, active: tab.id == activeID, accent: accent, remember: !model.isPrivate) { [weak self] in
             guard let self, let current = self.tabs[tab.id] else { return nil }
             return TabMenu.menu(for: current, window: self.model)
         }
@@ -191,15 +191,16 @@ final class PinnedTileItem: NSCollectionViewItem {
 
     override func loadView() { view = tile }
 
-    func configure(_ tab: WindowModel.TabItem, active: Bool, accent: NSColor, menu: @escaping () -> NSMenu?) {
+    func configure(_ tab: WindowModel.TabItem, active: Bool, accent: NSColor, remember: Bool, menu: @escaping () -> NSMenu?) {
         let changedTab = tabID != tab.id
         tabID = tab.id
         tile.menuProvider = menu
         tile.toolTip = tab.title
         tile.setAccessibilityLabel(tab.title)
         tile.style(active: active, loading: tab.isLoading, accent: accent)
-        let icon = tab.favicon ?? tab.url?.faviconGuess
-        if changedTab || icon != tile.iconURL { tile.load(icon) }
+        // A sleeping or restored pinned tab's site isn't open: its kept icon only, no request.
+        let icon = tab.isSleeping ? nil : tab.favicon ?? tab.url?.faviconGuess
+        if changedTab || icon != tile.iconURL || tab.url != tile.pageURL { tile.load(page: tab.url, fetch: icon, remember: remember) }
     }
 
     override func prepareForReuse() {
@@ -217,6 +218,7 @@ final class PinnedTileView: NSView {
     private var active = false
     private var accent = NSColor.controlAccentColor
     private(set) var iconURL: URL?
+    private(set) var pageURL: URL?
     private var iconTask: Task<Void, Never>?
     /// The tab's context menu, built when it's asked for so it reflects the tab right now.
     var menuProvider: (() -> NSMenu?)?
@@ -255,18 +257,23 @@ final class PinnedTileView: NSView {
         applyColors()
     }
 
-    /// The site's icon, from the shared in-memory favicon cache (never a disk cache).
-    func load(_ url: URL?) {
+    /// The site's icon: kept from a visit, or fetched only when the page is open (`FaviconLoader`).
+    func load(page: URL?, fetch: URL?, remember: Bool) {
         iconTask?.cancel()
-        iconURL = url
-        icon.image = NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
-        icon.contentTintColor = .tertiaryLabelColor
-        guard let url else { return }
+        iconURL = fetch
+        pageURL = page
+        show(FaviconLoader.shared.icon(forPage: page))
+        guard let fetch else { return }
         iconTask = Task { [weak self] in
-            guard let image = await FaviconLoader.shared.image(for: url), !Task.isCancelled, let self, self.iconURL == url else { return }
-            self.icon.image = image
-            self.icon.contentTintColor = nil
+            guard let image = await FaviconLoader.shared.fetch(fetch, forPage: page, remember: remember), !Task.isCancelled,
+                  let self, self.iconURL == fetch else { return }
+            self.show(image)
         }
+    }
+
+    private func show(_ image: NSImage?) {
+        icon.image = image ?? NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
+        icon.contentTintColor = image == nil ? .tertiaryLabelColor : nil
     }
 
     private func applyColors() {
