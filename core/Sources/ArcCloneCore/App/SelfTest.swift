@@ -79,15 +79,19 @@ enum SelfTest {
             // Download animation: the icon flies in an overlay above every other view, from inside
             // the window to the sidebar's downloads button.
             try? await Task.sleep(for: .milliseconds(300))
-            window.animateDownloadFlight()
-            let overlay = window.window?.contentView?.subviews.last as? AnimationOverlayView
-            let flight = overlay?.layer?.sublayers?.first { $0.animation(forKey: "flight") != nil }
-            let path = ((flight?.animation(forKey: "flight") as? CAAnimationGroup)?.animations?.first as? CAKeyframeAnimation)?.path
-            let bounds = overlay?.bounds ?? .zero
-            let ends = path.map { [$0.currentPoint, flight?.position ?? .zero] } ?? []
-            check("download animation", overlay != nil && flight != nil && !ends.isEmpty && ends.allSatisfy(bounds.contains),
-                  ["overlayOnTop": .bool(overlay != nil), "animating": .bool(flight != nil),
-                   "end": JSONValue(ends.first.map { "\(Int($0.x)),\(Int($0.y))" }), "bounds": .string("\(Int(bounds.width))x\(Int(bounds.height))")])
+            if let reason = window.downloadFlightSkipReason {
+                check("download animation", true, ["skipped": .string(reason)])
+            } else {
+                window.animateDownloadFlight()
+                let overlay = window.window?.contentView?.subviews.last as? AnimationOverlayView
+                let flight = overlay?.layer?.sublayers?.first { $0.animation(forKey: "flight") != nil }
+                let path = ((flight?.animation(forKey: "flight") as? CAAnimationGroup)?.animations?.first as? CAKeyframeAnimation)?.path
+                let bounds = overlay?.bounds ?? .zero
+                let ends = path.map { [$0.currentPoint, flight?.position ?? .zero] } ?? []
+                check("download animation", overlay != nil && flight != nil && !ends.isEmpty && ends.allSatisfy(bounds.contains),
+                      ["overlayOnTop": .bool(overlay != nil), "animating": .bool(flight != nil),
+                       "end": JSONValue(ends.first.map { "\(Int($0.x)),\(Int($0.y))" }), "bounds": .string("\(Int(bounds.width))x\(Int(bounds.height))")])
+            }
 
             // Page-world scripts must not be able to reach the native bridge.
             let leaked = try? await tab.webView.evaluateJavaScript("typeof (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.arc)")

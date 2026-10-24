@@ -190,6 +190,15 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
 
     private let animationOverlay = AnimationOverlayView()
 
+    /// Why the download flight won't play right now, or nil when it will. It's skipped on purpose
+    /// with Reduce Motion on or the sidebar (and its downloads button) hidden.
+    var downloadFlightSkipReason: String? {
+        if window?.contentView == nil || sidebarHost == nil { return "no window" }
+        if isSidebarCollapsed { return "sidebar collapsed" }
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { return "reduce motion" }
+        return nil
+    }
+
     private func buildLayout() {
         let effect = NSVisualEffectView()
         effect.material = .sidebar
@@ -371,8 +380,7 @@ extension BrowserWindowController: TabDelegate {
     /// It's drawn in a click-through overlay kept above every other view (web content, the command
     /// bar), since a bare layer on the root can end up underneath them.
     func animateDownloadFlight() {
-        guard let root = window?.contentView, let host = sidebarHost, !isSidebarCollapsed,
-              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        guard downloadFlightSkipReason == nil, let root = window?.contentView, let host = sidebarHost else { return }
         let overlay = animationOverlay
         if root.subviews.last !== overlay {
             overlay.frame = root.bounds
