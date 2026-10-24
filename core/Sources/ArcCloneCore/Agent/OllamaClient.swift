@@ -96,7 +96,7 @@ public struct OllamaClient: Sendable {
     private func mapTransportError(_ error: Error) -> Error {
         if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled { return IPCError.cancelled }
         if error is IPCError { return error }
-        if error is URLError { return IPCError.ollamaUnavailable("Cannot reach Ollama at \(baseURL.absoluteString): \(error.localizedDescription)") }
-        return IPCError.ollamaError("Unexpected Ollama response: \(error.localizedDescription)")
+        if error is URLError { return IPCError.ollamaUnavailable("Cannot reach Ollama at \(baseURL.absoluteString): \(Sanitize.errorMessage(error))") }
+        return IPCError.ollamaError("Unexpected Ollama response: \(Sanitize.errorMessage(error))")
     }
 }

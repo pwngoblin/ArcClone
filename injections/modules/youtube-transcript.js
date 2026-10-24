@@ -78,10 +78,10 @@
     return manual[0] || tracks[0];
   }
 
+  /// Caption text arrives HTML-escaped. DOMParser builds an inert document (no scripts, no
+  /// loads), so decoding never assigns untrusted markup to a live element's innerHTML.
   function decodeEntities(s) {
-    const t = document.createElement("textarea");
-    t.innerHTML = s;
-    return t.value;
+    return new DOMParser().parseFromString(String(s), "text/html").documentElement.textContent || "";
   }
 
   async function fetchJson3(baseUrl) {

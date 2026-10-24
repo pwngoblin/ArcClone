@@ -15,5 +15,9 @@ let package = Package(
         ),
         .executableTarget(name: "ArcClone", dependencies: ["ArcCloneCore"]),
         .testTarget(name: "ArcCloneCoreTests", dependencies: ["ArcCloneCore"]),
-    ]
+    ],
+    // Swift 6 mode: complete strict-concurrency checking, data races are compile errors.
+    // There are no package dependencies; any added must be pinned (`exact:` or `revision:`),
+    // which scripts/security-lint.sh enforces.
+    swiftLanguageModes: [.v6]
 )

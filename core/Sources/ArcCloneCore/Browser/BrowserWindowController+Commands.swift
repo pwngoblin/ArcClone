@@ -215,7 +215,7 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
             tabs.active?.reload()
             model.showToast("Injections reloaded")
         } catch {
-            model.showToast("Injection reload failed: \(error)")
+            model.showToast("Injection reload failed: \(Sanitize.errorMessage(error))")
         }
     }
 

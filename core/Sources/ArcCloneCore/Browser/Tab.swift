@@ -174,7 +174,7 @@ public final class Tab: NSObject {
                 case .success(let value):
                     continuation.resume(returning: (value as? String) ?? "null")
                 case .failure(let error):
-                    continuation.resume(throwing: IPCError("injection_failed", error.localizedDescription))
+                    continuation.resume(throwing: IPCError("injection_failed", Sanitize.errorMessage(error)))
                 }
             }
             Task {
@@ -312,7 +312,7 @@ public final class Tab: NSObject {
         if nsError.domain == "WebKitErrorDomain" && (nsError.code == 102 || nsError.code == 204) { return } // policy change / plug-in handled
         let target = failingURL ?? (nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL)
         webView.loadHTMLString(ErrorPage.html(title: "Can't open this page",
-                                              message: nsError.localizedDescription,
+                                              message: Sanitize.errorMessage(nsError),
                                               url: target),
                                baseURL: target)
     }
@@ -371,7 +371,7 @@ extension Tab: WKNavigationDelegate {
         guard let host = url.host?.lowercased() else { return }
         let alert = NSAlert()
         alert.messageText = "“\(host)” doesn't support a secure connection"
-        alert.informativeText = "Anyone on your network could see or change what you send to and receive from this site over HTTP.\n\n\(error.localizedDescription)"
+        alert.informativeText = "Anyone on your network could see or change what you send to and receive from this site over HTTP.\n\n\(Sanitize.errorMessage(error))"
         alert.addButton(withTitle: "Continue to HTTP")
         alert.addButton(withTitle: "Cancel")
         let finish: @MainActor (NSApplication.ModalResponse) -> Void = { [weak self] response in
@@ -380,7 +380,7 @@ extension Tab: WKNavigationDelegate {
                 HTTPSFirst.allowedHTTPHosts.insert(host)
                 self.load(url)
             } else {
-                self.webView.loadHTMLString(ErrorPage.html(title: "Secure connection unavailable", message: error.localizedDescription, url: url),
+                self.webView.loadHTMLString(ErrorPage.html(title: "Secure connection unavailable", message: Sanitize.errorMessage(error), url: url),
                                             baseURL: nil)
             }
         }
@@ -465,7 +465,7 @@ extension Tab: WKNavigationDelegate {
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         let now = Date()
         crashTimes = crashTimes.filter { now.timeIntervalSince($0) < 60 } + [now]
-        Log.web.error("Web content process terminated for tab \(self.id.uuidString, privacy: .public) (\(self.crashTimes.count) in last minute)")
+        Log.web.error("Web content process terminated for tab \(self.id.uuidString, privacy: .public) (\(self.crashTimes.count, privacy: .public) in last minute)")
         if crashTimes.count <= 3 {
             if webView.url != nil { webView.reload() } else if let url { load(url) }
         } else {

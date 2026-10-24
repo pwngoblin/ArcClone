@@ -69,25 +69,30 @@ public actor KeychainKeyStore: KeyStore {
         return SHA256.hash(data: Data((text as String).utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Key bytes only live in `SymmetricKey`, which zeroes its storage when released. The
+    /// intermediate copies made for the Keychain are wiped as soon as the call returns.
     public func key(named name: String) throws -> SymmetricKey {
-        if let data = try read(name) { return SymmetricKey(data: data) }
+        if let stored = try readKey(name) { return stored }
         let newKey = SymmetricKey(size: .bits256)
-        let data = newKey.withUnsafeBytes { Data($0) }
-        var attributes = baseQuery(name)
-        attributes[kSecValueData as String] = data
-        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        attributes[kSecAttrLabel as String] = "ArcClone data encryption key"
-        if !useDataProtectionKeychain, let access = Self.selfOnlyAccess() {
-            attributes[kSecAttrAccess as String] = access
-        }
-        let status = SecItemAdd(attributes as CFDictionary, nil)
+        var data = newKey.withUnsafeBytes { Data($0) }
+        defer { data.resetBytes(in: 0..<data.count) }
+        let status: OSStatus = {
+            var attributes = baseQuery(name)
+            attributes[kSecValueData as String] = data
+            attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            attributes[kSecAttrLabel as String] = "ArcClone data encryption key"
+            if !useDataProtectionKeychain, let access = Self.selfOnlyAccess() {
+                attributes[kSecAttrAccess as String] = access
+            }
+            return SecItemAdd(attributes as CFDictionary, nil)
+        }() // the dictionary (and its reference to `data`) is gone before the wipe
         switch status {
         case errSecSuccess:
             return newKey
         case errSecDuplicateItem:
             // Another launch created it first; use theirs so both agree on one key.
-            guard let existing = try read(name) else { throw KeychainError(status: status, operation: "add") }
-            return SymmetricKey(data: existing)
+            guard let existing = try readKey(name) else { throw KeychainError(status: status, operation: "add") }
+            return existing
         case errSecMissingEntitlement where useDataProtectionKeychain:
             useDataProtectionKeychain = false
             return try key(named: name)
@@ -107,6 +112,13 @@ public actor KeychainKeyStore: KeyStore {
         }
     }
 
+    /// Reads the stored key straight into a `SymmetricKey` and wipes the copy made on the way.
+    private func readKey(_ name: String) throws -> SymmetricKey? {
+        guard var data = try read(name) else { return nil }
+        defer { data.resetBytes(in: 0..<data.count) }
+        return SymmetricKey(data: data)
+    }
+
     private func read(_ name: String) throws -> Data? {
         var query = baseQuery(name)
         query[kSecReturnData as String] = true
@@ -115,8 +127,11 @@ public actor KeychainKeyStore: KeyStore {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         switch status {
         case errSecSuccess:
-            guard let data = result as? Data, data.count == 32 else { throw KeychainError(status: errSecDecode, operation: "read") }
-            return data
+            // Security's buffer is immutable and can't be wiped without unsafe pointers; drop our
+            // reference at once so it's freed, and wipe the copy the caller turns into a key.
+            guard let buffer = result as? Data, buffer.count == 32 else { throw KeychainError(status: errSecDecode, operation: "read") }
+            result = nil
+            return buffer
         case errSecItemNotFound:
             return nil
         case errSecMissingEntitlement where useDataProtectionKeychain:

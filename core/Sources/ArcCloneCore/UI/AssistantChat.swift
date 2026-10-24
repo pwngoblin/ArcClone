@@ -52,7 +52,7 @@ public final class AssistantChat {
             health = models.isEmpty ? "No Ollama models found. In Terminal run “ollama pull llama3.2”." : nil
         } catch {
             models = []
-            health = (error as? IPCError)?.message ?? error.localizedDescription
+            health = Sanitize.errorMessage(error)
         }
     }
 
@@ -128,7 +128,7 @@ public final class AssistantChat {
             } catch {
                 update(id) {
                     $0.status = .failed
-                    $0.error = (error as? IPCError)?.message ?? error.localizedDescription
+                    $0.error = Sanitize.errorMessage(error)
                 }
             }
         }

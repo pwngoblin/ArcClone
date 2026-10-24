@@ -93,7 +93,7 @@ public final class Assistant {
             ollamaStatus["modelCount"] = JSONValue(m.count)
         } catch {
             ollamaStatus["reachable"] = false
-            ollamaStatus["error"] = .string((error as? IPCError)?.message ?? error.localizedDescription)
+            ollamaStatus["error"] = .string(Sanitize.errorMessage(error))
         }
         return ["assistant": ["running": JSONValue(running.count)], "ollama": .object(ollamaStatus),
                 "defaultModel": JSONValue(configuration.defaultModel), "context": context.stats]
@@ -122,7 +122,7 @@ public final class Assistant {
                 let (content, stats) = try await self.run(request, model: model)
                 self.emit(.done(requestID: id, content: content, stats: stats, model: model, task: request.task))
             } catch {
-                let failure = Task.isCancelled ? IPCError.cancelled : (error as? IPCError) ?? .internal(error.localizedDescription)
+                let failure = Task.isCancelled ? IPCError.cancelled : (error as? IPCError) ?? .internal(Sanitize.errorMessage(error))
                 if failure != .cancelled { Log.agent.error("Task \(request.task.rawValue, privacy: .public) failed: \(failure.message, privacy: .private)") }
                 self.emit(.failed(requestID: id, error: failure))
             }

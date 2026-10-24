@@ -165,7 +165,7 @@ public final class AdBlocker {
                 if download, failures.count < wanted.count { UserDefaults.standard.set(Date(), forKey: Preferences.Key.filterListsUpdated) }
                 if !failures.isEmpty { status = "Couldn't download \(failures.joined(separator: ", ")). " + status }
             } catch {
-                status = "Couldn't compile filter lists: \(error.localizedDescription)"
+                status = "Couldn't compile filter lists: \(Sanitize.errorMessage(error))"
             }
         } while rebuildAgain
     }
@@ -182,7 +182,7 @@ public final class AdBlocker {
                 compiled.append(list)
             }
         } catch {
-            status = "Couldn't compile filter lists: \(error.localizedDescription)"
+            status = "Couldn't compile filter lists: \(Sanitize.errorMessage(error))"
             return
         }
         let identifiers = compiled.compactMap(\.identifier)
