@@ -74,8 +74,12 @@
   window.addEventListener("hashchange", () => check("hashchange"));
   document.addEventListener("yt-navigate-finish", () => setTimeout(() => check("spa"), 50));
 
-  // history.pushState patched in the page world is invisible here, so poll cheaply.
-  setInterval(() => check("poll"), 1000);
+  // history.pushState in the page world is invisible here. Instead of polling (a timer in every
+  // tab keeps the CPU from idling), native code observes the URL and calls this when it changes.
+  arc.register("page.recheck", () => {
+    check("navigation");
+    return null;
+  });
 
   const titleEl = document.querySelector("title");
   if (titleEl) {

@@ -15,7 +15,6 @@ final class WindowToolbar: NSObject, NSToolbarDelegate {
     static let extensions = NSToolbarItem.Identifier("ArcClone.extensions")
 
     let toolbar: NSToolbar
-    private let extensionsMenu = ExtensionsMenuDelegate()
 
     override init() {
         toolbar = NSToolbar(identifier: "ArcCloneBrowserToolbar")
@@ -51,15 +50,9 @@ final class WindowToolbar: NSObject, NSToolbarDelegate {
             item.showsIndicator = true
             return item
         case Self.extensions:
-            let item = NSMenuToolbarItem(itemIdentifier: id)
-            item.label = "Extensions"
-            item.toolTip = "Extensions"
-            item.image = NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: "Extensions")
-            let menu = NSMenu(title: "Extensions")
-            menu.delegate = extensionsMenu
-            item.menu = menu
-            item.showsIndicator = false
-            return item
+            // A plain button opening a popover: a menu toolbar item whose menu is filled lazily can
+            // show nothing when clicked.
+            return button(id, "Extensions", "puzzlepiece.extension", #selector(BrowserWindowController.showExtensions(_:)))
         case Self.adBlock: return button(id, "Block Ads on This Site", "shield.lefthalf.filled", #selector(BrowserWindowController.toggleSiteAdBlocking(_:)))
         case Self.darkMode: return button(id, "Dark Mode for This Site", "moon", #selector(BrowserWindowController.toggleSiteDarkMode(_:)))
         case Self.siteSettings: return button(id, "Site Settings", "slider.horizontal.3", #selector(BrowserWindowController.showSiteSettings(_:)))
@@ -77,34 +70,5 @@ final class WindowToolbar: NSObject, NSToolbarDelegate {
         item.isBordered = true
         item.autovalidates = true
         return item
-    }
-}
-
-/// Fills the toolbar's Extensions menu with each loaded extension's action, plus a Manage item.
-@MainActor
-final class ExtensionsMenuDelegate: NSObject, NSMenuDelegate {
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        menu.removeAllItems()
-        if #available(macOS 15.4, *), let manager = (NSApp.delegate as? AppDelegate)?.extensions as? ExtensionManager {
-            for loaded in manager.loaded {
-                let item = NSMenuItem(title: loaded.name, action: #selector(runAction(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = loaded.id
-                item.image = loaded.context.webExtension.actionIcon(for: CGSize(width: 16, height: 16)) ?? loaded.icon
-                menu.addItem(item)
-            }
-            if !manager.loaded.isEmpty { menu.addItem(.separator()) }
-        } else {
-            menu.addItem(withTitle: "Extensions need macOS 15.4 or later", action: nil, keyEquivalent: "")
-        }
-        let manage = NSMenuItem(title: "Manage Extensions…", action: #selector(AppDelegate.showExtensionsSettings(_:)), keyEquivalent: "")
-        manage.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)
-        menu.addItem(manage)
-    }
-
-    @objc func runAction(_ sender: NSMenuItem) {
-        guard #available(macOS 15.4, *), let id = sender.representedObject as? String,
-              let manager = (NSApp.delegate as? AppDelegate)?.extensions as? ExtensionManager else { return }
-        manager.performAction(id)
     }
 }

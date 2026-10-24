@@ -54,7 +54,7 @@ public final class DownloadManager: NSObject, WKDownloadDelegate {
         let id = item.id
         progressObservations[id] = download.progress.observe(\.completedUnitCount, options: [.new]) { [weak self] progress, _ in
             let received = progress.completedUnitCount, total = progress.totalUnitCount
-            Task { @MainActor in self?.update(id) { $0.receivedBytes = received; $0.totalBytes = total } }
+            Task { @MainActor in self?.progressed(id, received: received, total: total) }
         }
         startCount += 1
     }
@@ -132,10 +132,21 @@ public final class DownloadManager: NSObject, WKDownloadDelegate {
 
     // MARK: Helpers
 
+    @ObservationIgnored private var lastProgressUpdate: [UUID: Date] = [:]
+
+    /// At most ~4 UI updates a second per download (WebKit reports every chunk), plus the last one.
+    private func progressed(_ id: UUID, received: Int64, total: Int64) {
+        let now = Date()
+        if total > 0, received < total, let last = lastProgressUpdate[id], now.timeIntervalSince(last) < 0.25 { return }
+        lastProgressUpdate[id] = now
+        update(id) { $0.receivedBytes = received; $0.totalBytes = total }
+    }
+
     private func finish(_ download: WKDownload) -> UUID? {
         guard let id = ids.removeValue(forKey: ObjectIdentifier(download)) else { return nil }
         downloads[id] = nil
         progressObservations[id] = nil
+        lastProgressUpdate[id] = nil
         return id
     }
 

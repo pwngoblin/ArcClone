@@ -70,3 +70,16 @@ import Testing
         #expect(resolved?.host == "s.test")
     }
 }
+
+@Suite struct InjectionEnergyTests {
+    /// A repeating timer in an injected script runs in every tab forever and keeps the CPU from
+    /// idling; page changes reach the scripts from native code instead (page.recheck).
+    @Test func pageScriptsHaveNoRepeatingTimers() throws {
+        let modules = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("injections/modules")
+        for file in try FileManager.default.contentsOfDirectory(at: modules, includingPropertiesForKeys: nil) where file.pathExtension == "js" {
+            let source = try String(contentsOf: file, encoding: .utf8)
+            #expect(!source.contains("setInterval("), "\(file.lastPathComponent) uses setInterval")
+        }
+    }
+}

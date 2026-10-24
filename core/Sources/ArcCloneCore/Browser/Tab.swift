@@ -18,7 +18,6 @@ public final class Tab: NSObject {
     public private(set) var title: String = ""
     public private(set) var url: URL?
     public private(set) var isLoading = false
-    public private(set) var progress: Double = 0
     public private(set) var faviconURL: URL?
     public private(set) var themeColor: String?
     public private(set) var lastSelection: String?
@@ -102,6 +101,24 @@ public final class Tab: NSObject {
     public func markActivated() {
         lastActivated = Date()
         wake()
+    }
+
+    // MARK: Page change detection
+
+    private var recheckTask: Task<Void, Never>?
+
+    /// The page scripts no longer poll for single-page-app navigations; when WebKit reports a URL
+    /// change we ask them, once, to re-read the page (debounced to coalesce redirect bursts).
+    func scheduleRecheck() {
+        recheckTask?.cancel()
+        recheckTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard let self, !Task.isCancelled, !self.isSleeping else { return }
+            _ = try? await self.callInjection("page.recheck", timeout: 5)
+            if let host = self.webView.url?.host?.lowercased(), host == "youtube.com" || host.hasSuffix(".youtube.com") {
+                _ = try? await self.callInjection("youtube.recheck", timeout: 5)
+            }
+        }
     }
 
     // MARK: Sleeping (memory and energy)
@@ -234,24 +251,6 @@ public final class Tab: NSObject {
         notify()
     }
 
-    // MARK: Snapshot
-
-    public var snapshot: JSONValue {
-        [
-            "id": .string(id.uuidString),
-            "title": .string(title.isEmpty ? (url?.host ?? "New Tab") : title),
-            "url": JSONValue(url?.absoluteString),
-            "favicon": JSONValue(faviconURL?.absoluteString),
-            "isLoading": .bool(isLoading),
-            "progress": .number(progress),
-            "pinned": .bool(isPinned),
-            "canGoBack": .bool(webView.canGoBack),
-            "canGoForward": .bool(webView.canGoForward),
-            "isYouTubeVideo": .bool(youtubeVideoID != nil),
-            "themeColor": JSONValue(themeColor),
-        ]
-    }
-
     // MARK: Private
 
     private func observe() {
@@ -271,6 +270,7 @@ public final class Tab: NSObject {
             },
             watch(\.url) { tab in
                 guard !tab.isSleeping else { return }
+                tab.scheduleRecheck()
                 if let u = tab.webView.url {
                     if tab.url?.host != u.host { tab.faviconURL = nil }
                     tab.url = u
@@ -278,7 +278,6 @@ public final class Tab: NSObject {
                 tab.notify()
             },
             watch(\.isLoading) { tab in guard !tab.isSleeping else { return }; tab.isLoading = tab.webView.isLoading; tab.notify() },
-            watch(\.estimatedProgress) { tab in guard !tab.isSleeping else { return }; tab.progress = tab.webView.estimatedProgress; tab.notify() },
             watch(\.canGoBack) { tab in tab.notify() },
             watch(\.canGoForward) { tab in tab.notify() },
         ]

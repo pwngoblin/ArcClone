@@ -121,7 +121,8 @@ public final class History {
         guard let file else { return }
         saveTask?.cancel()
         saveTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(2))
+            // Batched: re-encrypting the whole history on every page view would waste CPU.
+            try? await Task.sleep(for: .seconds(10))
             guard !Task.isCancelled, let self else { return }
             await self.write(to: file)
         }
