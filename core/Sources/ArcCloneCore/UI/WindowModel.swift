@@ -173,12 +173,18 @@ public final class WindowModel {
     /// Moves a regular-list row; a split group moves as one block.
     func moveItems(from source: IndexSet, to destination: Int) {
         let items = regularItems
-        guard let store = controller?.tabs, let first = source.first else { return }
-        let ids: [UUID]
+        guard let first = source.first else { return }
         switch items[first] {
-        case .tab(let tab): ids = [tab.id]
-        case .split(_, let members): ids = members.map(\.id)
+        case .tab(let tab): moveRegular([tab.id], toRow: destination)
+        case .split(_, let members): moveRegular(members.map(\.id), toRow: destination)
         }
+        Haptics.snap()
+    }
+
+    /// Puts `ids` (in order) before the regular-list row at `destination` (or at the end).
+    private func moveRegular(_ ids: [UUID], toRow destination: Int) {
+        let items = regularItems
+        guard let store = controller?.tabs else { return }
         let anchorTab: UUID? = destination < items.count ? {
             switch items[destination] { case .tab(let t): return t.id; case .split(_, let m): return m.first?.id }
         }() : nil
@@ -189,7 +195,70 @@ public final class WindowModel {
             store.move(id, to: target)
             target += 1
         }
-        Haptics.snap()
+    }
+
+    // MARK: Drag and drop (TabDragDrop.swift)
+
+    /// Dropped between regular rows: a tab moves there (a pinned one is unpinned); a link opens there.
+    func dropInList(_ drop: TabDrop, atRow row: Int) {
+        guard let store = controller?.tabs else { return }
+        switch drop {
+        case .tab(let id):
+            guard let tab = store.tab(id), tab.spaceID == store.currentSpaceID else { return }
+            if tab.isPinned { store.setPinned(id, false) }
+            moveRegular([id], toRow: row)
+            Haptics.snap()
+        case .link:
+            guard let url = drop.webLink else { return }
+            let tab = store.create(url: url, activate: true, nextToActive: false)
+            moveRegular([tab.id], toRow: row)
+            Haptics.step()
+        }
+    }
+
+    /// Dropped on a pinned tile: a tab is pinned (or reordered) before it; a link opens pinned there.
+    func dropOnPinned(_ drop: TabDrop, before target: UUID) -> Bool {
+        guard let store = controller?.tabs else { return false }
+        let id: UUID
+        switch drop {
+        case .tab(let dragged):
+            guard dragged != target, let tab = store.tab(dragged), tab.spaceID == store.currentSpaceID else { return false }
+            if !tab.isPinned { store.setPinned(dragged, true) }
+            id = dragged
+        case .link:
+            guard let url = drop.webLink else { return false }
+            id = store.create(url: url, activate: true, pinned: true).id
+        }
+        if let index = store.tabs.firstIndex(where: { $0.id == target }) { store.move(id, to: index) }
+        Haptics.step()
+        return true
+    }
+
+    /// Dropped on a space in the switcher: a tab moves there; a link opens there, unloaded until used.
+    func dropOnSpace(_ drop: TabDrop, space: UUID) -> Bool {
+        guard let store = controller?.tabs else { return false }
+        switch drop {
+        case .tab(let id):
+            guard let tab = store.tab(id), tab.spaceID != space else { return false }
+            store.moveTab(id, toSpace: space)
+        case .link:
+            guard let url = drop.webLink else { return false }
+            store.createAsleep(url: url, title: url.host ?? url.absoluteString, pinned: false, in: space)
+        }
+        let name = spaces.first { $0.id == space }?.name ?? "space"
+        showToast(drop.webLink == nil ? "Moved to \(name)" : "Opened in \(name)")
+        Haptics.step()
+        return true
+    }
+
+    /// Dropped on a split pill: the tab joins that split.
+    func dropOnSplit(_ drop: TabDrop, joining member: UUID) -> Bool {
+        guard case .tab(let id) = drop, let store = controller?.tabs, store.splitGroup(containing: member)?.tabIDs.contains(id) == false,
+              store.tab(id)?.spaceID == store.currentSpaceID else { return false }
+        store.activate(member)
+        store.addToSplit(id)
+        Haptics.step()
+        return store.splitGroup(containing: member)?.tabIDs.contains(id) == true
     }
 
     /// Moves within a section (pinned or regular), as reported by SwiftUI's `onMove`.
@@ -232,14 +301,6 @@ public final class WindowModel {
 
     func addToSplit(_ id: UUID) { controller?.tabs.addToSplit(id) }
     func removeFromSplit(_ id: UUID) { controller?.tabs.removeFromSplit(id) }
-
-    /// Drag between pinned tiles.
-    func movePinned(_ id: UUID, before target: UUID) {
-        guard id != target, let store = controller?.tabs, store.tab(id)?.isPinned == true,
-              let index = store.tabs.firstIndex(where: { $0.id == target }) else { return }
-        store.move(id, to: index)
-        Haptics.snap()
-    }
 
     func duplicate(_ id: UUID) {
         guard let store = controller?.tabs, let url = store.tab(id)?.url else { return }
