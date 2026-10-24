@@ -358,6 +358,11 @@ enum SelfTest {
                   ["navigatedTo": .string(landed)])
             window.tabs.close(trackedTab.id)
 
+            // The user agent pages see is this Mac's Safari's, so Lily blends in.
+            let agent = (try? await tab.webView.evaluateJavaScript("navigator.userAgent") as? String) ?? ""
+            check("user agent matches Safari", agent.hasSuffix(window.factory.applicationNameForUserAgent) && !agent.contains("Lily")
+                  && agent.contains("AppleWebKit/605.1.15"), ["userAgent": .string(agent)])
+
             // ⌘K reads the live menus: browser commands validate through the window's responder
             // chain, text-editing commands and the palette itself stay out.
             let palette = PaletteCommands.all(in: window.model).map(\.title)

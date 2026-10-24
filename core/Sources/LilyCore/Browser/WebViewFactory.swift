@@ -20,9 +20,21 @@ public final class WebViewFactory {
     public var extensionController: AnyObject?
     /// Compatibility-mode content scripts (macOS 14–15.3); nil in private windows.
     var extensionScripts: ExtensionScriptInjector?
-    /// Presents as Safari so sites don't serve degraded "unknown browser" pages.
-    /// Exactly Safari's: an extra "Lily" token would make every user easy to fingerprint.
-    public var applicationNameForUserAgent = "Version/18.0 Safari/605.1.15"
+    /// Presents as Safari so sites don't serve degraded "unknown browser" pages, and as *this
+    /// Mac's* Safari: an extra "Lily" token, or a Safari version that doesn't match the system's
+    /// WebKit, would make Lily users stand out to fingerprinting.
+    public var applicationNameForUserAgent = WebViewFactory.safariApplicationName()
+
+    /// "Version/<installed Safari> Safari/605.1.15", as Safari itself sends. Falls back to the
+    /// Safari that ships with this macOS when Safari's bundle can't be read.
+    nonisolated static func safariApplicationName(safariInfo: URL = URL(fileURLWithPath: "/Applications/Safari.app/Contents/Info.plist"),
+                                                  system: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion) -> String {
+        let installed = (NSDictionary(contentsOf: safariInfo)?["CFBundleShortVersionString"] as? String)
+            .flatMap { $0.range(of: #"^\d+(\.\d+){0,2}$"#, options: .regularExpression) != nil ? $0 : nil }
+        // Safari's major version follows macOS from 26 on; before that, macOS 15 shipped Safari 18, 14 had 17.
+        let shipped = system.majorVersion >= 26 ? "\(system.majorVersion).\(system.minorVersion)" : "\(system.majorVersion + 3).0"
+        return "Version/\(installed ?? shipped) Safari/605.1.15"
+    }
 
     public init(registry: ScriptRegistry, dataStore: WKWebsiteDataStore = .default(),
                 siteSettings: SiteSettings? = nil, savesSiteChanges: Bool = true, adBlocker: AdBlocker? = nil) {
