@@ -11,7 +11,7 @@ struct DownloadsButton: View {
     var body: some View {
         Button { showing.toggle() } label: {
             ZStack {
-                if let fraction = downloads.overallFraction {
+                if let fraction = downloads.overallFraction(privateWindow: window.isPrivate) {
                     Circle().stroke(.quaternary, lineWidth: 2).frame(width: 20, height: 20)
                     Circle().trim(from: 0, to: max(0.03, fraction))
                         .stroke(.tint, style: StrokeStyle(lineWidth: 2, lineCap: .round))
@@ -25,8 +25,8 @@ struct DownloadsButton: View {
             }
             .frame(width: 30, height: 28)
             .overlay(alignment: .topTrailing) {
-                if downloads.activeCount > 0 {
-                    Text("\(downloads.activeCount)")
+                if downloads.activeCount(privateWindow: window.isPrivate) > 0 {
+                    Text("\(downloads.activeCount(privateWindow: window.isPrivate))")
                         .font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
                         .padding(.horizontal, 4).frame(minWidth: 14, minHeight: 14)
                         .background(.tint, in: Capsule())
@@ -37,7 +37,7 @@ struct DownloadsButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(downloads.items.isEmpty ? .secondary : .primary)
+        .foregroundStyle(downloads.items(privateWindow: window.isPrivate).isEmpty ? .secondary : .primary)
         .help("Downloads")
         // When a download starts, the button pulses as the flying icon lands (~0.7 s later).
         .phaseAnimator([1.0, 1.0, 1.3, 1.0], trigger: downloads.startCount) { content, scale in
@@ -55,7 +55,7 @@ struct DownloadsButton: View {
         .popover(isPresented: $showing, arrowEdge: .top) {
             DownloadsListView(downloads: downloads, window: window)
         }
-        .animation(.spring(response: 0.3, dampingFraction: 0.65), value: downloads.activeCount)
+        .animation(.spring(response: 0.3, dampingFraction: 0.65), value: downloads.activeCount(privateWindow: window.isPrivate))
     }
 }
 
@@ -73,20 +73,20 @@ struct DownloadsListView: View {
             HStack {
                 Text("Downloads").font(.headline)
                 Spacer()
-                Button("Clear") { downloads.clearFinished() }
+                Button("Clear") { downloads.clearFinished(privateWindow: window.isPrivate) }
                     .controlSize(.small)
-                    .disabled(!downloads.items.contains { !$0.isActive })
+                    .disabled(!downloads.items(privateWindow: window.isPrivate).contains { !$0.isActive })
             }
             .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 8)
             Divider()
-            if downloads.items.isEmpty {
+            if downloads.items(privateWindow: window.isPrivate).isEmpty {
                 ContentUnavailableView("No Downloads", systemImage: "arrow.down.circle",
                                        description: Text("Files you download appear here and are saved to your Downloads folder."))
                     .frame(height: 160)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 2) {
-                        ForEach(downloads.items) { DownloadRow(item: $0, downloads: downloads, window: window) }
+                        ForEach(downloads.items(privateWindow: window.isPrivate)) { DownloadRow(item: $0, downloads: downloads, window: window) }
                     }
                     .padding(6)
                 }

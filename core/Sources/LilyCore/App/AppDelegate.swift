@@ -419,6 +419,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
                 Task { await self.sessionStore.save(session) }
             }
             self.windows.removeAll { $0 === closed }
+            // The last private window: nothing it downloaded stays listed.
+            if closed.isPrivate, !self.windows.contains(where: \.isPrivate) { DownloadManager.shared.forgetPrivate() }
         }
         controller.onSessionChange = { [weak self] in self?.scheduleSave() }
         windows.append(controller)

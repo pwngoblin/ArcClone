@@ -524,12 +524,12 @@ extension Tab: WKNavigationDelegate {
     }
 
     public func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
-        DownloadManager.shared.track(download)
+        DownloadManager.shared.track(download, privately: !factory.dataStore.isPersistent)
         delegate?.tabDidStartDownload(self)
     }
 
     public func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
-        DownloadManager.shared.track(download)
+        DownloadManager.shared.track(download, privately: !factory.dataStore.isPersistent)
         delegate?.tabDidStartDownload(self)
     }
 
