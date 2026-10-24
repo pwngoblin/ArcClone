@@ -41,10 +41,7 @@ strip -rSTx "$EXE"
 cp -R "$ROOT/injections" "$RES/injections"
 find "$OUT" -name .DS_Store -delete
 
-ICONSET="$(umask 077 && mktemp -d)/AppIcon.iconset"
-swift "$ROOT/scripts/make-icon.swift" "$ICONSET"
-iconutil -c icns "$ICONSET" -o "$OUT/Contents/Resources/AppIcon.icns"
-rm -rf "$(dirname "$ICONSET")"
+swift "$ROOT/scripts/make-icon.swift" "$OUT/Contents/Resources/AppIcon.icns"
 
 cat > "$OUT/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
