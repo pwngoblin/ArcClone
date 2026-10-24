@@ -4,7 +4,7 @@ import Foundation
 public struct URLResolver: Sendable {
     public var searchTemplate: String
 
-    public init(searchTemplate: String = "https://www.google.com/search?q=%s") {
+    public init(searchTemplate: String = Preferences.defaultSearchEngine.template) {
         self.searchTemplate = searchTemplate
     }
 
