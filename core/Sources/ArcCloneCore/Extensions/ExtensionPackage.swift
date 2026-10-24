@@ -93,8 +93,10 @@ struct ExtensionPackage: Sendable, Equatable {
         case 2: start = 16 + Int(uint32(data, 8)) + Int(uint32(data, 12))
         default: return nil
         }
-        guard start < data.count else { return nil }
-        return Data(data[(data.startIndex + start)...])
+        // The payload must be a zip (local file header `PK\u{3}\u{4}`).
+        guard start >= 0, start + 4 <= data.count else { return nil }
+        let payload = Data(data[(data.startIndex + start)...])
+        return payload.prefix(4) == Data([0x50, 0x4B, 0x03, 0x04]) ? payload : nil
     }
 
     /// A zip archive (stored or deflated entries; no encryption, no zip64, no links).

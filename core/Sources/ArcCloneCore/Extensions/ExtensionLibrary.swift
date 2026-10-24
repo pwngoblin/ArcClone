@@ -13,6 +13,8 @@ struct InstalledExtension: Codable, Identifiable, Equatable {
     var enabled: Bool
     var grantedPermissions: [String]
     var grantedPatterns: [String]
+    /// The Chrome Web Store ID it was downloaded as, when it came from the store.
+    var storeID: String? = nil
 }
 
 /// The installed extensions, on every macOS version: adding (audit, approval, pinning), the sealed
@@ -37,6 +39,8 @@ final class ExtensionLibrary {
     private(set) var installed: [InstalledExtension] = []
     private(set) var ready: [Entry] = []
     private(set) var lastError: String?
+    /// A Chrome Web Store download is in progress.
+    private(set) var downloading = false
     /// The runtime listens here to load and unload extensions.
     @ObservationIgnored var onReadyChange: (@MainActor () -> Void)?
     @ObservationIgnored let storage: ExtensionStorage
@@ -96,12 +100,33 @@ final class ExtensionLibrary {
         panel.allowedContentTypes = [.zip, .folder] + [UTType(filenameExtension: "crx")].compactMap { $0 }
         panel.message = "Choose a web extension: an unpacked folder (with manifest.json), a .zip, or a .crx"
         panel.prompt = "Choose"
-        guard panel.runModal() == .OK, let url = panel.url, let pinnedRoot else { return }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        await install(storeID: nil) { try await ExtensionLoader.inspect(url) }
+    }
+
+    /// Adds an extension from a Chrome Web Store link or 32-letter ID: downloads its CRX3, verifies
+    /// the signatures and that it's the extension asked for, then audits, asks and pins it as usual.
+    func install(fromStore input: String) async {
+        guard !downloading else { return }
+        guard let id = ChromeWebStore.extensionID(from: input) else {
+            lastError = "Paste a Chrome Web Store link (chromewebstore.google.com/detail/…) or a 32-letter extension ID."
+            return
+        }
+        downloading = true
+        defer { downloading = false }
+        await install(storeID: id) {
+            let data = try await ChromeWebStore.download(id)
+            return try await ExtensionLoader.inspect(crx: data, expectedID: id)
+        }
+    }
+
+    private func install(storeID: String?, _ inspect: () async throws -> InspectedExtension) async {
+        guard let pinnedRoot else { return }
         let folder = pinnedRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
         do {
-            let inspected = try await ExtensionLoader.inspect(url)
+            let inspected = try await inspect()
             guard !inspected.audit.isBlocked else { showBlocked(inspected.audit); return }
             guard let manifest = inspected.manifest else { throw ExtensionPackage.Invalid(reason: "manifest.json isn't valid.") }
             let hash = inspected.package.contentHash
@@ -109,7 +134,7 @@ final class ExtensionLibrary {
             try await ExtensionLoader.pin(inspected.package, to: folder)
             let record = InstalledExtension(id: UUID().uuidString, bookmark: nil, pinnedFolder: folder.lastPathComponent, contentHash: hash,
                                             enabled: true, grantedPermissions: manifest.permissions,
-                                            grantedPatterns: Self.requestedPatterns(manifest))
+                                            grantedPatterns: Self.requestedPatterns(manifest), storeID: storeID)
             installed.append(record)
             save()
             lastError = nil
