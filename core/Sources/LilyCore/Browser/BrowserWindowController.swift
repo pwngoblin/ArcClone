@@ -35,7 +35,7 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     /// The next check for split panes to pause (PaneFreezer); one wake-up, never polling.
     var freezeTask: Task<Void, Never>?
     private var overlayHost: NSHostingView<CommandBarOverlay>?
-    private let windowToolbar = WindowToolbar()
+    private let windowToolbar: WindowToolbar
     private weak var sidebarHost: NSView?
     private var swipeMonitor: Any?
     private var sleeper: TabSleeper?
@@ -50,15 +50,29 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     /// Private windows use their own non-persistent data store, are never saved, and never feed the assistant.
     public let isPrivate: Bool
 
-    public init(factory: WebViewFactory, assistant: Assistant, history: History?, isPrivate: Bool = false) {
+    /// `.little` is Little Lily: one page in a small window, for links from other apps
+    /// (docs/LITTLE_LILY.md). It has no sidebar, spaces, splits or session, and never more than one
+    /// tab: anything that would open another goes to the main window.
+    public enum Style: Sendable { case regular, little }
+    public let style: Style
+    var isLittle: Bool { style == .little }
+    /// Little Lily → the main window (made if there isn't one), for Open in Lily and new tabs.
+    var mainWindow: (@MainActor () -> BrowserWindowController?)?
+    /// Opens a link in a new Little Lily window (Open Link in Little Lily).
+    var openLittle: (@MainActor (URL) -> Void)?
+
+    public init(factory: WebViewFactory, assistant: Assistant, history: History?, isPrivate: Bool = false, style: Style = .regular) {
         self.isPrivate = isPrivate
+        self.style = style
+        self.windowToolbar = WindowToolbar(style: style)
         self.history = isPrivate ? nil : history
         self.factory = factory
         self.assistant = assistant
         self.tabs = TabStore(factory: factory, router: router)
         self.model = WindowModel(isPrivate: isPrivate, assistant: AssistantChat(assistant: assistant))
 
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1320, height: 860),
+        let size = style == .little ? NSSize(width: 900, height: 640) : NSSize(width: 1320, height: 860)
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)
         // Native unified toolbar: navigation over the sidebar, the page title over the content.
@@ -68,9 +82,9 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         window.toolbar = windowToolbar.toolbar
         window.toolbarStyle = .unified
         window.isMovableByWindowBackground = false
-        window.minSize = NSSize(width: 640, height: 420)
+        window.minSize = style == .little ? NSSize(width: 420, height: 320) : NSSize(width: 640, height: 420)
         window.tabbingMode = .disallowed
-        window.setFrameAutosaveName("LilyBrowserWindow")
+        window.setFrameAutosaveName(style == .little ? "LilyLittleWindow" : "LilyBrowserWindow")
         // macOS window restoration would save titles (page titles) unencrypted under Saved
         // Application State; Lily restores its own sessions, encrypted, instead.
         window.isRestorable = false
@@ -106,8 +120,9 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
             self?.scheduleFreeze()
         }
         registerPageHandlers()
-        if !isPrivate { installSpaceSwipe() }
-        sleeper = TabSleeper(store: tabs)
+        // A one-page window has no spaces to swipe and no background tabs to put to sleep.
+        if !isPrivate && !isLittle { installSpaceSwipe() }
+        if !isLittle { sleeper = TabSleeper(store: tabs) }
         if let extensionController { registerWithExtensions(extensionController) }
     }
 
@@ -227,6 +242,7 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
     }
 
     private func buildLayout() {
+        guard !isLittle else { return buildLittleLayout() }
         let effect = NSVisualEffectView()
         effect.material = .sidebar
         // A dark sidebar marks private windows at a glance.
@@ -271,6 +287,19 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
         overlayHost = overlay
         window?.contentViewController = root
         window?.setContentSize(NSSize(width: 1320, height: 860))
+        observeCommandBar()
+    }
+
+    /// Little Lily: the page fills the window under the native title bar (page title, site as the
+    /// subtitle) and a small toolbar; the command bar (⌘L) overlays it as in the main window.
+    private func buildLittleLayout() {
+        let root = RootViewController(content: contentController)
+        let overlay = NSHostingView(rootView: CommandBarOverlay(window: model))
+        overlay.isHidden = true
+        root.addOverlay(overlay)
+        overlayHost = overlay
+        window?.contentViewController = root
+        window?.setContentSize(NSSize(width: 900, height: 640))
         observeCommandBar()
     }
 
@@ -335,12 +364,15 @@ public final class BrowserWindowController: NSWindowController, NSWindowDelegate
             self.snapshotScheduled = false
             self.model.refresh(from: self.tabs)
             self.window?.title = self.tabs.active?.title ?? (self.isPrivate ? "Private" : "Lily")
+            // Little Lily names the site under the page title, where the main window has its sidebar.
+            if self.isLittle { self.window?.subtitle = Self.siteName(self.tabs.active?.url) }
             self.updateHandoff()
             self.onSessionChange?()
         }
     }
 
     func open(_ url: URL, newTab: Bool) {
+        if isLittle && newTab && tabs.active != nil { return openInMainWindow(url, activate: true) }
         if newTab || tabs.active == nil {
             tabs.create(url: url)
         } else {
@@ -400,13 +432,20 @@ extension BrowserWindowController: TabDelegate {
 
     public func tab(_ tab: Tab, requestsNewTabWith request: URLRequest, inBackground: Bool) {
         guard let url = request.url else { return }
+        if isLittle { return openInMainWindow(url, activate: !inBackground) }
         tabs.create(url: url, activate: !inBackground)
+    }
+
+    public func tab(_ tab: Tab, requestsLittleWith request: URLRequest) {
+        guard let url = request.url else { return }
+        openLittle?(url)
     }
 
     /// The link opens beside the tab it came from: added to that tab's split if it has room,
     /// otherwise the two start a new split.
     public func tab(_ tab: Tab, requestsSplitWith request: URLRequest) {
         guard let url = request.url else { return }
+        if isLittle { return openInMainWindow(url, activate: true) }
         tabs.activate(tab.id)
         let opened = tabs.create(url: url, activate: false)
         if let split = tabs.split, split.layout.grown != nil {

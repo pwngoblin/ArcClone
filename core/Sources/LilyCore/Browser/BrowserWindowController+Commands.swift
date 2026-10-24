@@ -25,10 +25,14 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
     }
 
     @objc public func newTab(_ sender: Any?) {
+        // Little Lily holds one page; a new tab belongs in the main window.
+        if isLittle && tabs.active != nil { return openInMainWindow(nil, activate: true) }
         model.presentCommandBar(newTab: true)
     }
 
     @objc public func closeTab(_ sender: Any?) {
+        // Little Lily's page is the window: ⌘W closes it rather than leaving it empty.
+        if isLittle { return window?.performClose(sender) ?? () }
         if let id = tabs.activeID { tabs.close(id) } else { window?.performClose(sender) }
     }
 
@@ -302,6 +306,17 @@ extension BrowserWindowController: NSMenuItemValidation, NSToolbarItemValidation
     @objc public func reloadAssistant(_ sender: Any?) { assistant.reconfigure(.fromPreferences()) }
 
     public func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(openInLily(_:)) {
+            item.isHidden = !isLittle // only Little Lily windows have a page to move
+            return isLittle && tabs.active != nil
+        }
+        // One page, no sidebar: nothing to split, pin, reorder, reopen or switch between.
+        if isLittle, [#selector(splitView(_:)), #selector(exitSplitView(_:)), #selector(toggleLinkScrolling(_:)),
+                      #selector(toggleSidebar(_:)), #selector(nextSpace(_:)), #selector(previousSpace(_:)),
+                      #selector(togglePinTab(_:)), #selector(selectNextTab(_:)), #selector(selectPreviousTab(_:)),
+                      #selector(selectTabByNumber(_:)), #selector(reopenClosedTab(_:)), #selector(showExtensions(_:))].contains(item.action) {
+            return false
+        }
         switch item.action {
         case #selector(goBack(_:)): return tabs.active?.webView.canGoBack ?? false
         case #selector(goForward(_:)): return tabs.active?.webView.canGoForward ?? false

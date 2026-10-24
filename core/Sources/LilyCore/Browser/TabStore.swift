@@ -372,6 +372,32 @@ public final class TabStore {
 
     /// Opens a local file the user chose (Open panel, Finder, or a restored bookmark).
     @discardableResult
+    // MARK: Moving tabs between windows
+
+    /// Takes `id` out of this store without tearing it down (no `tearDown`, no recently-closed
+    /// entry), to hand to another window's store (`adopt`). It leaves its split.
+    public func detach(_ id: UUID) -> Tab? {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return nil }
+        leaveSplit(id)
+        let tab = tabs.remove(at: index)
+        onTabRemoved?(tab)
+        router.forget(tab: tab.id)
+        if activeID == id { setActive(visibleTabs.max(by: { $0.lastActivated < $1.lastActivated })?.id) } else { onChange?() }
+        return tab
+    }
+
+    /// A tab from another window joins this one: in the current space, after the active tab,
+    /// with this window's routes. Its page keeps running, except that moving into a space with a
+    /// different data store (Separate logins) reloads it on that store, as moving between spaces does.
+    public func adopt(_ tab: Tab, activate: Bool = true) {
+        let store = factory.dataStore(forSpace: tab.spaceID)
+        tab.isPinned = false
+        tab.rebind(router: router)
+        tab.spaceID = currentSpaceID
+        if factory.dataStore(forSpace: currentSpaceID) !== store { tab.rebuildWebView() }
+        _ = insert(tab, activate: activate, pinned: false, nextToActive: true)
+    }
+
     public func openFile(_ url: URL, activate: Bool = true, pinned: Bool = false) -> Tab {
         let tab = create(url: nil, activate: activate, pinned: pinned, nextToActive: false)
         tab.holdSecurityScope(url)

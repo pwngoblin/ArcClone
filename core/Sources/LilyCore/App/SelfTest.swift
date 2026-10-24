@@ -1,4 +1,5 @@
 import AppKit
+import WebKit
 import SQLite3
 
 /// `Lily --self-test`: boots the real app, loads a fixture page and exercises every IPC path
@@ -176,6 +177,11 @@ enum SelfTest {
                 let value = try? await idlePane.webView.evaluateJavaScript("frames_")
                 return (value as? Double) ?? (value as? NSNumber)?.doubleValue ?? -1
             }
+            // Animation frames only run in a visible window: measure with Lily in front, so another
+            // window covering it doesn't read as "paused" (it did, once, on a busy desktop).
+            NSApp.activate()
+            window.window?.makeKeyAndOrderFront(nil)
+            _ = await waitUntil(3) { window.window?.isKeyWindow == true && window.window?.occlusionState.contains(.visible) == true }
             try? await Task.sleep(for: .milliseconds(300))
             let start = await frames()
             try? await Task.sleep(for: .milliseconds(1500))
@@ -300,6 +306,43 @@ enum SelfTest {
             let firstTabKey = all.first { $0.action == #selector(BrowserWindowController.selectTabByNumber(_:)) && $0.tag == 1 }
             check("menu bar", removed.isEmpty && importItems == 1 && firstTabKey?.keyEquivalent == "1" && firstTabKey?.menu?.title == "Go to Tab",
                   ["unwanted": .array(removed.map(JSONValue.string)), "importItems": .number(Double(importItems))])
+
+            // Little Lily: a one-page window; Open in Lily moves the live page into the main window
+            // (same web view, no reload: the page's load stamp, typed text and scroll position
+            // survive), the small window closes, and the page's messages reach the main window.
+            let little = BrowserWindowController(factory: window.factory, assistant: assistant, history: window.history, style: .little)
+            little.mainWindow = { window }
+            little.showWindow(nil)
+            let littlePage = little.tabs.create(url: nil)
+            littlePage.webView.loadHTMLString("""
+                <!doctype html><title>Little</title><script>window.stamp = Math.random();</script>
+                <textarea id="note"></textarea><div style="height:4000px"></div>
+                """, baseURL: URL(string: "https://selftest.lily.test/little")!)
+            _ = await waitUntil(10) { littlePage.title == "Little" }
+            _ = try? await littlePage.webView.evaluateJavaScript("document.getElementById('note').value = 'kept while moving'; scrollTo(0, 900);")
+            let stamp = try? await littlePage.webView.evaluateJavaScript("String(window.stamp)") as? String
+            let pageView = littlePage.webView
+            var littleType = false
+            if #available(macOS 15.4, *), let controller = window.extensionController as? WKWebExtensionController,
+               let context = controller.extensionContexts.first {
+                littleType = little.windowType(for: context) == .popup
+            } else { littleType = little.isLittle }
+            let canMove = little.validateMenuItem(NSMenuItem(title: "", action: #selector(BrowserWindowController.openInLily(_:)), keyEquivalent: ""))
+            let mainHidesIt: Bool = {
+                let item = NSMenuItem(title: "", action: #selector(BrowserWindowController.openInLily(_:)), keyEquivalent: "")
+                return !window.validateMenuItem(item) && item.isHidden
+            }()
+            little.openInLily(nil)
+            let moved = window.tabs.active === littlePage && littlePage.webView === pageView && little.tabs.tabs.isEmpty
+            let closed = await waitUntil(3) { little.window?.isVisible == false }
+            let sameStamp = (try? await littlePage.webView.evaluateJavaScript("String(window.stamp)") as? String) == stamp && stamp != nil
+            let kept = (try? await littlePage.webView.evaluateJavaScript("document.getElementById('note').value + '|' + Math.round(scrollY)") as? String)
+            _ = try? await littlePage.webView.evaluateJavaScript("document.title = 'Moved'")
+            let routed = await waitUntil(5) { littlePage.title == "Moved" && window.model.tabs.contains { $0.title == "Moved" } }
+            check("little lily", moved && closed && sameStamp && kept == "kept while moving|900" && routed && canMove && mainHidesIt && littleType,
+                  ["sameWebView": .bool(moved), "littleClosed": .bool(closed), "notReloaded": .bool(sameStamp),
+                   "textAndScroll": JSONValue(kept), "messagesReachMain": .bool(routed), "menu": .bool(canMove && mainHidesIt)])
+            window.tabs.close(littlePage.id)
 
             // ⌘K reads the live menus: browser commands validate through the window's responder
             // chain, text-editing commands and the palette itself stay out.

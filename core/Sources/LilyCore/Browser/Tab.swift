@@ -6,6 +6,8 @@ public protocol TabDelegate: AnyObject {
     func tab(_ tab: Tab, requestsNewTabWith request: URLRequest, inBackground: Bool)
     /// Context menu → Open Link in Split View.
     func tab(_ tab: Tab, requestsSplitWith request: URLRequest)
+    /// Context menu → Open Link in Little Lily.
+    func tab(_ tab: Tab, requestsLittleWith request: URLRequest)
     func tabRequestsClose(_ tab: Tab)
     func tabDidStartDownload(_ tab: Tab)
 }
@@ -22,7 +24,7 @@ public final class Tab: NSObject {
         loadedWebView = created
         created.navigationDelegate = self
         created.uiDelegate = self
-        (created as? BrowserWebView)?.willOpenLinkInSplit = { [weak self] in self?.splitRequestedAt = Date() }
+        (created as? BrowserWebView)?.willOpenLink = { [weak self] target in self?.linkTarget = (target, Date()) }
         observe()
         return created
     }
@@ -44,6 +46,8 @@ public final class Tab: NSObject {
     public private(set) var lastActivated = Date()
 
     private let bridge: ScriptMessageBridge
+    /// The window's router this tab's pages talk to; changes when the tab moves window.
+    public private(set) weak var router: IPCRouter?
     private let contentWorld: WKContentWorld
     private var observations: [NSKeyValueObservation] = []
     private var crashTimes: [Date] = []
@@ -87,6 +91,7 @@ public final class Tab: NSObject {
             return .page(tabID: tabID, isMainFrame: message.frameInfo.isMainFrame,
                          url: IPCSource.originURL(protocol: origin.protocol, host: origin.host, port: origin.port))
         }
+        self.router = router
         self.factory = factory
         self.url = url
         super.init()
@@ -147,9 +152,9 @@ public final class Tab: NSObject {
     // MARK: Page change detection
 
     private var recheckTask: Task<Void, Never>?
-    /// Set when the context menu's Open Link in Split View hands the link to WebKit; the
-    /// new-window request that follows (within a moment) opens in split view.
-    fileprivate var splitRequestedAt: Date?
+    /// Set when the context menu's Open Link in Split View / in Little Lily hands the link to
+    /// WebKit; the new-window request that follows (within a moment) opens there.
+    fileprivate var linkTarget: (target: BrowserWebView.LinkTarget, at: Date)?
 
     /// The page scripts no longer poll for single-page-app navigations; when WebKit reports a URL
     /// change we ask them, once, to re-read the page (debounced to coalesce redirect bursts).
@@ -171,6 +176,12 @@ public final class Tab: NSObject {
     public private(set) var isSleeping = false
     /// Back/forward list and scroll position captured when the tab went to sleep.
     private var sleepState: Any?
+
+    /// The tab moved to another window: its pages' messages go to that window's routes.
+    func rebind(router: IPCRouter) {
+        self.router = router
+        bridge.rebind(router: router)
+    }
 
     /// The tab's space changed data store (Separate logins switched, or the tab moved): a new web
     /// view on the right store, back where the page was. Unloaded tabs pick it up when they load.
@@ -563,11 +574,14 @@ extension Tab: WKUIDelegate {
     /// target=_blank and window.open: open as a foreground tab instead of a popup window.
     public func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                         for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-        let split = splitRequestedAt.map { Date().timeIntervalSince($0) < 2 } ?? false
-        splitRequestedAt = nil
+        let target = linkTarget.flatMap { Date().timeIntervalSince($0.at) < 2 ? $0.target : nil }
+        linkTarget = nil
         if navigationAction.request.url != nil {
-            if split { delegate?.tab(self, requestsSplitWith: navigationAction.request) }
-            else { delegate?.tab(self, requestsNewTabWith: navigationAction.request, inBackground: false) }
+            switch target {
+            case .split?: delegate?.tab(self, requestsSplitWith: navigationAction.request)
+            case .little?: delegate?.tab(self, requestsLittleWith: navigationAction.request)
+            case nil: delegate?.tab(self, requestsNewTabWith: navigationAction.request, inBackground: false)
+            }
         }
         return nil
     }
