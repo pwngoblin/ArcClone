@@ -420,6 +420,10 @@ private struct SpaceHeader: View {
         HStack(spacing: 6) {
             Image(systemName: space.symbol).foregroundStyle(Color(hex: space.color)).font(.system(size: 11, weight: .semibold))
             Text(space.name).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+            if space.hasSeparateLogins {
+                Image(systemName: "person.badge.key.fill").font(.system(size: 10)).foregroundStyle(.secondary)
+                    .help("Separate logins: this space has its own cookies and site data")
+            }
             Spacer()
             Menu {
                 Button { editing = true } label: { Label("Edit Space…", systemImage: "pencil") }
@@ -429,7 +433,9 @@ private struct SpaceHeader: View {
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         }
         .padding(.horizontal, 16).padding(.vertical, 4)
-        .popover(isPresented: $editing) { SpaceEditor(space: space, title: "Edit Space") { window.updateSpace($0) } }
+        .popover(isPresented: $editing) {
+            SpaceEditor(space: space, title: "Edit Space", allowsSeparateLogins: !window.isPrivate) { window.updateSpace($0) }
+        }
     }
 }
 
@@ -461,7 +467,7 @@ private struct SpaceSwitcher: View {
                 .popover(isPresented: $adding) {
                     SpaceEditor(space: Space(name: "", symbol: Space.symbols.randomElement() ?? "circle.fill",
                                              color: AppearanceStyle.presets.randomElement() ?? AppearanceStyle.defaultAccent),
-                                title: "New Space") { window.addSpace(name: $0.name, symbol: $0.symbol, color: $0.color) }
+                                title: "New Space", allowsSeparateLogins: !window.isPrivate) { window.addSpace($0) }
                 }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.75), value: window.currentSpaceID)
@@ -471,6 +477,8 @@ private struct SpaceSwitcher: View {
 private struct SpaceEditor: View {
     @State var space: Space
     let title: String
+    /// Private windows already keep everything apart, in one throwaway store.
+    let allowsSeparateLogins: Bool
     let save: (Space) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -492,6 +500,16 @@ private struct SpaceEditor: View {
                         .overlay(Circle().strokeBorder(.primary.opacity(space.color == hex ? 0.8 : 0), lineWidth: 2).padding(-3))
                         .onTapGesture { space.color = hex }
                 }
+            }
+            if allowsSeparateLogins {
+                Toggle(isOn: Binding(get: { space.hasSeparateLogins }, set: { space.separateLogins = $0 })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Separate logins")
+                        Text("Its own cookies and site data, so you can use other accounts here. Open tabs in this space reload.")
+                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .toggleStyle(.switch).controlSize(.small)
             }
             HStack {
                 Spacer()

@@ -1,11 +1,15 @@
 import WebKit
 
 /// Builds web views for tabs. Every tab gets its own WKUserContentController (so script
-/// messages identify their tab) while sharing one persistent website data store.
+/// messages identify their tab). Tabs share one persistent website data store, except in spaces
+/// with Separate logins, which each get their own cookies, storage and cache.
 @MainActor
 public final class WebViewFactory {
     public let registry: ScriptRegistry
     public let dataStore: WKWebsiteDataStore
+    /// Spaces with Separate logins (`Space.separateLogins`) and their stores, made on first use.
+    private var isolatedSpaces: Set<UUID> = []
+    private var spaceStores: [UUID: WKWebsiteDataStore] = [:]
     /// Per-site zoom, dark mode, JavaScript and permissions; shared by every window.
     public let siteSettings: SiteSettings?
     /// Private windows apply site settings but never record changes (that would reveal the site).
@@ -36,9 +40,44 @@ public final class WebViewFactory {
         self.savesSiteChanges = savesSiteChanges
     }
 
-    public func makeConfiguration(bridge: ScriptMessageBridge) -> WKWebViewConfiguration {
+    // MARK: Workspaces
+
+    /// Private windows keep everything in their one throwaway store.
+    public var isolatesSpaces: Bool { dataStore.isPersistent }
+
+    /// The store a tab in `space` uses: the space's own when it has Separate logins.
+    public func dataStore(forSpace space: UUID?) -> WKWebsiteDataStore {
+        guard isolatesSpaces, let space, isolatedSpaces.contains(space) else { return dataStore }
+        if let store = spaceStores[space] { return store }
+        let store = WKWebsiteDataStore(forIdentifier: space)
+        spaceStores[space] = store
+        return store
+    }
+
+    func setSeparateLogins(_ separate: Bool, forSpace space: UUID) {
+        if separate { isolatedSpaces.insert(space) } else { isolatedSpaces.remove(space) }
+    }
+
+    /// Deletes a space's own store (cookies, storage, cache) once no web view uses it.
+    func removeSpaceData(_ space: UUID) async {
+        isolatedSpaces.remove(space)
+        spaceStores[space] = nil
+        try? await WKWebsiteDataStore.remove(forIdentifier: space)
+    }
+
+    /// Clear Browsing Data: the shared store and every space's own store, open or not.
+    func removeAllWebsiteData() async {
+        let types = WKWebsiteDataStore.allWebsiteDataTypes()
+        await dataStore.removeData(ofTypes: types, modifiedSince: .distantPast)
+        guard isolatesSpaces else { return }
+        for id in await WKWebsiteDataStore.allDataStoreIdentifiers {
+            await (spaceStores[id] ?? WKWebsiteDataStore(forIdentifier: id)).removeData(ofTypes: types, modifiedSince: .distantPast)
+        }
+    }
+
+    public func makeConfiguration(bridge: ScriptMessageBridge, space: UUID? = nil) -> WKWebViewConfiguration {
         let config = WKWebViewConfiguration()
-        config.websiteDataStore = dataStore
+        config.websiteDataStore = dataStore(forSpace: space)
         config.applicationNameForUserAgent = applicationNameForUserAgent
         config.allowsAirPlayForMediaPlayback = true
         // Like Safari: media with sound waits for a click (abuse, battery); muted autoplay still works.
@@ -66,8 +105,8 @@ public final class WebViewFactory {
         return config
     }
 
-    public func makeWebView(bridge: ScriptMessageBridge) -> WKWebView {
-        let webView = BrowserWebView(frame: .zero, configuration: makeConfiguration(bridge: bridge))
+    public func makeWebView(bridge: ScriptMessageBridge, space: UUID? = nil) -> WKWebView {
+        let webView = BrowserWebView(frame: .zero, configuration: makeConfiguration(bridge: bridge, space: space))
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = true
         webView.isInspectable = inspectable

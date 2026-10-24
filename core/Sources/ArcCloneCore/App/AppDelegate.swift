@@ -133,8 +133,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
             await history?.flush()
             await bookmarks?.flush()
             if Preferences.flag(Preferences.Key.clearWebsiteDataOnQuit, default: false) {
-                // Cookies, storage and caches are written by WebKit unencrypted; don't leave them behind.
-                await factory.dataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
+                // Cookies, storage and caches are written by WebKit unencrypted; don't leave them behind
+                // (every space's own store included).
+                await factory.removeAllWebsiteData()
             }
             NSApp.reply(toApplicationShouldTerminate: true)
         }
@@ -150,7 +151,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
         alert.buttons.first?.hasDestructiveAction = true
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         Task {
-            await factory.dataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
+            await factory.removeAllWebsiteData()
             await sessionStore.clear()
             history.clear()
             await history.flush()

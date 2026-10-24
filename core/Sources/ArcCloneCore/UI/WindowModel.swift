@@ -205,8 +205,8 @@ public final class WindowModel {
         controller?.tabs.switchSpace(by: offset)
         Haptics.step()
     }
-    func addSpace(name: String, symbol: String, color: String) {
-        controller?.tabs.addSpace(name: name, symbol: symbol, color: color)
+    func addSpace(_ space: Space) {
+        controller?.tabs.addSpace(name: space.name, symbol: space.symbol, color: space.color, separateLogins: space.hasSeparateLogins)
         Haptics.step()
     }
     func updateSpace(_ space: Space) { controller?.tabs.updateSpace(space) }
