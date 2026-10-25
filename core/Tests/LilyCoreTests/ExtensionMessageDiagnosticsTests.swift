@@ -24,13 +24,15 @@ import WebKit
 @MainActor private final class ConsoleLily: NSObject, WKWebExtensionControllerDelegate {
     let window: ProbeWindow
     var lines: [String] = []
+    /// The shim asked whether to forward its console (it's ready to log).
+    var asked = false
     init(_ window: ProbeWindow) { self.window = window }
     func webExtensionController(_ controller: WKWebExtensionController, openWindowsFor extensionContext: WKWebExtensionContext) -> [any WKWebExtensionWindow] { [window] }
     func webExtensionController(_ controller: WKWebExtensionController, focusedWindowFor extensionContext: WKWebExtensionContext) -> (any WKWebExtensionWindow)? { window }
     func webExtensionController(_ controller: WKWebExtensionController, sendMessage message: Any, toApplicationWithIdentifier applicationIdentifier: String?,
                                 for extensionContext: WKWebExtensionContext) async throws -> Any? {
         guard applicationIdentifier == ExtensionConsole.applicationIdentifier, let line = message as? [String: Any] else { throw URLError(.badURL) }
-        if line["action"] as? String == "enabled" { return true }
+        if line["action"] as? String == "enabled" { asked = true; return true }
         lines.append(line["text"] as? String ?? "")
         return nil
     }
@@ -68,16 +70,19 @@ import WebKit
         context.setPermissionStatus(.grantedExplicitly, for: .nativeMessaging)
         try controller.load(context)
         defer { try? controller.unload(context) }
-        context.loadBackgroundContent { _ in }
+        // The page's message must find the background running and the shim forwarding: on a busy
+        // machine a fixed delay wasn't always enough.
+        try await context.loadBackgroundContent()
+        for _ in 0..<100 where !lily.asked { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(lily.asked)
         let configuration = WKWebViewConfiguration()
         configuration.webExtensionController = controller
         let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), configuration: configuration)
         tab.web = web
         controller.didOpenWindow(window)
         controller.didOpenTab(tab)
-        try await Task.sleep(for: .seconds(1))
         web.loadHTMLString("<title>page</title>", baseURL: URL(string: "https://example.com/")!)
-        for _ in 0..<80 where !(web.title ?? "").hasPrefix("R:") || lily.lines.count < 3 { try await Task.sleep(for: .milliseconds(100)) }
+        for _ in 0..<200 where !(web.title ?? "").hasPrefix("R:") || lily.lines.count < 3 { try await Task.sleep(for: .milliseconds(100)) }
 
         #expect(web.title == #"R:{"type":"Success","data":"pong"}"#)
         #expect(lily.lines.contains { $0.hasPrefix("[Lily] received <sign-in-succeeded> from example.com tab") }, "\(lily.lines)")

@@ -62,7 +62,7 @@ import WebKit
                                 for extensionContext: WKWebExtensionContext) async throws {
         guard port.applicationIdentifier == ExtensionNotifications.applicationIdentifier else { throw URLError(.badURL) }
         self.port = port
-        Task { @MainActor in port.sendMessage(["type": "buttonClicked", "id": "n1", "buttonIndex": 1], completionHandler: nil) }
+        Task { @MainActor in try? await port.sendMessage(["type": "buttonClicked", "id": "n1", "buttonIndex": 1]) }
     }
 
     func webExtensionController(_ controller: WKWebExtensionController, openNewTabUsing configuration: WKWebExtension.TabConfiguration,
@@ -107,7 +107,7 @@ import WebKit
         context.setPermissionStatus(.grantedExplicitly, for: .nativeMessaging)
         try controller.load(context)
         defer { try? controller.unload(context) }
-        context.loadBackgroundContent { _ in }
+        try await context.loadBackgroundContent()
         for _ in 0..<50 where lily.reports.count < 4 { try await Task.sleep(for: .milliseconds(100)) }
 
         let reports = lily.reports

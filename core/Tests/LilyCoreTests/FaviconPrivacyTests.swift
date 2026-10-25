@@ -57,7 +57,7 @@ final class IconServer: URLProtocol, @unchecked Sendable {
         #expect(IconServer.requests == [icon])
         _ = await icons.fetch(icon, forPage: page, remember: true) // once a session is enough
         #expect(IconServer.requests.count == 1)
-        try await Task.sleep(for: .seconds(5.5)) // the debounced save
+        await icons.savePending() // the debounced save
 
         let later = loader()
         await later.load(directory: dir, keys: keys)
@@ -74,7 +74,7 @@ final class IconServer: URLProtocol, @unchecked Sendable {
         let icons = loader()
         await icons.load(directory: dir, keys: keys)
         #expect(await icons.fetch(icon, forPage: page, remember: false) != nil)
-        try await Task.sleep(for: .seconds(5.5))
+        await icons.savePending()
         #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("favicons.sealed").path))
     }
 
