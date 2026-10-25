@@ -148,6 +148,44 @@
       return false;
     });
     runtime.onConnect.addListener((port) => note('info', `[Lily] port <${String(port.name).slice(0, 100)}> from ${origin(port.sender)}`));
+    // How the extension's own listeners answer: each reply's kind (Success, Error, undefined; never
+    // its contents) and delay, or that a listener promised a reply and sent none within 10 s.
+    const kindOf = (value) => (value === undefined ? 'undefined' : value && typeof value.type === 'string'
+      ? value.type + (value.type === 'Error' && value.message ? ` (${String(value.message).slice(0, 200)})` : '') : typeof value);
+    for (const target of [runtime, globalThis.browser && globalThis.browser.runtime].filter(Boolean)) {
+      const event = target.onMessage;
+      if (!event || typeof event.addListener !== 'function') continue;
+      const { addListener, removeListener, hasListener } = event;
+      const wrappers = new WeakMap();
+      const wrap = (listener) => {
+        if (typeof listener !== 'function') return listener;
+        if (!wrappers.has(listener)) {
+          wrappers.set(listener, function (message, sender, sendResponse) {
+            if (mode === 'off') return listener.call(this, message, sender, sendResponse);
+            const name = nameOf(message);
+            const started = Date.now();
+            let replied = false;
+            const respond = (value) => {
+              replied = true;
+              note('info', `[Lily] reply <${name}>: ${kindOf(value)} after ${Date.now() - started} ms`);
+              return sendResponse(value);
+            };
+            const result = listener.call(this, message, sender, respond);
+            if (result === true) {
+              setTimeout(() => { if (!replied) note('warn', `[Lily] no reply to <${name}> after 10 s`); }, 10000);
+            } else if (result && typeof result.then === 'function') {
+              result.then((value) => note('info', `[Lily] reply <${name}> (promise): ${kindOf(value)} after ${Date.now() - started} ms`),
+                (error) => note('warn', `[Lily] reply <${name}> (promise) failed: ${describe(error)}`));
+            }
+            return result;
+          });
+        }
+        return wrappers.get(listener);
+      };
+      add(event, 'addListener', function (listener, ...rest) { return addListener.call(this, wrap(listener), ...rest); });
+      add(event, 'removeListener', function (listener) { return removeListener.call(this, wrappers.get(listener) || listener); });
+      if (typeof hasListener === 'function') add(event, 'hasListener', function (listener) { return hasListener.call(this, wrappers.get(listener) || listener); });
+    }
     try {
       toLily(consoleChannel, { action: 'enabled' }).then((on) => {
         mode = on === true ? 'on' : 'off';

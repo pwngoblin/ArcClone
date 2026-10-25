@@ -77,11 +77,13 @@ import WebKit
         controller.didOpenTab(tab)
         try await Task.sleep(for: .seconds(1))
         web.loadHTMLString("<title>page</title>", baseURL: URL(string: "https://example.com/")!)
-        for _ in 0..<80 where !(web.title ?? "").hasPrefix("R:") || lily.lines.count < 2 { try await Task.sleep(for: .milliseconds(100)) }
+        for _ in 0..<80 where !(web.title ?? "").hasPrefix("R:") || lily.lines.count < 3 { try await Task.sleep(for: .milliseconds(100)) }
 
         #expect(web.title == #"R:{"type":"Success","data":"pong"}"#)
         #expect(lily.lines.contains { $0.hasPrefix("[Lily] received <sign-in-succeeded> from example.com tab") }, "\(lily.lines)")
         #expect(lily.lines.contains(#"[page log] {"msg":"hello"}"#), "\(lily.lines)")
         #expect(!lily.lines.contains { $0.contains("not logged") })
+        // The extension's own reply is reported by kind and delay.
+        #expect(lily.lines.contains { $0.hasPrefix("[Lily] reply <sign-in-succeeded>: Success after") }, "\(lily.lines)")
     }
 }
