@@ -136,18 +136,19 @@ extension BrowserWindowController {
         controller.didCloseWindow(self)
     }
 
-    /// An extension's popup, shown under the toolbar's Extensions button.
-    func presentExtensionPopup(_ webView: WKWebView) {
-        let popover = NSPopover()
+    /// An extension's popup, shown under the toolbar's Extensions button. WebKit's own popover
+    /// sizes itself to the popup's content and, when dismissed, closes the popup and unloads its
+    /// web view, so a closed popup holds no memory and the extension sees it as closed.
+    @available(macOS 15.4, *)
+    func presentExtensionPopup(_ action: WKWebExtension.Action) {
+        guard let popover = action.popupPopover else { return }
         popover.behavior = .transient
-        let host = NSViewController()
-        host.view = webView
-        host.preferredContentSize = NSSize(width: max(webView.frame.width, 320), height: max(webView.frame.height, 240))
-        popover.contentViewController = host
         if let item = window?.toolbar?.items.first(where: { $0.itemIdentifier == WindowToolbar.extensions }) {
             popover.show(relativeTo: item)
         } else if let view = window?.contentView {
             popover.show(relativeTo: NSRect(x: view.bounds.maxX - 80, y: view.bounds.maxY - 10, width: 1, height: 1), of: view, preferredEdge: .minY)
+        } else {
+            action.closePopup()
         }
     }
 }

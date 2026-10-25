@@ -443,6 +443,11 @@ enum SelfTest {
             check("session encrypted at rest", restored == sample && !onDisk.isEmpty && onDisk.range(of: Data("s3cret".utf8)) == nil,
                   ["bytes": JSONValue(onDisk.count)])
 
+            if #available(macOS 15.4, *) {
+                let popup = await Self.extensionPopupProbe(window: window, tab: tab)
+                check("extension popup", popup["ok"]?.bool == true, popup)
+            }
+
             // Optional live HTTPS-First check (needs network): LILY_SELFTEST_NETWORK=1
             if ProcessInfo.processInfo.environment["LILY_SELFTEST_NETWORK"] != nil {
                 let web = window.tabs.create(url: URL(string: "http://example.com/"))
@@ -527,6 +532,43 @@ enum SelfTest {
             let viaOwnFolder = MigrationEngine.locate(.dia, in: [.applicationSupport: folder]) != nil
             let viaLibrary = MigrationEngine.locate(.dia, in: [.applicationSupport: root]) != nil
             return ["ok": .bool(scan.history == 2 && history.count == 2 && viaOwnFolder && viaLibrary), "scanned": JSONValue(scan.history), "read": JSONValue(history.count)]
+        } catch {
+            return ["ok": false, "error": .string(Sanitize.errorMessage(error))]
+        }
+    }
+
+    /// Clicking an extension's action shows its popup in a popover sized to the popup's content
+    /// (here 420×310), and dismissing the popover closes the popup. The self-test doesn't load the
+    /// user's extensions, so this runs a fixture extension in a runtime of its own.
+    @available(macOS 15.4, *)
+    private static func extensionPopupProbe(window: BrowserWindowController, tab: Tab) async -> JSONValue {
+        let manager = ExtensionManager(library: ExtensionLibrary(directory: nil))
+        manager.windows = { [window] }
+        manager.focusedWindow = { window }
+        let controller = manager.controller
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lily-selftest-extension-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        do {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try Data(#"{"manifest_version": 3, "name": "Self Test Popup", "version": "1", "action": {"default_popup": "popup.html"}}"#.utf8)
+                .write(to: root.appendingPathComponent("manifest.json"))
+            try Data(#"<!doctype html><body style="margin:0"><div style="width:420px;height:310px">Popup</div></body>"#.utf8)
+                .write(to: root.appendingPathComponent("popup.html"))
+            let context = WKWebExtensionContext(for: try await WKWebExtension(resourceBaseURL: root))
+            try controller.load(context)
+            defer { try? controller.unload(context) }
+            window.registerWithExtensions(controller)
+            context.performAction(for: tab)
+            guard let action = context.action(for: tab) else { return ["ok": false, "error": "no action"] }
+            let shown = await waitUntil(10) {
+                guard let size = action.popupPopover?.contentSize, action.popupPopover?.isShown == true else { return false }
+                return abs(size.width - 420) < 2 && abs(size.height - 310) < 2
+            }
+            let size = action.popupPopover?.contentSize ?? .zero
+            action.popupPopover?.performClose(nil)
+            let closed = await waitUntil(5) { action.popupPopover?.isShown != true }
+            return ["ok": .bool(shown && closed), "shown": .bool(shown), "closed": .bool(closed),
+                    "size": .string("\(Int(size.width))×\(Int(size.height))")]
         } catch {
             return ["ok": false, "error": .string(Sanitize.errorMessage(error))]
         }
