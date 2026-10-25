@@ -117,17 +117,37 @@
     let mode = 'waiting';
     const early = [];
     const send = (line) => { try { toLily(consoleChannel, line).catch(() => {}); } catch (error) { /* not available */ } };
+    const note = (level, text) => {
+      if (mode === 'off') return;
+      const line = { action: 'log', level, text: text.slice(0, 2000) };
+      if (mode === 'on') send(line); else if (early.length < 200) early.push(line);
+    };
     for (const level of ['error', 'warn', 'info', 'log']) {
       const original = console[level];
       if (typeof original !== 'function') continue;
       console[level] = (...args) => {
-        if (mode !== 'off') {
-          const line = { action: 'log', level, text: args.map(describe).join(' ').slice(0, 2000) };
-          if (mode === 'on') send(line); else if (early.length < 200) early.push(line);
-        }
+        note(level, args.map(describe).join(' '));
         return original.apply(console, args);
       };
     }
+    // What the background receives: each message's name and where it came from (never its
+    // contents), and the log reports that some extensions' page scripts and popups send their
+    // background (1Password's `*-log-event`), which are otherwise invisible. Registered before
+    // the extension's own listeners; it never answers, so it changes nothing.
+    const nameOf = (message) => String(message && typeof message.name === 'string' ? message.name
+      : message && typeof message.type === 'string' ? message.type : typeof message).slice(0, 100);
+    const origin = (sender) => {
+      try {
+        const where = sender && sender.url ? new URL(sender.url).host : 'unknown';
+        return `${where} tab ${sender && sender.tab ? sender.tab.id : '-'} frame ${sender ? sender.frameId : '-'}`;
+      } catch (error) { return 'unknown'; }
+    };
+    runtime.onMessage.addListener((message, sender) => {
+      const name = nameOf(message);
+      note('info', /log-event$/.test(name) ? `[page log] ${describe(message.data)}` : `[Lily] received <${name}> from ${origin(sender)}`);
+      return false;
+    });
+    runtime.onConnect.addListener((port) => note('info', `[Lily] port <${String(port.name).slice(0, 100)}> from ${origin(port.sender)}`));
     try {
       toLily(consoleChannel, { action: 'enabled' }).then((on) => {
         mode = on === true ? 'on' : 'off';
