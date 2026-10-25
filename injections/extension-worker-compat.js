@@ -104,6 +104,39 @@
   const toLily = typeof runtime.sendNativeMessage === 'function' ? runtime.sendNativeMessage.bind(runtime) : null;
   const portToLily = typeof runtime.connectNative === 'function' ? runtime.connectNative.bind(runtime) : null;
 
+  // Diagnostics: with Lily's web developer features on, the background's console goes to Lily's
+  // log (debug level, not kept on disk), since an extension's background can't be inspected
+  // otherwise. Lines written before Lily answers are kept (up to 200) and sent if it's on.
+  if (toLily) {
+    const consoleChannel = 'dev.lily.console';
+    const describe = (value) => {
+      if (value instanceof Error) return value.stack || String(value);
+      if (value && typeof value === 'object') { try { return JSON.stringify(value); } catch (error) { return String(value); } }
+      return String(value);
+    };
+    let mode = 'waiting';
+    const early = [];
+    const send = (line) => { try { toLily(consoleChannel, line).catch(() => {}); } catch (error) { /* not available */ } };
+    for (const level of ['error', 'warn', 'info', 'log']) {
+      const original = console[level];
+      if (typeof original !== 'function') continue;
+      console[level] = (...args) => {
+        if (mode !== 'off') {
+          const line = { action: 'log', level, text: args.map(describe).join(' ').slice(0, 2000) };
+          if (mode === 'on') send(line); else if (early.length < 200) early.push(line);
+        }
+        return original.apply(console, args);
+      };
+    }
+    try {
+      toLily(consoleChannel, { action: 'enabled' }).then((on) => {
+        mode = on === true ? 'on' : 'off';
+        if (mode === 'on') early.forEach(send);
+        early.length = 0;
+      }, () => { mode = 'off'; early.length = 0; });
+    } catch (error) { mode = 'off'; }
+  }
+
   // chrome.notifications through Lily: create, update and clear are requests; clicks, button
   // clicks and dismissals come back over a port while the extension has notifications showing,
   // and those that happen while the background is asleep are collected when it next listens.
