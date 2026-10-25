@@ -10,6 +10,12 @@ public protocol TabDelegate: AnyObject {
     func tab(_ tab: Tab, requestsLittleWith request: URLRequest)
     func tabRequestsClose(_ tab: Tab)
     func tabDidStartDownload(_ tab: Tab)
+    /// The tab switched between a web page and an extension's page, which need different web views.
+    func tabDidReplaceWebView(_ tab: Tab)
+}
+
+public extension TabDelegate {
+    func tabDidReplaceWebView(_ tab: Tab) {}
 }
 
 /// One browsing tab: owns its WKWebView, its IPC bridge, crash recovery and downloads.
@@ -18,10 +24,13 @@ public final class Tab: NSObject {
     public let id: UUID
     /// Created on first use and released while the tab sleeps, so tabs that are restored, imported
     /// or asleep cost no web view (or web content process) until they're shown again.
-    public var webView: WKWebView {
-        if let loadedWebView { return loadedWebView }
-        let created = factory.makeWebView(bridge: bridge, space: spaceID)
+    public var webView: WKWebView { loadedWebView ?? makeWebView(for: url) }
+
+    private func makeWebView(for url: URL?) -> WKWebView {
+        let extensionConfiguration = factory.extensionConfiguration(for: url)
+        let created = factory.makeWebView(bridge: bridge, space: spaceID, configuration: extensionConfiguration)
         loadedWebView = created
+        webViewExtension = extensionConfiguration == nil ? nil : WebViewFactory.extensionHost(url)
         created.navigationDelegate = self
         created.uiDelegate = self
         (created as? BrowserWebView)?.willOpenLink = { [weak self] target in self?.linkTarget = (target, Date()) }
@@ -30,6 +39,8 @@ public final class Tab: NSObject {
     }
     public var hasWebView: Bool { loadedWebView != nil }
     private var loadedWebView: WKWebView?
+    /// The extension whose pages the web view was made for, nil for a regular web view.
+    private var webViewExtension: String?
     private let factory: WebViewFactory
     public weak var delegate: TabDelegate?
 
@@ -114,6 +125,7 @@ public final class Tab: NSObject {
     /// Lets the web view (and its web content process) go; the next use of `webView` makes a new one.
     private func releaseWebView() {
         guard let view = loadedWebView else { return }
+        webViewExtension = nil
         let controller = view.configuration.userContentController
         adBlocker?.forget(controller)
         extensionScripts?.forget(controller)
@@ -133,6 +145,14 @@ public final class Tab: NSObject {
         let url = LinkTracking.cleaned(url)
         if url.scheme == "data" { allowedDataURL = url }
         if url.isFileURL { allowedFileURL = url }
+        // An extension's page and a web page need different web views: switch when the kind changes.
+        if !hasWebView {
+            _ = makeWebView(for: url)
+        } else if WebViewFactory.extensionHost(url) != webViewExtension {
+            releaseWebView()
+            _ = makeWebView(for: url)
+            delegate?.tabDidReplaceWebView(self)
+        }
         if url.isFileURL {
             // Least privilege: WebContent may read this file only, not its whole folder.
             webView.loadFileURL(url, allowingReadAccessTo: url)
@@ -395,6 +415,16 @@ extension Tab: WKNavigationDelegate {
         if internalPagePending, isMainFrame, navigationAction.navigationType == .other {
             internalPagePending = false
             preferences.allowsContentJavaScript = false // our own pages need no page scripts
+            return (.allow, preferences)
+        }
+        // Extension pages load as a tab's page only in a web view made for that extension (`load`
+        // switches it); a web page can't navigate a tab to one. In frames (1Password's inline menu)
+        // WebKit allows only what the extension lists as web-accessible.
+        if let url = navigationAction.request.url, let host = WebViewFactory.extensionHost(url) {
+            guard !isMainFrame || host == webViewExtension else {
+                Log.web.info("Blocked a navigation to an extension page outside its own web view")
+                return (.cancel, preferences)
+            }
             return (.allow, preferences)
         }
         if let url = navigationAction.request.url,

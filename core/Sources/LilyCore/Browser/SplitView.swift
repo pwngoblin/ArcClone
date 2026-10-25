@@ -186,6 +186,11 @@ final class TabContentViewController: NSViewController {
 
     func thawAll() { panes.forEach { $0.thaw() } }
 
+    /// The tab's web view was replaced: its pane is rebuilt on the next `display`.
+    func webViewReplaced(_ id: UUID) {
+        if shown.ids.contains(id) { shown = (shown.layout, []) }
+    }
+
     private func rebuild(layout: SplitLayout?, tabs: [Tab]) {
         container.subviews.forEach { $0.removeFromSuperview() }
         panes.forEach { $0.thaw() }

@@ -44,8 +44,10 @@ extension Tab: WKWebExtensionTab {
     }
 
     public func loadURL(_ url: URL, for context: WKWebExtensionContext) async throws {
-        // Extensions may only navigate to web pages, never to file: or other local schemes.
-        guard url.scheme == "https" || url.scheme == "http" else { throw URLError(.unsupportedURL) }
+        // Extensions may navigate to web pages and their own pages, never to file: or other local
+        // schemes or another extension's pages.
+        let ownPage = WebViewFactory.extensionHost(url) != nil && WebViewFactory.extensionHost(url) == context.baseURL.host?.lowercased()
+        guard url.scheme == "https" || url.scheme == "http" || ownPage else { throw URLError(.unsupportedURL) }
         load(url)
     }
 

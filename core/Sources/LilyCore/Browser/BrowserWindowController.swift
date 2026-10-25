@@ -437,6 +437,11 @@ extension BrowserWindowController: TabDelegate {
         extensionsTabChanged(tab)
     }
 
+    public func tabDidReplaceWebView(_ tab: Tab) {
+        contentController.webViewReplaced(tab.id)
+        if tabs.active === tab || tabs.split?.tabIDs.contains(tab.id) == true { showTab(tabs.active) }
+    }
+
     public func tab(_ tab: Tab, requestsNewTabWith request: URLRequest, inBackground: Bool) {
         guard let url = request.url else { return }
         if isLittle { return openInMainWindow(url, activate: !inBackground) }

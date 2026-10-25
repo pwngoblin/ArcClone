@@ -18,6 +18,10 @@ public final class WebViewFactory {
     /// WKWebExtensionController on macOS 15.4+ (typed loosely so the app still runs on macOS 14).
     /// nil for private windows: extensions never run there.
     public var extensionController: AnyObject?
+    /// The configuration for an extension's own pages (`webkit-extension:`), which WebKit renders
+    /// only in a web view made from that extension's configuration. Set by the extension runtime;
+    /// nil for addresses that aren't a loaded extension's.
+    public var extensionPageConfiguration: ((URL) -> WKWebViewConfiguration?)?
     /// Compatibility-mode content scripts (macOS 14–15.3); nil in private windows.
     var extensionScripts: ExtensionScriptInjector?
     /// Presents as Safari so sites don't serve degraded "unknown browser" pages, and as *this
@@ -112,12 +116,26 @@ public final class WebViewFactory {
         return config
     }
 
-    public func makeWebView(bridge: ScriptMessageBridge, space: UUID? = nil) -> WKWebView {
-        let webView = BrowserWebView(frame: .zero, configuration: makeConfiguration(bridge: bridge, space: space))
+    /// The configuration for `url` when it's a loaded extension's page, nil otherwise.
+    public func extensionConfiguration(for url: URL?) -> WKWebViewConfiguration? {
+        guard let url, Self.extensionHost(url) != nil else { return nil }
+        return extensionPageConfiguration?(url)
+    }
+
+    /// A regular web view, or one for an extension's pages when given its configuration (without
+    /// Lily's page scripts or bridge, which extension pages never get).
+    public func makeWebView(bridge: ScriptMessageBridge, space: UUID? = nil, configuration: WKWebViewConfiguration? = nil) -> WKWebView {
+        let webView = BrowserWebView(frame: .zero, configuration: configuration ?? makeConfiguration(bridge: bridge, space: space))
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = true
         webView.isInspectable = WebInspector.isEnabled
         webView.underPageBackgroundColor = .windowBackgroundColor
         return webView
+    }
+
+    /// The extension a `webkit-extension:` address belongs to (its host), nil for other addresses.
+    nonisolated public static func extensionHost(_ url: URL?) -> String? {
+        guard url?.scheme?.lowercased() == "webkit-extension" else { return nil }
+        return url?.host?.lowercased()
     }
 }
