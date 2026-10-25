@@ -12,7 +12,7 @@ import WebKit
 @MainActor @Observable
 final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     let library: ExtensionLibrary
-    let controller = WKWebExtensionController(configuration: .default())
+    let controller = WKWebExtensionController(configuration: ExtensionManager.configuration())
     private(set) var contexts: [String: WKWebExtensionContext] = [:]
     /// `chrome.notifications`, which WebKit lacks, through macOS notifications.
     @ObservationIgnored let notifications = ExtensionNotifications()
@@ -75,6 +75,22 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         if let context = contexts.removeValue(forKey: id) { try? controller.unload(context) }
         notifications.removeAll(for: id)
         loggedErrors[id] = nil
+    }
+
+    /// The configuration for extension web views: the background's host page, popups and the
+    /// extension's own pages. WebKit runs all of an extension's web views in one process and
+    /// suspends a process whose pages are all hidden (`inactiveSchedulingPolicy` defaults to
+    /// `.suspend`), and the background's page is never shown. It holds no activity of its own
+    /// past loading, so once the extension's last visible page closed, its background was
+    /// suspended right after each event: anything it awaited (network, key derivation, timers)
+    /// stopped. 1Password's sign-in never finished adding the account. `.none` keeps them
+    /// running; WebKit still unloads an idle background after about 30 seconds.
+    static func configuration() -> WKWebExtensionController.Configuration {
+        let configuration = WKWebExtensionController.Configuration.default()
+        let webViews = configuration.webViewConfiguration ?? WKWebViewConfiguration()
+        webViews.preferences.inactiveSchedulingPolicy = .none
+        configuration.webViewConfiguration = webViews
+        return configuration
     }
 
     // MARK: Toolbar
@@ -151,6 +167,10 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
                                 for extensionContext: WKWebExtensionContext) async throws -> Any? {
         if applicationIdentifier == ExtensionNotifications.applicationIdentifier {
             return try await notifications.handle(message, from: extensionContext)
+        }
+        if applicationIdentifier == ExtensionConsole.applicationIdentifier {
+            return try ExtensionConsole.handle(message, extensionName: extensionContext.webExtension.displayName ?? "extension",
+                                               enabled: WebInspector.isEnabled)
         }
         throw await NativeMessagingHostManager.shared.request(application: applicationIdentifier, extensionName: extensionContext.webExtension.displayName ?? "extension")
     }

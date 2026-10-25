@@ -39,9 +39,15 @@ import WebKit
     var requests: [[String: Any]] = []
     var reports: [[String: Any]] = []
     var port: WKWebExtension.MessagePort?
+    var consoleLines: [String] = []
 
     func webExtensionController(_ controller: WKWebExtensionController, sendMessage message: Any, toApplicationWithIdentifier applicationIdentifier: String?,
                                 for extensionContext: WKWebExtensionContext) async throws -> Any? {
+        if applicationIdentifier == ExtensionConsole.applicationIdentifier, let line = message as? [String: Any] {
+            if line["action"] as? String == "enabled" { return true }
+            consoleLines.append("\(line["level"] ?? "")|\(line["text"] ?? "")")
+            return nil
+        }
         guard applicationIdentifier == ExtensionNotifications.applicationIdentifier, let request = message as? [String: Any] else { throw URLError(.badURL) }
         requests.append(request)
         switch request["action"] as? String {
@@ -56,7 +62,7 @@ import WebKit
                                 for extensionContext: WKWebExtensionContext) async throws {
         guard port.applicationIdentifier == ExtensionNotifications.applicationIdentifier else { throw URLError(.badURL) }
         self.port = port
-        Task { @MainActor in port.sendMessage(["type": "buttonClicked", "id": "n1", "buttonIndex": 1], completionHandler: nil) }
+        Task { @MainActor in try? await port.sendMessage(["type": "buttonClicked", "id": "n1", "buttonIndex": 1]) }
     }
 
     func webExtensionController(_ controller: WKWebExtensionController, openNewTabUsing configuration: WKWebExtension.TabConfiguration,
@@ -75,6 +81,7 @@ import WebKit
         let original = try ExtensionPackage(files: [
             "manifest.json": Data(#"{"name": "N", "version": "1", "manifest_version": 3, "permissions": ["notifications"], "background": {"service_worker": "bg.js", "type": "module"}}"#.utf8),
             "bg.js": Data("""
+            console.warn('early line', { n: 1 });
             const report = (value) => chrome.tabs.create({ url: 'https://report.test/?' + JSON.stringify(value) });
             chrome.notifications.onClicked.addListener((id) => report({ clicked: id }));
             chrome.notifications.onButtonClicked.addListener((id, index) => report({ button: id, index }));
@@ -100,7 +107,7 @@ import WebKit
         context.setPermissionStatus(.grantedExplicitly, for: .nativeMessaging)
         try controller.load(context)
         defer { try? controller.unload(context) }
-        context.loadBackgroundContent { _ in }
+        try await context.loadBackgroundContent()
         for _ in 0..<50 where lily.reports.count < 4 { try await Task.sleep(for: .milliseconds(100)) }
 
         let reports = lily.reports
@@ -113,5 +120,18 @@ import WebKit
         let options = create?["options"] as? [String: Any]
         #expect(create?["id"] as? String == "n1" && options?["title"] as? String == "Hello" && options?["message"] as? String == "There")
         #expect(lily.port != nil)
+        // The background's console reaches Lily, including lines written before Lily answered.
+        #expect(lily.consoleLines.contains("warn|early line {\"n\":1}"), "\(lily.consoleLines)")
+    }
+}
+
+@Suite struct ExtensionConsoleTests {
+    @Test func linesAreDecodedAndBounded() throws {
+        let line = try ExtensionConsole.decode(["action": "log", "level": "warn", "text": String(repeating: "x", count: 3_000)])
+        #expect(line.level == .warn && line.text?.count == 2_000)
+        #expect(try ExtensionConsole.handle(["action": "enabled"], extensionName: "E", enabled: false) as? Bool == false)
+        for bad: Any in [["action": "eval"], ["action": "log", "level": "debug", "text": "x"], "log"] {
+            #expect(throws: ExtensionConsole.ExtensionConsoleError.self) { try ExtensionConsole.decode(bad) }
+        }
     }
 }

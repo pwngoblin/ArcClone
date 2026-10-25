@@ -104,6 +104,97 @@
   const toLily = typeof runtime.sendNativeMessage === 'function' ? runtime.sendNativeMessage.bind(runtime) : null;
   const portToLily = typeof runtime.connectNative === 'function' ? runtime.connectNative.bind(runtime) : null;
 
+  // Diagnostics: with Lily's web developer features on, the background's console goes to Lily's
+  // log (debug level, not kept on disk), since an extension's background can't be inspected
+  // otherwise. Lines written before Lily answers are kept (up to 200) and sent if it's on.
+  if (toLily) {
+    const consoleChannel = 'dev.lily.console';
+    const describe = (value) => {
+      if (value instanceof Error) return value.stack || String(value);
+      if (value && typeof value === 'object') { try { return JSON.stringify(value); } catch (error) { return String(value); } }
+      return String(value);
+    };
+    let mode = 'waiting';
+    const early = [];
+    const send = (line) => { try { toLily(consoleChannel, line).catch(() => {}); } catch (error) { /* not available */ } };
+    const note = (level, text) => {
+      if (mode === 'off') return;
+      const line = { action: 'log', level, text: text.slice(0, 2000) };
+      if (mode === 'on') send(line); else if (early.length < 200) early.push(line);
+    };
+    for (const level of ['error', 'warn', 'info', 'log']) {
+      const original = console[level];
+      if (typeof original !== 'function') continue;
+      console[level] = (...args) => {
+        note(level, args.map(describe).join(' '));
+        return original.apply(console, args);
+      };
+    }
+    // What the background receives: each message's name and where it came from (never its
+    // contents), and the log reports that some extensions' page scripts and popups send their
+    // background (1Password's `*-log-event`), which are otherwise invisible. Registered before
+    // the extension's own listeners; it never answers, so it changes nothing.
+    const nameOf = (message) => String(message && typeof message.name === 'string' ? message.name
+      : message && typeof message.type === 'string' ? message.type : typeof message).slice(0, 100);
+    const origin = (sender) => {
+      try {
+        const where = sender && sender.url ? new URL(sender.url).host : 'unknown';
+        return `${where} tab ${sender && sender.tab ? sender.tab.id : '-'} frame ${sender ? sender.frameId : '-'}`;
+      } catch (error) { return 'unknown'; }
+    };
+    runtime.onMessage.addListener((message, sender) => {
+      const name = nameOf(message);
+      note('info', /log-event$/.test(name) ? `[page log] ${describe(message.data)}` : `[Lily] received <${name}> from ${origin(sender)}`);
+      return false;
+    });
+    runtime.onConnect.addListener((port) => note('info', `[Lily] port <${String(port.name).slice(0, 100)}> from ${origin(port.sender)}`));
+    // How the extension's own listeners answer: each reply's kind (Success, Error, undefined; never
+    // its contents) and delay, or that a listener promised a reply and sent none within 10 s.
+    const kindOf = (value) => (value === undefined ? 'undefined' : value && typeof value.type === 'string'
+      ? value.type + (value.type === 'Error' && value.message ? ` (${String(value.message).slice(0, 200)})` : '') : typeof value);
+    for (const target of [runtime, globalThis.browser && globalThis.browser.runtime].filter(Boolean)) {
+      const event = target.onMessage;
+      if (!event || typeof event.addListener !== 'function') continue;
+      const { addListener, removeListener, hasListener } = event;
+      const wrappers = new WeakMap();
+      const wrap = (listener) => {
+        if (typeof listener !== 'function') return listener;
+        if (!wrappers.has(listener)) {
+          wrappers.set(listener, function (message, sender, sendResponse) {
+            if (mode === 'off') return listener.call(this, message, sender, sendResponse);
+            const name = nameOf(message);
+            const started = Date.now();
+            let replied = false;
+            const respond = (value) => {
+              replied = true;
+              note('info', `[Lily] reply <${name}>: ${kindOf(value)} after ${Date.now() - started} ms`);
+              return sendResponse(value);
+            };
+            const result = listener.call(this, message, sender, respond);
+            if (result === true) {
+              setTimeout(() => { if (!replied) note('warn', `[Lily] no reply to <${name}> after 10 s`); }, 10000);
+            } else if (result && typeof result.then === 'function') {
+              result.then((value) => note('info', `[Lily] reply <${name}> (promise): ${kindOf(value)} after ${Date.now() - started} ms`),
+                (error) => note('warn', `[Lily] reply <${name}> (promise) failed: ${describe(error)}`));
+            }
+            return result;
+          });
+        }
+        return wrappers.get(listener);
+      };
+      add(event, 'addListener', function (listener, ...rest) { return addListener.call(this, wrap(listener), ...rest); });
+      add(event, 'removeListener', function (listener) { return removeListener.call(this, wrappers.get(listener) || listener); });
+      if (typeof hasListener === 'function') add(event, 'hasListener', function (listener) { return hasListener.call(this, wrappers.get(listener) || listener); });
+    }
+    try {
+      toLily(consoleChannel, { action: 'enabled' }).then((on) => {
+        mode = on === true ? 'on' : 'off';
+        if (mode === 'on') early.forEach(send);
+        early.length = 0;
+      }, () => { mode = 'off'; early.length = 0; });
+    } catch (error) { mode = 'off'; }
+  }
+
   // chrome.notifications through Lily: create, update and clear are requests; clicks, button
   // clicks and dismissals come back over a port while the extension has notifications showing,
   // and those that happen while the background is asleep are collected when it next listens.

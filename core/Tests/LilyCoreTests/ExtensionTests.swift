@@ -38,6 +38,13 @@ import WebKit
         try controller.unload(context)
     }
 
+    /// Extension web views (the background's host page, popups, extension pages) must not be
+    /// suspended when hidden, or a background freezes mid-task between events.
+    @Test func extensionWebViewsAreNotSuspendedWhenHidden() {
+        guard #available(macOS 15.4, *) else { return }
+        #expect(ExtensionManager.configuration().webViewConfiguration?.preferences.inactiveSchedulingPolicy == WKPreferences.InactiveSchedulingPolicy.none)
+    }
+
     @Test func permissionsAreDescribedInPlainLanguage() {
         guard #available(macOS 15.4, *) else { return }
         #expect(ExtensionLibrary.describe("tabs") == "Read your open tabs' titles and addresses")

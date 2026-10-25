@@ -133,6 +133,11 @@ final class FaviconLoader {
         return rep.representation(using: .png, properties: [:])
     }
 
+    /// Waits for a scheduled save to finish (after its debounce), so a test can read the file.
+    func savePending() async {
+        await saveTask?.value
+    }
+
     private func scheduleSave() {
         guard let file else { return }
         saveTask?.cancel()
