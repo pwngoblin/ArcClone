@@ -152,6 +152,10 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         if applicationIdentifier == ExtensionNotifications.applicationIdentifier {
             return try await notifications.handle(message, from: extensionContext)
         }
+        if applicationIdentifier == ExtensionConsole.applicationIdentifier {
+            return try ExtensionConsole.handle(message, extensionName: extensionContext.webExtension.displayName ?? "extension",
+                                               enabled: WebInspector.isEnabled)
+        }
         throw await NativeMessagingHostManager.shared.request(application: applicationIdentifier, extensionName: extensionContext.webExtension.displayName ?? "extension")
     }
 
