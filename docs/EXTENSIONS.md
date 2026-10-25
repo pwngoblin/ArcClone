@@ -99,7 +99,8 @@ The modules `CLAUDE.md` names live in the Swift package (`core/Sources/LilyCore/
 | Toolbar | `UI/ExtensionToolbarView.swift` | SwiftUI popover: each extension's icon and action badge, Add and Manage. |
 
 **Chrome APIs WebKit doesn't have.** WebKit's runtime provides `action`, `alarms`, `commands`, `contextMenus`, `declarativeNetRequest`, `dom`, `extension`, `i18n`, `permissions`, `runtime`, `scripting`, `storage`, `tabs`, `webNavigation`, `webRequest` and `windows`. Extensions built for Chrome may call others as soon as their background starts and die without them. 1Password's worker, for example, throws on `chrome.notifications.onClicked` and its popup never gets an answer. So when an extension is added, `ExtensionCompat` puts Lily's worker shim (`injections/extension-worker-compat.js`) in front of its background:
-- It adds inert stand-ins for `notifications`, `privacy`, `management`, `idle` and `downloads` (only those the manifest asks for and WebKit lacks), for missing events (`webNavigation.onCreatedNavigationTarget` and others), and an empty `storage.managed`. Events never fire, queries return defaults, and actions that need the browser (a download, a notification) report that they aren't supported.
+- It adds inert stand-ins for `privacy`, `management`, `idle` and `downloads` (only those the manifest asks for and WebKit lacks), for missing events (`webNavigation.onCreatedNavigationTarget` and others), and an empty `storage.managed`. Events never fire, queries return defaults, and actions that need the browser (a download) report that they aren't supported.
+- It gives `notifications` a real implementation through Lily (`Extensions/ExtensionNotifications.swift`), described below.
 - A real API is never replaced. The extension's own files are unchanged; the manifest's background points to a two-line entry that loads the shim, then the original.
 - It's added before the audit and the hash, so it's part of the reviewed, pinned copy, and the approve dialog says it's there. Extensions added before this need to be added again (Settings offers "Reinstall").
 
@@ -115,6 +116,14 @@ Instead, `runtime.connectNative` and `runtime.sendNativeMessage` fail immediatel
 
 Extensions can handle that error and fall back to their own features: extension storage, their popup and options pages, and web sign-in in a tab. Nothing waits on a host that will never answer.
 
+### Notifications
+
+WebKit has no `chrome.notifications`, and the only way an extension's background can reach the app is native messaging. So Lily reserves one native-messaging name, `dev.lily.notifications`, and answers it itself; no process is started and no other app is involved.
+- **Who can use it.** At load, an extension approved for `notifications` is also granted `nativeMessaging`, which WebKit needs before it exposes the API. WebKit's own `runtime` members can't be hidden, so the extension's code sees `sendNativeMessage` and `connectNative` too, but they reach only this name (for notifications it was already approved for); every other name is refused as before.
+- **Requests.** The shim turns `create`, `update`, `clear`, `getAll` and `getPermissionLevel` into requests. Each is decoded into a fixed schema (`ExtensionNotifications.Request`, at most 16 KB, IDs up to 256 characters without control characters, text shortened like Chrome does, two buttons). Images, progress and `requireInteraction` are ignored.
+- **Showing.** Through `UNUserNotificationCenter`, with the extension's name as the subtitle. macOS asks permission before the first one. An extension's notifications are removed when it's removed or turned off.
+- **Events.** Clicks, button clicks and dismissals go back over a port the shim opens after its first `create`. Lily closes the port once none of the extension's notifications are showing. Events that arrive while the background is asleep are kept (up to 50), the background is started, and the shim collects them once the extension adds a listener.
+
 ## 3. Runtime isolation
 
 What's enforced, and where:
@@ -127,5 +136,5 @@ What's enforced, and where:
 | Only approved permissions | Permissions and host patterns are granted explicitly at each load, from what was approved at install (`ExtensionManager.load`). |
 | Extensions can't see each other or the page | Compatibility-mode content scripts run in a separate content world per extension. Page scripts can't read their variables, and `chrome` never appears in the page. |
 | No extensions in private windows | Private windows use a separate configuration without the extension controller or the compatibility injector. |
-| No desktop helpers | Native messaging is refused without starting any process. |
+| No desktop helpers | Native messaging is refused without starting any process. Lily's own notifications name is the one exception, answered in-process for extensions approved for notifications. |
 | OS-level containment | Extensions run in WebKit's own processes under Lily's App Sandbox (outbound network only, no file access beyond what you open). |
