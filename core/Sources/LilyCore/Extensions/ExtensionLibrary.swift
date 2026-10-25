@@ -303,7 +303,7 @@ final class ExtensionLibrary {
         }
         for info in audit.findings where info.severity == .info { lines.append("• \(info.title) (\(info.detail))") }
         if package.files[ExtensionCompat.shimPath] != nil {
-            lines.append("\nLily adds stand-ins for Chrome features WebKit doesn't have (notifications, privacy settings and similar), so its background can start. They do nothing outside the extension.")
+            lines.append("\nLily adds stand-ins for Chrome features WebKit doesn't have (privacy settings and similar), so its background can start; they do nothing outside the extension. If it asks for notifications, Lily shows them through macOS.")
         }
         if #unavailable(macOS 15.4) {
             lines.append("\nOn this version of macOS only its page scripts run; popups and background features need macOS 15.4 or later.")

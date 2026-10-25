@@ -14,6 +14,8 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     let library: ExtensionLibrary
     let controller = WKWebExtensionController(configuration: .default())
     private(set) var contexts: [String: WKWebExtensionContext] = [:]
+    /// `chrome.notifications`, which WebKit lacks, through macOS notifications.
+    @ObservationIgnored let notifications = ExtensionNotifications()
     /// Window lookup for the extension APIs (tabs.query, windows.getAll).
     @ObservationIgnored var windows: () -> [BrowserWindowController] = { [] }
     @ObservationIgnored var focusedWindow: () -> BrowserWindowController? = { nil }
@@ -24,6 +26,10 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         super.init()
         controller.delegate = self
         library.onReadyChange = { [weak self] in self?.sync() }
+        notifications.isApproved = { [weak self] id in
+            self?.library.installed.first { $0.id == id }?.grantedPermissions.contains("notifications") == true
+        }
+        notifications.context = { [weak self] id in self?.contexts[id] }
     }
 
     /// Loads newly ready extensions and unloads removed or disabled ones.
@@ -42,6 +48,10 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
             context.isInspectable = WebInspector.isEnabled
             // Only what the user approved at install time.
             for name in record.grantedPermissions { context.setPermissionStatus(.grantedExplicitly, for: WKWebExtension.Permission(rawValue: name)) }
+            // The worker shim reaches Lily's notifications through native messaging, which WebKit
+            // exposes only when granted. The extension's own code sees the API too, but Lily answers
+            // only its notifications name (already approved) and refuses every other one.
+            if record.grantedPermissions.contains("notifications") { context.setPermissionStatus(.grantedExplicitly, for: .nativeMessaging) }
             for pattern in record.grantedPatterns {
                 if let match = try? WKWebExtension.MatchPattern(string: pattern) { context.setPermissionStatus(.grantedExplicitly, for: match) }
             }
@@ -55,6 +65,7 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
 
     private func unload(_ id: String) {
         if let context = contexts.removeValue(forKey: id) { try? controller.unload(context) }
+        notifications.removeAll(for: id)
     }
 
     // MARK: Toolbar
@@ -107,15 +118,22 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         if let url = extensionContext.optionsPageURL { _ = openTab(url, true) }
     }
 
-    /// `runtime.sendNativeMessage`: refused at once, so the extension falls back to its own flows.
+    /// `runtime.sendNativeMessage`: Lily's own notifications name, or refused at once, so the
+    /// extension falls back to its own flows.
     func webExtensionController(_ controller: WKWebExtensionController, sendMessage message: Any, toApplicationWithIdentifier applicationIdentifier: String?,
                                 for extensionContext: WKWebExtensionContext) async throws -> Any? {
+        if applicationIdentifier == ExtensionNotifications.applicationIdentifier {
+            return try await notifications.handle(message, from: extensionContext)
+        }
         throw await NativeMessagingHostManager.shared.request(application: applicationIdentifier, extensionName: extensionContext.webExtension.displayName ?? "extension")
     }
 
     /// `runtime.connectNative`: refused at once rather than left hanging.
     func webExtensionController(_ controller: WKWebExtensionController, connectUsing port: WKWebExtension.MessagePort,
                                 for extensionContext: WKWebExtensionContext) async throws {
+        if port.applicationIdentifier == ExtensionNotifications.applicationIdentifier {
+            return try notifications.connect(port, from: extensionContext)
+        }
         throw await NativeMessagingHostManager.shared.request(application: port.applicationIdentifier, extensionName: extensionContext.webExtension.displayName ?? "extension")
     }
 

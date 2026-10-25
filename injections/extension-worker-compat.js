@@ -6,8 +6,11 @@
 //
 // - Only namespaces the manifest asks for and WebKit lacks. A real API is never replaced.
 // - Nothing here reaches outside the extension: events never fire, queries return empty or
-//   default values, and actions that would need the browser (a download, a notification) report
-//   that they aren't supported.
+//   default values, and actions that would need the browser (a download) report that they
+//   aren't supported. The one exception is notifications: when Lily grants the channel, they go
+//   to Lily, which shows them through macOS (`ExtensionNotifications.swift`) and reports clicks
+//   and dismissals back. The channel is a native-messaging name Lily answers itself; no other
+//   app is involved.
 // - Plain script (no import/export), so it loads from importScripts, a module import, or an
 //   MV2 background scripts list alike.
 (() => {
@@ -30,15 +33,20 @@
   const requested = new Set([...(manifest.permissions || []), ...(manifest.optional_permissions || [])]);
   const unsupported = (name) => new Error(`${name} isn't supported in Lily`);
 
-  const event = () => {
+  // An event and the function that fires it. `onAdd` runs when a listener is first added.
+  const emitter = (onAdd) => {
     const listeners = new Set();
-    return {
-      addListener: (fn) => { if (typeof fn === 'function') listeners.add(fn); },
+    const fire = (...args) => {
+      for (const fn of listeners) { try { fn(...args); } catch (error) { queueMicrotask(() => { throw error; }); } }
+    };
+    return [{
+      addListener: (fn) => { if (typeof fn === 'function') { listeners.add(fn); if (onAdd) onAdd(); } },
       removeListener: (fn) => { listeners.delete(fn); },
       hasListener: (fn) => listeners.has(fn),
       hasListeners: () => listeners.size > 0,
-    };
+    }, fire];
   };
+  const event = () => emitter()[0];
 
   // Chrome's APIs take an optional trailing callback or return a promise.
   const settle = (args, run) => {
@@ -51,6 +59,16 @@
       return undefined;
     }
     return failure ? Promise.reject(failure) : Promise.resolve(result);
+  };
+  // The same for work that answers later (a request to Lily).
+  const settleLater = (args, run) => {
+    const callback = typeof args[args.length - 1] === 'function' ? args.pop() : null;
+    const promise = Promise.resolve().then(() => run(args));
+    if (callback) {
+      promise.then(callback, () => callback(undefined));
+      return undefined;
+    }
+    return promise;
   };
   const returns = (value) => (...args) => settle(args, () => value);
   const refuses = (name) => (...args) => settle(args, () => { throw unsupported(name); });
@@ -79,8 +97,71 @@
     optionsUrl: '',
   });
 
+  // Lily's notifications channel. Lily grants native messaging to extensions approved for
+  // notifications so this shim can reach it, answers only this name, and refuses every other.
+  const channel = 'dev.lily.notifications';
+  const runtime = api.runtime;
+  const toLily = typeof runtime.sendNativeMessage === 'function' ? runtime.sendNativeMessage.bind(runtime) : null;
+  const portToLily = typeof runtime.connectNative === 'function' ? runtime.connectNative.bind(runtime) : null;
+
+  // chrome.notifications through Lily: create, update and clear are requests; clicks, button
+  // clicks and dismissals come back over a port while the extension has notifications showing,
+  // and those that happen while the background is asleep are collected when it next listens.
+  const lilyNotifications = () => {
+    let port = null;
+    let collected = false;
+    const ask = (request) => toLily(channel, request);
+    const collect = () => {
+      if (collected) return;
+      collected = true;
+      queueMicrotask(() => ask({ action: 'events' }).then((list) => { if (Array.isArray(list)) list.forEach(deliver); }, () => {}));
+    };
+    const [onClicked, clicked] = emitter(collect);
+    const [onButtonClicked, buttonClicked] = emitter(collect);
+    const [onClosed, closed] = emitter(collect);
+    const deliver = (message) => {
+      if (!message || typeof message.id !== 'string') return;
+      if (message.type === 'clicked') clicked(message.id);
+      else if (message.type === 'buttonClicked' && Number.isInteger(message.buttonIndex)) buttonClicked(message.id, message.buttonIndex);
+      else if (message.type === 'closed') closed(message.id, message.byUser === true);
+    };
+    const listen = () => {
+      if (port || !portToLily) return;
+      try {
+        port = portToLily(channel);
+        port.onMessage.addListener(deliver);
+        port.onDisconnect.addListener(() => { port = null; });
+      } catch (error) { port = null; }
+    };
+    // create(id?, options) and update(id, options): Chrome's id is optional on create.
+    const send = (action) => (...args) => settleLater(args, ([first, second]) => {
+      const [id, options] = typeof first === 'string' ? [first, second] : [undefined, first];
+      return ask({ action, id, options }).then((answer) => {
+        if (action === 'create') { listen(); return answer && answer.id; }
+        return answer && answer.done === true;
+      });
+    });
+    return {
+      create: send('create'),
+      update: send('update'),
+      clear: (...args) => settleLater(args, ([id]) => ask({ action: 'clear', id }).then((answer) => answer && answer.done === true)),
+      getAll: (...args) => settleLater(args, () => ask({ action: 'getAll' }).then((answer) =>
+        Object.fromEntries(((answer && answer.ids) || []).map((id) => [id, true])))),
+      getPermissionLevel: (...args) => settleLater(args, () => ask({ action: 'getPermissionLevel' }).then((answer) =>
+        (answer && answer.level) || 'denied')),
+      onClicked,
+      onClosed,
+      onButtonClicked,
+      onPermissionLevelChanged: event(),
+      onShowSettings: event(),
+      TemplateType: { BASIC: 'basic', IMAGE: 'image', LIST: 'list', PROGRESS: 'progress' },
+      PermissionLevel: { GRANTED: 'granted', DENIED: 'denied' },
+    };
+  };
+
   const stubs = {
     notifications: () => {
+      if (toLily) return lilyNotifications();
       let counter = 0;
       return {
         // Accepted so callers continue, but nothing is shown.
