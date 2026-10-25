@@ -47,4 +47,15 @@ enum ExtensionLoader {
     static func pin(_ package: ExtensionPackage, to folder: URL) throws {
         try package.write(to: folder)
     }
+
+    /// Removes pinned copies under `root` other than `kept`. Only Lily's own folders (named by a
+    /// UUID) are touched.
+    @ExtensionActor
+    static func removeFolders(in root: URL, except kept: Set<String>) {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
+        for name in names where UUID(uuidString: name) != nil && !kept.contains(name) {
+            try? FileManager.default.removeItem(at: root.appendingPathComponent(name, isDirectory: true))
+            Log.extensions.notice("Removed an extension copy no longer in the installed list")
+        }
+    }
 }

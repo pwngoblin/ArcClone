@@ -143,13 +143,14 @@ extension BrowserWindowController {
     /// web view, so a closed popup holds no memory and the extension sees it as closed.
     @available(macOS 15.4, *)
     func presentExtensionPopup(_ action: WKWebExtension.Action) {
-        guard let popover = action.popupPopover else { return }
+        guard let popover = action.popupPopover else { Log.extensions.debug("Popup has no popover"); return }
         popover.behavior = .transient
         if let item = window?.toolbar?.items.first(where: { $0.itemIdentifier == WindowToolbar.extensions }) {
             popover.show(relativeTo: item)
         } else if let view = window?.contentView {
             popover.show(relativeTo: NSRect(x: view.bounds.maxX - 80, y: view.bounds.maxY - 10, width: 1, height: 1), of: view, preferredEdge: .minY)
         } else {
+            Log.extensions.debug("Popup not shown: no toolbar or content view")
             action.closePopup()
         }
     }
