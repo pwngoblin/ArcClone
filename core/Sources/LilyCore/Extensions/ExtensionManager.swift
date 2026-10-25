@@ -141,8 +141,9 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     /// Shows an extension's popup under the toolbar's Extensions button.
     func webExtensionController(_ controller: WKWebExtensionController, presentActionPopup action: WKWebExtension.Action,
                                 for context: WKWebExtensionContext) async throws {
-        guard let webView = action.popupWebView, let window = focusedWindow() else { return }
-        window.presentExtensionPopup(webView)
+        // Without a window to show it in, the preloaded popup is closed rather than left loaded.
+        guard action.presentsPopup, let window = focusedWindow() else { action.closePopup(); return }
+        window.presentExtensionPopup(action)
     }
 
     private func confirm(_ title: String, _ items: [String]) -> Bool {

@@ -328,13 +328,14 @@ What's not finished, what's deliberately unsupported, and what still needs a per
 
 **Needs manual verification**
 - **Drag-and-drop gestures** (PR #48). Every drop is covered by the self-test, but the physical trackpad drags aren't: row onto a pinned tile, pinned tile into the list, row onto a space icon or split pill, a link from a page into the list, a row into another app (should paste the address), plain reordering still working, and the haptic taps.
-- **1Password from the Chrome Web Store.** It installs and its background now starts (verified in a WebKit harness); what its popup shows in the app hasn't been confirmed. Expected: its own sign-in, since desktop-app unlock isn't supported (below).
+- **1Password from the Chrome Web Store.** It installs and its background starts. Until an account is added in the extension, clicking it opens 1Password's welcome page in a tab instead of a popup: 1Password turns its popup off (`action.setPopup("")`) when neither the desktop app nor an account is connected, as it does in Chrome. Signing in on that page (email, Secret Key, password) should turn the popup on; that sign-in hasn't been tried in Lily yet.
 - The manual steps in the test plans of PRs #44–#48 (Separate logins with two accounts, ⌘K, restoring typed text after closing a tab, Link Scrolling, a pane pausing after 5 minutes, Add from Store).
 
 **Not done yet**
 - **Optimizing for size.** `-Osize` would make the binary about 31% smaller (3.6 → 2.5 MB), but CLAUDE.md requires `-O` for release builds, so it stays `-O` until that rule changes.
 - **More of the UI in AppKit.** The pinned tiles are native; the rest of the sidebar, the command bar, Settings, History and the assistant are SwiftUI (the regular tab list is SwiftUI's `List`, which AppKit's table view backs).
 - **Writing Tools** stays in the Edit menu: macOS adds it, with no supported way to leave it out.
+- **1Password desktop-app unlock** waits on an Apple Developer Program membership. 1Password's *Add browser* refuses Lily ("signed in an unsupported way or may be missing a required identifier") because builds are ad-hoc signed, with no team ID. With Developer ID signing, the next step is a native messaging host for 1Password's helper behind a setting that's off by default, and finding out whether the helper works when started from Lily's sandbox. Until then native messaging stays refused (below).
 
 **Limitations by design**
 - **No native messaging.** `connectNative` / `sendNativeMessage` fail immediately, so password managers can't unlock through their desktop app; they work with their own sign-in. Desktop helpers check the calling browser against a signed list Lily isn't on, and launching other apps' binaries from the sandbox would widen the attack surface. `CLAUDE.md` describes a host manager that spawns binaries; it's intentionally a refusal. See [docs/EXTENSIONS.md](docs/EXTENSIONS.md).
@@ -350,9 +351,6 @@ What's not finished, what's deliberately unsupported, and what still needs a per
 - **Assistant** traffic to a local Ollama is plain HTTP on this Mac (see [Security](#security)).
 - **Importing** Safari, and Chrome on recent macOS, needs Full Disk Access for Lily.
 - **Ad-hoc builds** lose the saved session on update (the key is per build); Developer ID builds keep it.
-
-**Housekeeping**
-- A stale remote branch, `feature/webkit-extensions` (its PR #43 is merged), can be deleted: `git push origin --delete feature/webkit-extensions`.
 
 ## Releases
 
