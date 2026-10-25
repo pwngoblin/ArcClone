@@ -351,7 +351,7 @@ What's not finished, what's deliberately unsupported, and what still needs a per
 - **Paused panes** keep their memory (only CPU and rendering stop); the background-tab sleeper is what frees memory.
 - **Assistant** traffic to a local Ollama is plain HTTP on this Mac (see [Security](#security)).
 - **Importing** Safari, and Chrome on recent macOS, needs Full Disk Access for Lily.
-- **Ad-hoc builds** lose the saved session on update (the key is per build); Developer ID builds keep it.
+- **Ad-hoc builds** can't read Lily's saved data after a rebuild (session, history, extension list: the Keychain key is tied to the build); signed builds keep it. For local builds, a free Apple Development certificate is enough: `CODESIGN_IDENTITY="Apple Development: you@example.com (XXXXXXXXXX)" make app`.
 
 ## Releases
 

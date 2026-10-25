@@ -16,6 +16,9 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     private(set) var contexts: [String: WKWebExtensionContext] = [:]
     /// `chrome.notifications`, which WebKit lacks, through macOS notifications.
     @ObservationIgnored let notifications = ExtensionNotifications()
+    /// How many of each extension's errors have been logged.
+    @ObservationIgnored private var loggedErrors: [String: Int] = [:]
+    @ObservationIgnored private var errorObserver: NSObjectProtocol?
     /// Window lookup for the extension APIs (tabs.query, windows.getAll).
     @ObservationIgnored var windows: () -> [BrowserWindowController] = { [] }
     @ObservationIgnored var focusedWindow: () -> BrowserWindowController? = { nil }
@@ -30,6 +33,10 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
             self?.library.installed.first { $0.id == id }?.grantedPermissions.contains("notifications") == true
         }
         notifications.context = { [weak self] id in self?.contexts[id] }
+        errorObserver = NotificationCenter.default.addObserver(forName: WKWebExtensionContext.errorsDidUpdateNotification, object: nil, queue: .main) { [weak self] note in
+            guard let context = note.object as? WKWebExtensionContext else { return }
+            MainActor.assumeIsolated { self?.logErrors(context) }
+        }
     }
 
     /// Loads newly ready extensions and unloads removed or disabled ones.
@@ -57,6 +64,7 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
             }
             try controller.load(context)
             contexts[entry.id] = context
+            logErrors(context)
             for window in windows() { window.registerWithExtensions(controller) }
         } catch {
             Log.extensions.error("Loading an extension failed: \(error.localizedDescription, privacy: .private)")
@@ -66,6 +74,7 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     private func unload(_ id: String) {
         if let context = contexts.removeValue(forKey: id) { try? controller.unload(context) }
         notifications.removeAll(for: id)
+        loggedErrors[id] = nil
     }
 
     // MARK: Toolbar
@@ -84,7 +93,25 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
 
     /// Runs the extension's toolbar action for the active tab (may present its popup).
     func performAction(_ id: String) {
-        contexts[id]?.performAction(for: focusedWindow()?.tabs.active)
+        guard let context = contexts[id] else { return }
+        let tab = focusedWindow()?.tabs.active
+        Log.extensions.debug("Action clicked: popup \(context.action(for: tab)?.presentsPopup == true ? "set" : "not set", privacy: .public)")
+        context.performAction(for: tab)
+    }
+
+    /// An extension's errors (its scripts' exceptions, failed API calls, manifest problems), at
+    /// debug level: not kept on disk, visible with `log stream --level debug` while reproducing a
+    /// problem. They describe the extension's code, so they're shown as is.
+    private func logErrors(_ context: WKWebExtensionContext) {
+        let id = context.uniqueIdentifier
+        let errors = context.errors
+        let seen = loggedErrors[id] ?? 0
+        guard errors.count > seen else { loggedErrors[id] = errors.count; return }
+        let name = context.webExtension.displayName ?? "extension"
+        for error in errors[seen...] {
+            Log.extensions.debug("\(name, privacy: .public) error: \(String(error.localizedDescription.prefix(500)), privacy: .public)")
+        }
+        loggedErrors[id] = errors.count
     }
 
     func actionIcon(_ id: String) -> NSImage? {
@@ -160,7 +187,12 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     func webExtensionController(_ controller: WKWebExtensionController, presentActionPopup action: WKWebExtension.Action,
                                 for context: WKWebExtensionContext) async throws {
         // Without a window to show it in, the preloaded popup is closed rather than left loaded.
-        guard action.presentsPopup, let window = focusedWindow() else { action.closePopup(); return }
+        guard action.presentsPopup, let window = focusedWindow() else {
+            Log.extensions.debug("Popup not shown: \(action.presentsPopup ? "no window" : "no popup", privacy: .public)")
+            action.closePopup()
+            return
+        }
+        Log.extensions.debug("Showing popup")
         window.presentExtensionPopup(action)
     }
 

@@ -168,3 +168,16 @@ private let manifestV3 = #"{"name": "T", "version": "1", "manifest_version": 3, 
         }
     }
 }
+
+@Suite struct PinnedCopyCleanupTests {
+    @Test func onlyUnreferencedCopiesAreRemoved() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lily-pins-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let kept = UUID().uuidString, orphan = UUID().uuidString
+        for name in [kept, orphan, "not-a-copy"] {
+            try FileManager.default.createDirectory(at: root.appendingPathComponent(name), withIntermediateDirectories: true)
+        }
+        await ExtensionLoader.removeFolders(in: root, except: [kept])
+        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: root.path)) == [kept, "not-a-copy"])
+    }
+}

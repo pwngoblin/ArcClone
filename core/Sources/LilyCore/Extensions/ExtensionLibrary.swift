@@ -78,9 +78,11 @@ final class ExtensionLibrary {
 
     /// Reads the sealed list (migrating the old UserDefaults copy once) and prepares every extension.
     func loadAll() async {
+        var trusted = true
         do {
             if let data = try await file?.read() { installed = try JSONDecoder().decode([InstalledExtension].self, from: data) }
         } catch {
+            trusted = false
             // Tampered or unreadable: load nothing rather than trust it.
             Log.extensions.error("Installed extensions list failed authentication; ignoring it")
             lastError = "The list of installed extensions couldn't be verified, so no extensions were loaded. Add them again."
@@ -92,6 +94,13 @@ final class ExtensionLibrary {
             save()
         }
         for record in installed { await prepare(record) }
+        // Copies no record points to (left when an earlier list couldn't be read and extensions were
+        // added again) can never load: remove them. Not when this list failed to verify, since that
+        // may be a Keychain hiccup and its copies may be needed again.
+        if trusted, let pinnedRoot {
+            let kept = Set(installed.compactMap(\.pinnedFolder))
+            await ExtensionLoader.removeFolders(in: pinnedRoot, except: kept)
+        }
     }
 
     // MARK: Install / remove
