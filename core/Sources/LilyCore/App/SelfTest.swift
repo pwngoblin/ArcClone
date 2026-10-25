@@ -446,6 +446,7 @@ enum SelfTest {
             if #available(macOS 15.4, *) {
                 let popup = await Self.extensionPopupProbe(window: window, tab: tab)
                 check("extension popup", popup["ok"]?.bool == true, popup)
+                check("extension page in a tab", popup["page"]?["ok"]?.bool == true, popup["page"] ?? .null)
             }
 
             // Optional live HTTPS-First check (needs network): LILY_SELFTEST_NETWORK=1
@@ -538,8 +539,10 @@ enum SelfTest {
     }
 
     /// Clicking an extension's action shows its popup in a popover sized to the popup's content
-    /// (here 420×310), and dismissing the popover closes the popup. The self-test doesn't load the
-    /// user's extensions, so this runs a fixture extension in a runtime of its own.
+    /// (here 420×310), and dismissing the popover closes the popup. Its own page (`page`) opens in a
+    /// tab, which needs a web view made from the extension's configuration, and the tab goes back to
+    /// a regular web view for a web page. The self-test doesn't load the user's extensions, so this
+    /// runs a fixture extension in a runtime of its own.
     @available(macOS 15.4, *)
     private static func extensionPopupProbe(window: BrowserWindowController, tab: Tab) async -> JSONValue {
         let manager = ExtensionManager(library: ExtensionLibrary(directory: nil))
@@ -554,6 +557,7 @@ enum SelfTest {
                 .write(to: root.appendingPathComponent("manifest.json"))
             try Data(#"<!doctype html><body style="margin:0"><div style="width:420px;height:310px">Popup</div></body>"#.utf8)
                 .write(to: root.appendingPathComponent("popup.html"))
+            try Data(#"<!doctype html><title>Extension Page</title><p>Welcome</p>"#.utf8).write(to: root.appendingPathComponent("page.html"))
             let context = WKWebExtensionContext(for: try await WKWebExtension(resourceBaseURL: root))
             try controller.load(context)
             defer { try? controller.unload(context) }
@@ -567,8 +571,19 @@ enum SelfTest {
             let size = action.popupPopover?.contentSize ?? .zero
             action.popupPopover?.performClose(nil)
             let closed = await waitUntil(5) { action.popupPopover?.isShown != true }
+
+            window.factory.extensionPageConfiguration = { controller.extensionContext(for: $0)?.webViewConfiguration }
+            defer { window.factory.extensionPageConfiguration = nil }
+            let pageTab = window.tabs.create(url: context.baseURL.appendingPathComponent("page.html"))
+            defer { window.tabs.close(pageTab.id) }
+            let rendered = await waitUntil(10) { pageTab.title == "Extension Page" }
+            let extensionView = pageTab.webView
+            pageTab.load(URL(string: "https://selftest.lily.test/after")!)
+            // A regular web view again: Lily's page scripts are back.
+            let switched = pageTab.webView !== extensionView && !pageTab.webView.configuration.userContentController.userScripts.isEmpty
+            let page: JSONValue = ["ok": .bool(rendered && switched), "rendered": .bool(rendered), "backToWebView": .bool(switched)]
             return ["ok": .bool(shown && closed), "shown": .bool(shown), "closed": .bool(closed),
-                    "size": .string("\(Int(size.width))×\(Int(size.height))")]
+                    "size": .string("\(Int(size.width))×\(Int(size.height))"), "page": page]
         } catch {
             return ["ok": false, "error": .string(Sanitize.errorMessage(error))]
         }

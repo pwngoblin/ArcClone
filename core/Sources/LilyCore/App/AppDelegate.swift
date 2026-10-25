@@ -379,6 +379,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValid
             }
             extensionRuntime = manager
             factory.extensionController = manager.controller
+            factory.extensionPageConfiguration = { [weak manager] url in manager?.controller.extensionContext(for: url)?.webViewConfiguration }
         } else {
             do {
                 let injector = try ExtensionScriptInjector(library: library, shimURL: paths.injections.appendingPathComponent("extension-compat.js"))
