@@ -417,6 +417,14 @@ extension Tab: WKNavigationDelegate {
             preferences.allowsContentJavaScript = false // our own pages need no page scripts
             return (.allow, preferences)
         }
+        // An extension's page sending its tab to a website (1Password's "Sign in"): WebKit won't load
+        // web content in an extension's web view and drops the navigation silently, so the tab
+        // loads it again in a regular one.
+        if isMainFrame, webViewExtension != nil, let url = navigationAction.request.url, WebViewFactory.extensionHost(url) == nil,
+           url.scheme == "https" || url.scheme == "http" {
+            Task { [weak self] in self?.load(url) }
+            return (.cancel, preferences)
+        }
         // Extension pages load as a tab's page only in a web view made for that extension (`load`
         // switches it); a web page can't navigate a tab to one. In frames (1Password's inline menu)
         // WebKit allows only what the extension lists as web-accessible.

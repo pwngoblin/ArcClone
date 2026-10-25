@@ -558,6 +558,9 @@ enum SelfTest {
             try Data(#"<!doctype html><body style="margin:0"><div style="width:420px;height:310px">Popup</div></body>"#.utf8)
                 .write(to: root.appendingPathComponent("popup.html"))
             try Data(#"<!doctype html><title>Extension Page</title><p>Welcome</p>"#.utf8).write(to: root.appendingPathComponent("page.html"))
+            // A page that sends its tab to a website, as 1Password's "Sign in" does.
+            try Data(#"<!doctype html><title>Leaving</title><script src="leave.js"></script>"#.utf8).write(to: root.appendingPathComponent("leave.html"))
+            try Data("location.href = 'https://selftest.lily.test/from-extension';".utf8).write(to: root.appendingPathComponent("leave.js"))
             let context = WKWebExtensionContext(for: try await WKWebExtension(resourceBaseURL: root))
             try controller.load(context)
             defer { try? controller.unload(context) }
@@ -581,7 +584,14 @@ enum SelfTest {
             pageTab.load(URL(string: "https://selftest.lily.test/after")!)
             // A regular web view again: Lily's page scripts are back.
             let switched = pageTab.webView !== extensionView && !pageTab.webView.configuration.userContentController.userScripts.isEmpty
-            let page: JSONValue = ["ok": .bool(rendered && switched), "rendered": .bool(rendered), "backToWebView": .bool(switched)]
+            let leavingTab = window.tabs.create(url: context.baseURL.appendingPathComponent("leave.html"))
+            defer { window.tabs.close(leavingTab.id) }
+            let left = await waitUntil(10) {
+                !leavingTab.webView.configuration.userContentController.userScripts.isEmpty
+                    && (leavingTab.webView.url ?? leavingTab.url)?.host == "selftest.lily.test"
+            }
+            let page: JSONValue = ["ok": .bool(rendered && switched && left), "rendered": .bool(rendered), "backToWebView": .bool(switched),
+                                   "pageLeavesForWebsite": .bool(left)]
             return ["ok": .bool(shown && closed), "shown": .bool(shown), "closed": .bool(closed),
                     "size": .string("\(Int(size.width))×\(Int(size.height))"), "page": page]
         } catch {
