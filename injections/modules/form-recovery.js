@@ -2,8 +2,8 @@
 // page crashes, closes or reloads before you send it (FormDrafts.swift).
 //
 // Only textareas and rich-text editors, never single-line inputs, and never fields that hold
-// secrets: password, card and one-time-code fields, anything marked autocomplete="off", or
-// read-only and disabled fields. Short text (under 20 characters) isn't kept. Sending the form
+// secrets: password, card and one-time-code fields, anything marked autocomplete="off", fields
+// named or labelled like a key, token or recovery phrase, or read-only and disabled fields. Short text (under 20 characters) isn't kept. Sending the form
 // or emptying the field forgets it. Restoring only fills fields that are empty, as plain text.
 (() => {
   "use strict";
@@ -16,7 +16,9 @@
   const DEBOUNCE_MS = 1000;
   const EDITABLE = 'textarea, [contenteditable]:not([contenteditable="false"])';
   const SECRET = /\b(cc-[a-z-]+|one-time-code|current-password|new-password)\b/;
-  const pending = new Map(); // field key -> { element, timer }
+  // Where people paste keys, tokens and recovery phrases (settings pages, wallets, admin consoles).
+  const SECRET_NAME = /(secret|private[\s_-]?key|api[\s_-]?key|token|passphrase|password|mnemonic|seed[\s_-]?phrase|recovery[\s_-]?(phrase|code|key))/i;
+  const pending = new Map(); // element -> timer
 
   // A rich editor's outermost editable element (input events target it, not inner nodes).
   function editableRoot(node) {
@@ -32,7 +34,9 @@
     if (!element || element.disabled || element.readOnly || element.getAttribute("aria-readonly") === "true") return false;
     const marks = [element, element.closest("form")].filter(Boolean)
       .map((node) => (node.getAttribute("autocomplete") || "").toLowerCase());
-    return !marks.some((mark) => mark === "off" || SECRET.test(mark));
+    if (marks.some((mark) => mark === "off" || SECRET.test(mark))) return false;
+    const names = ["id", "name", "aria-label", "placeholder"].map((attribute) => element.getAttribute(attribute) || "");
+    return !names.some((name) => SECRET_NAME.test(name));
   }
 
   function textOf(element) {
@@ -44,16 +48,20 @@
   }
 
   // Stable across reloads where the page allows: its id or name, else its position among the
-  // page's long-text fields.
-  function keyOf(element) {
+  // page's long-text fields (`fields`, when the caller already has them, saves another scan).
+  function keyOf(element, fields) {
     const tag = element.tagName.toLowerCase();
     if (element.id) return `${tag}#${element.id}`.slice(0, 200);
     const name = element.getAttribute("name");
     if (name) return `${tag}[name=${name}]`.slice(0, 200);
-    return `${tag}:${candidates().indexOf(element)}`;
+    return `${tag}:${(fields || candidates()).indexOf(element)}`;
   }
 
-  function send(key, element) {
+  // The key is worked out here, once per pause in typing, not on every keystroke: for a field
+  // without an id or name it means scanning the page's editable elements.
+  function send(element) {
+    if (!element.isConnected) return;
+    const key = keyOf(element);
     const text = textOf(element) || "";
     if (text.trim().length < MIN_CHARS) {
       lily.emit("form.clear", { url: location.href, field: key });
@@ -63,9 +71,9 @@
   }
 
   function flush() {
-    for (const [key, entry] of pending) {
-      clearTimeout(entry.timer);
-      send(key, entry.element);
+    for (const [element, timer] of pending) {
+      clearTimeout(timer);
+      send(element);
     }
     pending.clear();
   }
@@ -73,27 +81,23 @@
   document.addEventListener("input", (event) => {
     const element = editableRoot(event.target);
     if (!element || !eligible(element)) return;
-    const key = keyOf(element);
-    const entry = pending.get(key);
-    if (entry) clearTimeout(entry.timer);
-    const timer = setTimeout(() => {
-      pending.delete(key);
-      send(key, element);
-    }, DEBOUNCE_MS);
-    pending.set(key, { element, timer });
+    clearTimeout(pending.get(element));
+    pending.set(element, setTimeout(() => {
+      pending.delete(element);
+      send(element);
+    }, DEBOUNCE_MS));
   }, { capture: true, passive: true });
 
   // Sent: nothing left to recover.
   document.addEventListener("submit", (event) => {
     const form = event.target;
     if (!(form instanceof HTMLFormElement)) return;
-    for (const element of candidates()) {
+    const fields = candidates();
+    for (const element of fields) {
       if (!form.contains(element)) continue;
-      const key = keyOf(element);
-      const entry = pending.get(key);
-      if (entry) clearTimeout(entry.timer);
-      pending.delete(key);
-      lily.emit("form.clear", { url: location.href, field: key });
+      clearTimeout(pending.get(element));
+      pending.delete(element);
+      lily.emit("form.clear", { url: location.href, field: keyOf(element, fields) });
     }
   }, { capture: true });
 
@@ -120,7 +124,7 @@
     let restored = 0;
     for (const draft of drafts) {
       if (!draft || typeof draft.field !== "string" || typeof draft.text !== "string") continue;
-      let element = fields.find((candidate) => keyOf(candidate) === draft.field);
+      let element = fields.find((candidate) => keyOf(candidate, fields) === draft.field);
       // Generated ids change between loads; one draft and one empty field is unambiguous.
       if (!element && drafts.length === 1 && empty.length === 1) element = empty[0];
       if (!element || textOf(element).trim() !== "") continue;

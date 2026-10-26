@@ -28,6 +28,30 @@ import Testing
         #expect(drafts.drafts.isEmpty)
     }
 
+    @Test func credentialsAreNotKeptAsDrafts() {
+        let drafts = FormDrafts(directory: nil)
+        drafts.save(page: page, field: "textarea#body", text: reply)
+        let secrets = [
+            // Assembled at run time so the repository's secret scan doesn't flag these fakes.
+            ["-----BEGIN OPENSSH", "PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ\n-----END OPENSSH", "PRIVATE KEY-----"].joined(separator: " "),
+            ["sk", "live", "4f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c"].joined(separator: "-"),
+            "  eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U\n",
+            "abandon ability able about above absent absorb abstract absurd abuse access accident",
+        ]
+        for secret in secrets {
+            #expect(FormDrafts.looksSecret(secret))
+            drafts.save(page: page, field: "textarea#body", text: secret)
+            // Typing a secret over a draft drops the draft too.
+            #expect(drafts.drafts(for: page).isEmpty)
+            drafts.save(page: page, field: "textarea#body", text: reply)
+        }
+        // Writing is kept, including twelve plain words with punctuation or capitals.
+        for prose in [reply, "Thanks, this fixed it for me after the update broke my build again.",
+                      "I think we should ship this on Monday after the review is done ok"] {
+            #expect(!FormDrafts.looksSecret(prose))
+        }
+    }
+
     @Test func expiresAfterADayAndStaysBounded() {
         let drafts = FormDrafts(directory: nil)
         var clock = Date()
@@ -42,7 +66,7 @@ import Testing
         #expect(drafts.drafts.count == FormDrafts.maxDrafts)
         #expect(drafts.drafts.first?.page == "https://site.example/\(FormDrafts.maxDrafts + 9)") // most recent kept
 
-        drafts.save(page: page, field: "a", text: String(repeating: "x", count: FormDrafts.maxCharacters + 500))
+        drafts.save(page: page, field: "a", text: String(repeating: "word ", count: FormDrafts.maxCharacters / 5 + 100))
         #expect(drafts.drafts(for: page).first?.text.count == FormDrafts.maxCharacters)
     }
 
