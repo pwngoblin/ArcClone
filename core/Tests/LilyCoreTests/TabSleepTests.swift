@@ -27,6 +27,25 @@ import Testing
         #expect(!eligible(minutesIdle: 0, active: true, force: true))
     }
 
+    /// The busy check awaits WebKit; a tab shown during that await must not be put to sleep.
+    @Test func aTabShownWhileCheckingIsNotPutToSleep() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let registry = try ScriptRegistry(manifestURL: root.appendingPathComponent("injections/manifest.json"))
+        let store = TabStore(factory: WebViewFactory(registry: registry, dataStore: .nonPersistent()), router: IPCRouter())
+        let background = store.create(url: URL(string: "https://background.invalid/")!)
+        let shownMeanwhile = store.create(url: URL(string: "https://shown.invalid/")!)
+        store.create(url: URL(string: "https://front.invalid/")!)
+        let sleeper = TabSleeper(store: store)
+        defer { sleeper.stop() }
+        sleeper.isBusy = { tab in
+            if tab === shownMeanwhile { store.activate(tab.id) }
+            return false
+        }
+        await sleeper.sweep(force: true)
+        #expect(background.isSleeping)
+        #expect(!shownMeanwhile.isSleeping && store.activeID == shownMeanwhile.id)
+    }
+
     @Test func sleepingKeepsTheTabsIdentityAndActivationWakesIt() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let registry = try ScriptRegistry(manifestURL: root.appendingPathComponent("injections/manifest.json"))

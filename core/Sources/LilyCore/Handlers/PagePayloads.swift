@@ -121,12 +121,13 @@ enum PagePayload {
         return id
     }
 
-    /// The URL a page reports must match the frame's real origin (scheme, host, port).
+    /// The URL a page reports must match the frame's real origin (scheme, host, port). Without an
+    /// origin from WebKit there's nothing to check it against, so it's refused (fail closed).
     static func sameOrigin(_ raw: String, origin: URL?) throws -> URL {
         guard raw.count <= maxURL, let url = URL(string: raw), let scheme = url.scheme?.lowercased() else {
             throw IPCError.invalidParams("Invalid page URL")
         }
-        guard let origin else { return url }
+        guard let origin else { throw IPCError("origin_mismatch", "The frame has no origin to check the page URL against") }
         let port = { (u: URL) in u.port ?? (u.scheme == "https" ? 443 : u.scheme == "http" ? 80 : 0) }
         guard scheme == origin.scheme?.lowercased(), url.host?.lowercased() == origin.host?.lowercased(), port(url) == port(origin) else {
             throw IPCError("origin_mismatch", "Page URL does not match the frame's origin")

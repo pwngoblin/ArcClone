@@ -68,19 +68,29 @@ final class TabSleeper {
         return now.timeIntervalSince(lastActivated) >= threshold
     }
 
+    /// Whether a tab is playing media or capturing; tests replace it.
+    var isBusy: @MainActor (Tab) async -> Bool = { await $0.isBusy() }
+
     /// `force`: memory pressure — sleep every eligible tab regardless of idle time.
     func sweep(force: Bool) async {
         guard let store else { return }
         let now = Date()
         let threshold = Self.threshold
-        for tab in store.tabs where Self.isEligible(lastActivated: tab.lastActivated, now: now, threshold: threshold,
-                                                    isActive: tab.id == store.activeID,
-                                                    inSplit: store.split?.tabIDs.contains(tab.id) ?? false,
-                                                    isSleeping: tab.isSleeping, scheme: tab.url?.scheme, force: force) {
-            if await tab.isBusy() {
+        let eligible = { (tab: Tab) in
+            Self.isEligible(lastActivated: tab.lastActivated, now: now, threshold: threshold, isActive: tab.id == store.activeID,
+                            inSplit: store.split?.tabIDs.contains(tab.id) ?? false,
+                            isSleeping: tab.isSleeping, scheme: tab.url?.scheme, force: force)
+        }
+        // Closed tabs leave no busy marks behind.
+        let open = Set(store.tabs.map(\.id))
+        busyUntil = busyUntil.filter { open.contains($0.key) }
+        for tab in store.tabs where eligible(tab) {
+            if await isBusy(tab) {
                 busyUntil[tab.id] = now.addingTimeInterval(Self.busyRecheck)
                 continue
             }
+            // The await let the app run: the tab may have been shown, split or closed meanwhile.
+            guard store.tab(tab.id) === tab, eligible(tab) else { continue }
             busyUntil[tab.id] = nil
             tab.sleep()
         }

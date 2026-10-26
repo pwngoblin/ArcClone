@@ -56,6 +56,16 @@ final class PinnedTabsView: NSView, NSCollectionViewDelegate {
     private var accent = NSColor.controlAccentColor
     /// The insertion point shown during a drag, so the trackpad taps only when it moves.
     private var lastDropIndex: Int?
+    /// What the current drag carries, read once per drag: AppKit validates the drop on every
+    /// pointer move, and each pasteboard read is a round trip to the pasteboard server.
+    private var dragContents: (sequence: Int, drop: TabDrop?)?
+
+    private func contents(of info: any NSDraggingInfo) -> TabDrop? {
+        if let dragContents, dragContents.sequence == info.draggingSequenceNumber { return dragContents.drop }
+        let drop = TabDrag.read(info.draggingPasteboard)
+        dragContents = (info.draggingSequenceNumber, drop)
+        return drop
+    }
 
     init(window: WindowModel) {
         self.model = window
@@ -151,7 +161,7 @@ final class PinnedTabsView: NSView, NSCollectionViewDelegate {
     func collectionView(_ view: NSCollectionView, validateDrop info: any NSDraggingInfo,
                         proposedIndexPath path: AutoreleasingUnsafeMutablePointer<NSIndexPath>, // AppKit API signature
                         dropOperation: UnsafeMutablePointer<NSCollectionView.DropOperation>) -> NSDragOperation { // AppKit API signature
-        guard let drop = TabDrag.read(info.draggingPasteboard) else { return [] }
+        guard let drop = contents(of: info) else { return [] }
         if case .link = drop, drop.webLink == nil { return [] }
         dropOperation.pointee = .before // between tiles, never onto one
         let index = path.pointee.item
@@ -166,7 +176,8 @@ final class PinnedTabsView: NSView, NSCollectionViewDelegate {
     func collectionView(_ view: NSCollectionView, acceptDrop info: any NSDraggingInfo, indexPath path: IndexPath,
                         dropOperation: NSCollectionView.DropOperation) -> Bool {
         lastDropIndex = nil
-        guard let drop = TabDrag.read(info.draggingPasteboard) else { return false }
+        defer { dragContents = nil }
+        guard let drop = contents(of: info) else { return false }
         // Before the tile now at that position; past the last one, after every pinned tab.
         let target = path.item < order.count ? order[path.item] : nil
         return model.dropOnPinned(drop, before: target)

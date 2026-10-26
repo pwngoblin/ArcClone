@@ -13,6 +13,9 @@ import Testing
         for spoof in ["https://bank.example/", "http://news.example/", "https://news.example:8443/"] {
             #expect(throws: IPCError.self) { try PagePayload.metadata(.init(url: spoof), origin: origin) }
         }
+        // No origin from WebKit (an opaque frame): nothing to check against, so refused.
+        #expect(throws: IPCError.self) { try PagePayload.metadata(.init(url: "https://news.example/"), origin: nil) }
+        #expect(throws: IPCError.self) { try PagePayload.sameOrigin("https://news.example/", origin: nil) }
     }
 
     @Test func untrustedFieldsAreSanitized() throws {
