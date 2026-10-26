@@ -1,5 +1,7 @@
 # Contributing
 
+Lily is licensed under the [GPL-3.0](LICENSE). By opening a pull request you agree that your contribution is licensed under it too. Questions go to [Discussions](https://github.com/pwngoblin/Lily/discussions), bugs and feature requests to issues, vulnerabilities to [SECURITY.md](SECURITY.md).
+
 ## Branches
 
 | Branch | Purpose | Receives changes from | Who merges |
@@ -24,7 +26,7 @@ Never commit directly to `main`, `testing` or `release`, and never merge `releas
 1. Branch from an up-to-date `main`. Use conventional, atomic commits (`feat(core): …`, `fix(ci): …`), each building on its own.
 2. Push with upstream tracking and open a PR into `main` using the template. Describe security impact explicitly.
 3. **CI / test** must pass. It runs the UI and Swift tests, packages the app, runs `scripts/verify-app.sh` and the packaged `--self-test`.
-4. **Approval.** The *main: reviewed PRs only* ruleset needs an approving review from the code owner (`.github/CODEOWNERS`) on the latest push, all review threads resolved, and the branch up to date with `main` (**Update branch**). Nobody can push to `main` directly, force-push it or delete it; the maintainer's own PRs merge through the ruleset's PR-only bypass.
+4. **Approval.** The *main: reviewed PRs only* ruleset needs an approving review from the code owner (`.github/CODEOWNERS`) on the latest push, all review threads resolved, and the branch up to date with `main` (**Update branch**). Every commit must be signed (SSH or GPG; see [GitHub's guide](https://docs.github.com/authentication/managing-commit-signature-verification/about-commit-signature-verification)). Nobody can push to `main` directly, force-push it or delete it; the maintainer's own PRs merge through the ruleset's PR-only bypass.
 5. Merge with **Create a merge commit** (the only method enabled). Squash and rebase are disabled so atomic commits survive and stacked PRs stay mergeable.
 6. GitHub deletes the head branch on merge. Delete your local copy: `git fetch --prune && git branch -d <branch>`.
 
