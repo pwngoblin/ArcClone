@@ -30,6 +30,10 @@ public actor SessionStore {
     private let file: SealedFile
     /// Plaintext session.json written by 0.1.0; migrated on first load, then deleted.
     private let legacyURL: URL
+    /// What the sealed file holds now. Titles and loading states change the window every few
+    /// hundred milliseconds while pages load; the saved session usually doesn't, so an unchanged
+    /// session isn't encrypted and rewritten again.
+    private var saved: Session?
 
     public init(directory: URL, keys: KeyStore = KeychainKeyStore()) {
         file = SealedFile(url: directory.appendingPathComponent("session.sealed"), keyName: "session",
@@ -38,8 +42,13 @@ public actor SessionStore {
     }
 
     public func load() async -> Session? {
+        saved = nil
         do {
-            if let data = try await file.read() { return try JSONDecoder().decode(Session.self, from: data) }
+            if let data = try await file.read() {
+                let session = try JSONDecoder().decode(Session.self, from: data)
+                saved = session
+                return session
+            }
         } catch {
             // Unreadable (tampered, or the key was removed): start fresh rather than fail launch.
             Log.app.error("Session could not be decrypted; discarding it: \(String(describing: error), privacy: .public)")
@@ -52,14 +61,17 @@ public actor SessionStore {
     }
 
     public func save(_ session: Session) async {
+        guard session != saved else { return }
         do {
             try await file.write(JSONEncoder().encode(session))
+            saved = session
         } catch {
             Log.app.error("Session save failed: \(String(describing: error), privacy: .public)")
         }
     }
 
     public func clear() {
+        saved = nil
         file.delete()
         try? FileManager.default.removeItem(at: legacyURL)
     }

@@ -7,6 +7,8 @@
 <!-- Entitlements, IPC routes, storage, network, signing. Write "None" if not applicable. -->
 
 ## Test plan
-- [ ] `make test-ui test-core`
+- [ ] `make check` (security lint + Swift tests)
+- [ ] `make selftest` prints `"result":"pass"`
+- [ ] `make perf` (if this touches tabs, the sidebar or memory)
 - [ ] `make app` (runs `scripts/verify-app.sh`)
 - [ ] Manual checks:

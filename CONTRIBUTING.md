@@ -1,5 +1,7 @@
 # Contributing
 
+Lily is licensed under the [GPL-3.0](LICENSE). By opening a pull request you agree that your contribution is licensed under it too. Questions go to [Discussions](https://github.com/pwngoblin/Lily/discussions), bugs and feature requests to issues, vulnerabilities to [SECURITY.md](SECURITY.md).
+
 ## Branches
 
 | Branch | Purpose | Receives changes from | Who merges |
@@ -24,8 +26,9 @@ Never commit directly to `main`, `testing` or `release`, and never merge `releas
 1. Branch from an up-to-date `main`. Use conventional, atomic commits (`feat(core): …`, `fix(ci): …`), each building on its own.
 2. Push with upstream tracking and open a PR into `main` using the template. Describe security impact explicitly.
 3. **CI / test** must pass. It runs the UI and Swift tests, packages the app, runs `scripts/verify-app.sh` and the packaged `--self-test`.
-4. Merge with **Create a merge commit** (the only method enabled). Squash and rebase are disabled so atomic commits survive and stacked PRs stay mergeable.
-5. GitHub deletes the head branch on merge. Delete your local copy: `git fetch --prune && git branch -d <branch>`.
+4. **Approval.** The *main: reviewed PRs only* ruleset needs an approving review from the code owner (`.github/CODEOWNERS`) on the latest push, all review threads resolved, and the branch up to date with `main` (**Update branch**). Every commit must be signed (SSH or GPG; see [GitHub's guide](https://docs.github.com/authentication/managing-commit-signature-verification/about-commit-signature-verification)). Nobody can push to `main` directly, force-push it or delete it; the maintainer's own PRs merge through the ruleset's PR-only bypass.
+5. Merge with **Create a merge commit** (the only method enabled). Squash and rebase are disabled so atomic commits survive and stacked PRs stay mergeable.
+6. GitHub deletes the head branch on merge. Delete your local copy: `git fetch --prune && git branch -d <branch>`.
 
 ### Stacked PRs
 
@@ -51,5 +54,7 @@ The `source-guard` check rejects any other PR into `testing` or `release`.
 - The weekly **Branch hygiene** workflow deletes branches whose PR was closed without merging more than 14 days ago, and lists branches that never had a PR. Run it manually with *dry-run* to preview.
 
 ## Security
+
+Report vulnerabilities privately: see [SECURITY.md](SECURITY.md). Release tags (`v*`) can't be moved or deleted once published.
 
 Changes touching entitlements, IPC routes, storage, networking or signing need a "Security impact" section. `scripts/verify-app.sh` fails the build on any entitlement outside the allowlist, `cs.*` relaxations, stray rpaths, ATS weakening, unstripped symbols or embedded secrets. See [README → Security](README.md#security).
