@@ -174,6 +174,25 @@ enum MarkdownRenderer {
         }
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace,
                                                               failurePolicy: .returnPartiallyParsedIfPossible)
-        return (try? AttributedString(markdown: linked, options: options)) ?? AttributedString(text)
+        guard var attributed = try? AttributedString(markdown: linked, options: options) else { return AttributedString(text) }
+        revealLinkHosts(in: &attributed)
+        return attributed
+    }
+
+    /// Replies are written from page text, which can tell the model to write
+    /// `[paypal.com](https://evil.example)`. Each web link whose text doesn't already name its
+    /// real host gets the host after it, so the reply can't hide where a link goes.
+    static func revealLinkHosts(in text: inout AttributedString) {
+        let links = text.runs.compactMap { run -> (Range<AttributedString.Index>, String)? in
+            guard let url = run.link, url.scheme == "https" || url.scheme == "http", let host = url.host?.lowercased(), !host.isEmpty else { return nil }
+            let site = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+            return String(text[run.range].characters).lowercased().contains(site) ? nil : (run.range, host)
+        }
+        // From the end, so earlier ranges stay valid.
+        for (range, host) in links.reversed() {
+            var note = AttributedString(" (\(host))")
+            note.foregroundColor = .secondary
+            text.insert(note, at: range.upperBound)
+        }
     }
 }
