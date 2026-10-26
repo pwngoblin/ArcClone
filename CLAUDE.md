@@ -103,6 +103,30 @@ To enable official WebExtensions (such as 1Password, Bitwarden, or standard Mani
 
 ---
 
+---
+
+## WebKit Extension Runtime: Hard-Won Rules (macOS 15.4+, `WKWebExtensionController`)
+Read `docs/EXTENSIONS.md` → *Debugging an extension* before touching extensions. Each rule below cost a debugging session:
+- **Popups**: present `WKWebExtension.Action.popupPopover` (not a hand-made popover around `popupWebView`). An extension that calls `action.setPopup("")` (1Password without an account) opens a tab on click by design.
+- **Extension pages in tabs** (`webkit-extension://`) must load in a web view made from `context.webViewConfiguration`; a normal tab web view renders them blank. WebKit silently drops main-frame navigations from an extension web view to http(s), so `Tab` cancels them and reloads in a regular web view (`Tab.swift` decidePolicy, `WebViewFactory.extensionConfiguration(for:)`).
+- **Never let WebKit suspend extension processes**: the controller's web view configuration uses `inactiveSchedulingPolicy = .none` (`ExtensionManager.configuration()`). With the default `.suspend`, the hidden background was suspended mid-task right after each message. WebKit still unloads an idle MV3 background after ~30 s; messages wake it.
+- **WebSocket in a service worker deadlocks WebKit** (worker runs on the web process main thread; `wss://` constructor waits on itself). The worker shim replaces `WebSocket` with one bridged through Lily (`dev.lily.websocket`, `ExtensionWebSockets.swift`). This was the 1Password "sign-in spins forever" bug. Suspect similar sync-bridge APIs if a background goes silent.
+- **Native-messaging ports**: a port carries messages only after the `connectUsing` delegate call returns. Lily sends `{type: "ready"}` first; the shim waits for it.
+- **Lily's reserved native-messaging names**, answered in-process (everything else is refused): `dev.lily.notifications`, `dev.lily.websocket`, `dev.lily.console`. Every extension with a background is granted `nativeMessaging` so the shim can reach them.
+- **The worker shim** (`injections/extension-worker-compat.js`) is applied before the audit and pinned with the extension. After changing it, the extension must be **removed and re-added** to pick it up.
+- **Shadowing WebKit's `chrome.runtime` members doesn't work**; wrapping event methods (`onMessage.addListener`) does.
+- `context.errors` keeps only ~25 entries; don't use it to count things in tests. Measure via observable state (badge text, action title).
+- Tests: never fixed sleeps for async WebKit work; `await context.loadBackgroundContent()` and poll for a handshake/state (CI is slow and flaky otherwise).
+
+## Local Builds, Signing & Testing With the User
+- Build app for the user with `CODESIGN_IDENTITY="<Apple Development identity, see security find-identity -v -p codesigning>" make app` (free Apple Development cert, team V56242Q2KF) → `build/Lily.app`; the user copies it to /Applications. Ad-hoc builds lose Keychain-sealed data (extensions, history, session) on every rebuild.
+- **Never run the signed app or its `--self-test` while the user is testing**: it shares the user's sandbox container and causes freezes. `make selftest` (unbundled debug binary) is fine.
+- The signed app's container is not readable from the terminal ("Operation not permitted"); rely on logs.
+- No paid Apple Developer account yet: 1Password desktop-app unlock / real native-messaging hosts are parked until Developer ID signing exists.
+- Before a PR: `make lint`, `cd core && swift test`, `make selftest`, `make perf`.
+
+---
+
 ## Git & GitHub Automation Workflow
 When given any task, feature implementation, or bug fix, you MUST follow this git discipline automatically:
 

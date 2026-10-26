@@ -101,6 +101,7 @@ The modules `CLAUDE.md` names live in the Swift package (`core/Sources/LilyCore/
 **Chrome APIs WebKit doesn't have.** WebKit's runtime provides `action`, `alarms`, `commands`, `contextMenus`, `declarativeNetRequest`, `dom`, `extension`, `i18n`, `permissions`, `runtime`, `scripting`, `storage`, `tabs`, `webNavigation`, `webRequest` and `windows`. Extensions built for Chrome may call others as soon as their background starts and die without them. 1Password's worker, for example, throws on `chrome.notifications.onClicked` and its popup never gets an answer. So when an extension is added, `ExtensionCompat` puts Lily's worker shim (`injections/extension-worker-compat.js`) in front of its background:
 - It adds inert stand-ins for `privacy`, `management`, `idle` and `downloads` (only those the manifest asks for and WebKit lacks), for missing events (`webNavigation.onCreatedNavigationTarget` and others), and an empty `storage.managed`. Events never fire, queries return defaults, and actions that need the browser (a download) report that they aren't supported.
 - It gives `notifications` a real implementation through Lily (`Extensions/ExtensionNotifications.swift`), described below.
+- It replaces `WebSocket` in service workers with one that connects through Lily (`Extensions/ExtensionWebSockets.swift`), described below. WebKit's own freezes the background.
 - A real API is never replaced. The extension's own files are unchanged; the manifest's background points to a two-line entry that loads the shim, then the original.
 - It's added before the audit and the hash, so it's part of the reviewed, pinned copy, and the approve dialog says it's there. Extensions added before this need to be added again (Settings offers "Reinstall").
 
@@ -118,11 +119,29 @@ Extensions can handle that error and fall back to their own features: extension 
 
 ### Notifications
 
-WebKit has no `chrome.notifications`, and the only way an extension's background can reach the app is native messaging. So Lily reserves one native-messaging name, `dev.lily.notifications`, and answers it itself; no process is started and no other app is involved.
-- **Who can use it.** At load, an extension approved for `notifications` is also granted `nativeMessaging`, which WebKit needs before it exposes the API. WebKit's own `runtime` members can't be hidden, so the extension's code sees `sendNativeMessage` and `connectNative` too, but they reach only this name (for notifications it was already approved for); every other name is refused as before.
+WebKit has no `chrome.notifications`, and the only way an extension's background can reach the app is native messaging. So Lily reserves native-messaging names it answers itself (`dev.lily.notifications`, `dev.lily.websocket`, `dev.lily.console`); no process is started and no other app is involved.
+- **Who can use it.** At load, every extension with a background is granted `nativeMessaging`, which WebKit needs before it exposes the API. WebKit's own `runtime` members can't be hidden, so the extension's code sees `sendNativeMessage` and `connectNative` too, but they reach only Lily's names (notifications only for extensions approved for them); every other name is refused as before.
 - **Requests.** The shim turns `create`, `update`, `clear`, `getAll` and `getPermissionLevel` into requests. Each is decoded into a fixed schema (`ExtensionNotifications.Request`, at most 16 KB, IDs up to 256 characters without control characters, text shortened like Chrome does, two buttons). Images, progress and `requireInteraction` are ignored.
 - **Showing.** Through `UNUserNotificationCenter`, with the extension's name as the subtitle. macOS asks permission before the first one. An extension's notifications are removed when it's removed or turned off.
 - **Events.** Clicks, button clicks and dismissals go back over a port the shim opens after its first `create`. Lily closes the port once none of the extension's notifications are showing. Events that arrive while the background is asleep are kept (up to 50), the background is started, and the shim collects them once the extension adds a listener.
+
+### WebSockets in service workers
+
+WebKit runs an extension's service worker on its web process's main thread, and `new WebSocket("wss://…")` there waits for that same thread to set the connection up: the background freezes for good, along with every popup, content script and message waiting on it. 1Password opens its sync connection right after sign-in, so the sign-in never finished and the extension stopped answering.
+
+In a service worker the shim's `WebSocket` connects through Lily instead, one `dev.lily.websocket` port per socket. It behaves like the real one: `open`, `message` (text and binary, `binaryType`), `error` and `close` events and their `on…` properties, `send`, `close`, `readyState`. Lily (`ExtensionWebSockets`) decodes each request into a fixed schema, opens only `ws:`/`wss:` URLs with a host, limits messages to 1 MB and sockets to 16 per extension, sends the extension's origin as a WebSocket from its background would, and carries no cookies. A socket closes with its port: when the background unloads or the extension is turned off. Background pages (MV2, `background.scripts`) keep WebKit's own `WebSocket`, which works there.
+
+### Debugging an extension
+
+Lily's Web Inspector can't attach to extension backgrounds in practice, so debugging runs on logs and process samples:
+1. **Turn on** Settings → General → *Show features for web developers*. The worker shim then forwards the background's console, every message it receives (`[Lily] received <name> from host tab X frame Y`), each listener's reply kind and delay (`[Lily] reply <name>: Success after N ms`, or `no reply … after 10 s`), and pages' `*-log-event` reports. Contents are never logged.
+2. **Stream the log** (debug level isn't kept on disk):
+   `log stream --level debug --style compact --predicate 'subsystem == "dev.lily.browser" AND (category == "extensions" OR category == "web")'`
+3. **If the background goes silent** after a message (no reply, no further console lines, not even timers), it is frozen, not slow. Find the WebContent processes started with Lily (`ps -axo pid,etime,%cpu,rss,command | grep WebContent`) and `sample <pid> 2` each. A main thread parked in a WebCore wait (e.g. `WorkerThreadableWebSocketChannel` → `BinarySemaphore::waitUntil`) is a WebKit deadlock; work around it in the shim.
+4. **Process suspension** shows in `log show --predicate 'process == "Lily" AND category == "ProcessSuspension"'` (`PrepareToSuspend`).
+5. Reproduce in a unit test with a tiny MV3 extension (see `ExtensionWebSocketsTests`, `ExtensionMessageDiagnosticsTests`): signal progress with `chrome.action.setBadgeText` / `setTitle` and read `context.action(for: nil)`.
+
+**1Password status (2026-10-26): working.** Account sign-in succeeds, the vault and passwords show in the popup, and passkeys sign in to websites (tested on Google). What took 1Password from "opens a tab" to working: the popover presenter (#58), notifications (#59), extension pages in tabs (#60, #61), no process suspension (#63), WebSocket bridge (#64).
 
 ## 3. Runtime isolation
 
@@ -136,5 +155,5 @@ What's enforced, and where:
 | Only approved permissions | Permissions and host patterns are granted explicitly at each load, from what was approved at install (`ExtensionManager.load`). |
 | Extensions can't see each other or the page | Compatibility-mode content scripts run in a separate content world per extension. Page scripts can't read their variables, and `chrome` never appears in the page. |
 | No extensions in private windows | Private windows use a separate configuration without the extension controller or the compatibility injector. |
-| No desktop helpers | Native messaging is refused without starting any process. Lily's own notifications name is the one exception, answered in-process for extensions approved for notifications. |
+| No desktop helpers | Native messaging is refused without starting any process. Lily's own names are the exception, answered in-process: notifications (for extensions approved for them), WebSockets for service workers, and console diagnostics. |
 | OS-level containment | Extensions run in WebKit's own processes under Lily's App Sandbox (outbound network only, no file access beyond what you open). |
