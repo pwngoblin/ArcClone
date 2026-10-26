@@ -60,6 +60,31 @@ private func temporaryDirectory() throws -> URL {
         #expect(!FileManager.default.fileExists(atPath: file.path))
     }
 
+    @Test func unchangedSessionIsNotRewritten() async throws {
+        let dir = try temporaryDirectory()
+        let store = SessionStore(directory: dir, keys: InMemoryKeyStore())
+        let file = dir.appendingPathComponent("session.sealed")
+        await store.save(sample)
+        let first = try Data(contentsOf: file)
+        // Each write uses a fresh nonce, so identical bytes mean the file wasn't written again.
+        await store.save(sample)
+        #expect(try Data(contentsOf: file) == first)
+        _ = await store.load()
+        await store.save(sample)
+        #expect(try Data(contentsOf: file) == first)
+
+        var changed = sample
+        changed.tabs[0].title = "Bank – Statements"
+        await store.save(changed)
+        #expect(try Data(contentsOf: file) != first)
+        #expect(await store.load() == changed)
+
+        // Once cleared, the same session is written again.
+        await store.clear()
+        await store.save(changed)
+        #expect(await store.load() == changed)
+    }
+
     @Test func plaintextLegacySessionIsMigratedAndDeleted() async throws {
         let dir = try temporaryDirectory()
         let legacy = dir.appendingPathComponent("session.json")
