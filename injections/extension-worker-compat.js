@@ -7,10 +7,10 @@
 // - Only namespaces the manifest asks for and WebKit lacks. A real API is never replaced.
 // - Nothing here reaches outside the extension: events never fire, queries return empty or
 //   default values, and actions that would need the browser (a download) report that they
-//   aren't supported. The one exception is notifications: when Lily grants the channel, they go
-//   to Lily, which shows them through macOS (`ExtensionNotifications.swift`) and reports clicks
-//   and dismissals back. The channel is a native-messaging name Lily answers itself; no other
-//   app is involved.
+//   aren't supported. Two things go to Lily instead, over native-messaging names it answers
+//   itself (no other app is involved): notifications, which it shows through macOS
+//   (`ExtensionNotifications.swift`) and reports clicks and dismissals back, and a service
+//   worker's WebSockets, which WebKit's own freezes (`ExtensionWebSockets.swift`).
 // - Plain script (no import/export), so it loads from importScripts, a module import, or an
 //   MV2 background scripts list alike.
 (() => {
@@ -193,6 +193,115 @@
         early.length = 0;
       }, () => { mode = 'off'; early.length = 0; });
     } catch (error) { mode = 'off'; }
+  }
+
+  // WebSocket in a service worker. WebKit runs an extension's worker on its process's main thread,
+  // and `new WebSocket('wss://…')` there waits on that same thread: the background freezes for
+  // good (1Password's sync connection after sign-in). This stand-in connects through Lily
+  // (`ExtensionWebSockets.swift`), one port per socket, and behaves as WebSocket does: events
+  // `open`, `message`, `error`, `close` and their `on…` properties, `send`, `close`. Without the
+  // channel a socket fails as an unreachable server would, which beats freezing.
+  if (typeof WorkerGlobalScope === 'function' && globalThis instanceof WorkerGlobalScope && typeof globalThis.WebSocket === 'function') {
+    const socketChannel = 'dev.lily.websocket';
+    const states = { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 };
+    const fromBase64 = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
+    const toBase64 = (bytes) => {
+      let text = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      return btoa(text);
+    };
+    class LilyWebSocket extends EventTarget {
+      #port = null;
+      #state = states.CONNECTING;
+      #url;
+      #protocol = '';
+      #binaryType = 'blob';
+      #queue = Promise.resolve();
+      #opening = null;
+      constructor(url, protocols) {
+        super();
+        let parsed;
+        try { parsed = new URL(url, globalThis.location && globalThis.location.href); } catch (error) { throw new DOMException(`Invalid URL '${url}'`, 'SyntaxError'); }
+        if (parsed.protocol === 'http:') parsed.protocol = 'ws:'; else if (parsed.protocol === 'https:') parsed.protocol = 'wss:';
+        if ((parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') || parsed.hash) throw new DOMException(`Invalid URL '${url}'`, 'SyntaxError');
+        this.#url = parsed.href;
+        const list = protocols === undefined ? [] : (Array.isArray(protocols) ? protocols : [protocols]).map(String);
+        for (const [name, value] of Object.entries(states)) Object.defineProperty(this, name, { value });
+        let port = null;
+        try { port = portToLily ? portToLily(socketChannel) : null; } catch (error) { port = null; }
+        if (!port) { setTimeout(() => this.#closed({ code: 1006, reason: '', wasClean: false }, true), 0); return; }
+        this.#port = port;
+        port.onMessage.addListener((message) => this.#received(message));
+        port.onDisconnect.addListener(() => { if (this.#state !== states.CLOSED) this.#closed({ code: 1006, reason: '', wasClean: false }, true); });
+        this.#opening = { action: 'open', url: this.#url, protocols: list };
+      }
+      get url() { return this.#url; }
+      get readyState() { return this.#state; }
+      get protocol() { return this.#protocol; }
+      get extensions() { return ''; }
+      get bufferedAmount() { return 0; }
+      get binaryType() { return this.#binaryType; }
+      set binaryType(value) { if (value === 'blob' || value === 'arraybuffer') this.#binaryType = value; }
+      send(data) {
+        if (this.#state === states.CONNECTING) throw new DOMException('WebSocket is not open', 'InvalidStateError');
+        if (this.#state !== states.OPEN) return;
+        // Blobs are read asynchronously, so every send queues behind the one before to keep order.
+        const payload = typeof data === 'string' ? { text: data }
+          : data instanceof Blob ? data.arrayBuffer().then((buffer) => ({ binary: toBase64(new Uint8Array(buffer)) }))
+          : { binary: toBase64(ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : new Uint8Array(data)) };
+        this.#queue = this.#queue.then(() => payload).then((message) => {
+          if (this.#state === states.OPEN) this.#port.postMessage({ action: 'send', ...message });
+        }, () => {});
+      }
+      close(code, reason) {
+        if (code !== undefined && code !== 1000 && (code < 3000 || code > 4999)) throw new DOMException('Invalid close code', 'InvalidAccessError');
+        if (this.#state === states.CLOSING || this.#state === states.CLOSED) return;
+        this.#state = states.CLOSING;
+        try { this.#port.postMessage({ action: 'close', code, reason: reason === undefined ? undefined : String(reason) }); } catch (error) { /* already gone */ }
+      }
+      #received(message) {
+        if (!message || typeof message.type !== 'string' || this.#state === states.CLOSED) return;
+        if (message.type === 'ready' && this.#opening) {
+          // Lily can take messages on this port from now on.
+          this.#port.postMessage(this.#opening);
+          this.#opening = null;
+        } else if (message.type === 'open' && this.#state === states.CONNECTING) {
+          this.#state = states.OPEN;
+          this.#protocol = String(message.protocol || '');
+          this.#fire(new Event('open'));
+        } else if (message.type === 'message') {
+          let data;
+          if (typeof message.text === 'string') data = message.text;
+          else if (typeof message.binary === 'string') {
+            const bytes = fromBase64(message.binary);
+            data = this.#binaryType === 'arraybuffer' ? bytes.buffer : new Blob([bytes]);
+          } else return;
+          this.#fire(new MessageEvent('message', { data, origin: new URL(this.#url).origin }));
+        } else if (message.type === 'error') {
+          this.#fire(new Event('error'));
+        } else if (message.type === 'close') {
+          this.#closed({ code: Number(message.code) || 1006, reason: String(message.reason || ''), wasClean: message.wasClean === true }, false);
+        }
+      }
+      #closed(detail, withError) {
+        if (this.#state === states.CLOSED) return;
+        this.#state = states.CLOSED;
+        if (withError) this.#fire(new Event('error'));
+        this.#fire(new CloseEvent('close', detail));
+        try { this.#port && this.#port.disconnect(); } catch (error) { /* already gone */ }
+        this.#port = null;
+      }
+      #fire(event) {
+        const handler = this['on' + event.type];
+        this.dispatchEvent(event);
+        if (typeof handler === 'function') { try { handler.call(this, event); } catch (error) { queueMicrotask(() => { throw error; }); } }
+      }
+    }
+    for (const name of ['onopen', 'onmessage', 'onerror', 'onclose']) {
+      Object.defineProperty(LilyWebSocket.prototype, name, { value: null, writable: true, configurable: true, enumerable: true });
+    }
+    for (const [name, value] of Object.entries(states)) Object.defineProperty(LilyWebSocket, name, { value });
+    Object.defineProperty(globalThis, 'WebSocket', { value: LilyWebSocket, writable: true, configurable: true });
   }
 
   // chrome.notifications through Lily: create, update and clear are requests; clicks, button

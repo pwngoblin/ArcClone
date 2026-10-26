@@ -16,6 +16,8 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     private(set) var contexts: [String: WKWebExtensionContext] = [:]
     /// `chrome.notifications`, which WebKit lacks, through macOS notifications.
     @ObservationIgnored let notifications = ExtensionNotifications()
+    /// WebSockets for extension backgrounds, which deadlock opening their own.
+    @ObservationIgnored let webSockets = ExtensionWebSockets()
     /// How many of each extension's errors have been logged.
     @ObservationIgnored private var loggedErrors: [String: Int] = [:]
     @ObservationIgnored private var errorObserver: NSObjectProtocol?
@@ -55,10 +57,11 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
             context.isInspectable = WebInspector.isEnabled
             // Only what the user approved at install time.
             for name in record.grantedPermissions { context.setPermissionStatus(.grantedExplicitly, for: WKWebExtension.Permission(rawValue: name)) }
-            // The worker shim reaches Lily's notifications through native messaging, which WebKit
-            // exposes only when granted. The extension's own code sees the API too, but Lily answers
-            // only its notifications name (already approved) and refuses every other one.
-            if record.grantedPermissions.contains("notifications") { context.setPermissionStatus(.grantedExplicitly, for: .nativeMessaging) }
+            // The worker shim reaches Lily (notifications, WebSockets, diagnostics) through native
+            // messaging, which WebKit exposes only when granted. The extension's own code sees the
+            // API too, but Lily answers only its own names (notifications only if approved) and
+            // refuses every other one, so no app outside Lily is reached.
+            if context.webExtension.hasBackgroundContent { context.setPermissionStatus(.grantedExplicitly, for: .nativeMessaging) }
             for pattern in record.grantedPatterns {
                 if let match = try? WKWebExtension.MatchPattern(string: pattern) { context.setPermissionStatus(.grantedExplicitly, for: match) }
             }
@@ -74,6 +77,7 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     private func unload(_ id: String) {
         if let context = contexts.removeValue(forKey: id) { try? controller.unload(context) }
         notifications.removeAll(for: id)
+        webSockets.removeAll(for: id)
         loggedErrors[id] = nil
     }
 
@@ -180,6 +184,9 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
                                 for extensionContext: WKWebExtensionContext) async throws {
         if port.applicationIdentifier == ExtensionNotifications.applicationIdentifier {
             return try notifications.connect(port, from: extensionContext)
+        }
+        if port.applicationIdentifier == ExtensionWebSockets.applicationIdentifier {
+            return try webSockets.connect(port, from: extensionContext)
         }
         throw await NativeMessagingHostManager.shared.request(application: port.applicationIdentifier, extensionName: extensionContext.webExtension.displayName ?? "extension")
     }
