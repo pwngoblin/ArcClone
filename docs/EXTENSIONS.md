@@ -131,6 +131,18 @@ WebKit runs an extension's service worker on its web process's main thread, and 
 
 In a service worker the shim's `WebSocket` connects through Lily instead, one `dev.lily.websocket` port per socket. It behaves like the real one: `open`, `message` (text and binary, `binaryType`), `error` and `close` events and their `on…` properties, `send`, `close`, `readyState`. Lily (`ExtensionWebSockets`) decodes each request into a fixed schema, opens only `ws:`/`wss:` URLs with a host, limits messages to 1 MB and sockets to 16 per extension, sends the extension's origin as a WebSocket from its background would, and carries no cookies. A socket closes with its port: when the background unloads or the extension is turned off. Background pages (MV2, `background.scripts`) keep WebKit's own `WebSocket`, which works there.
 
+### Debugging an extension
+
+Lily's Web Inspector can't attach to extension backgrounds in practice, so debugging runs on logs and process samples:
+1. **Turn on** Settings → General → *Show features for web developers*. The worker shim then forwards the background's console, every message it receives (`[Lily] received <name> from host tab X frame Y`), each listener's reply kind and delay (`[Lily] reply <name>: Success after N ms`, or `no reply … after 10 s`), and pages' `*-log-event` reports. Contents are never logged.
+2. **Stream the log** (debug level isn't kept on disk):
+   `log stream --level debug --style compact --predicate 'subsystem == "dev.lily.browser" AND (category == "extensions" OR category == "web")'`
+3. **If the background goes silent** after a message (no reply, no further console lines, not even timers), it is frozen, not slow. Find the WebContent processes started with Lily (`ps -axo pid,etime,%cpu,rss,command | grep WebContent`) and `sample <pid> 2` each. A main thread parked in a WebCore wait (e.g. `WorkerThreadableWebSocketChannel` → `BinarySemaphore::waitUntil`) is a WebKit deadlock; work around it in the shim.
+4. **Process suspension** shows in `log show --predicate 'process == "Lily" AND category == "ProcessSuspension"'` (`PrepareToSuspend`).
+5. Reproduce in a unit test with a tiny MV3 extension (see `ExtensionWebSocketsTests`, `ExtensionMessageDiagnosticsTests`): signal progress with `chrome.action.setBadgeText` / `setTitle` and read `context.action(for: nil)`.
+
+What took 1Password from "opens a tab" to working: the popover presenter (#58), notifications (#59), extension pages in tabs (#60, #61), no process suspension (#63), WebSocket bridge (#64).
+
 ## 3. Runtime isolation
 
 What's enforced, and where:

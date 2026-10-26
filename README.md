@@ -328,7 +328,7 @@ What's not finished, what's deliberately unsupported, and what still needs a per
 
 **Needs manual verification**
 - **Drag-and-drop gestures** (PR #48). Every drop is covered by the self-test, but the physical trackpad drags aren't: row onto a pinned tile, pinned tile into the list, row onto a space icon or split pill, a link from a page into the list, a row into another app (should paste the address), plain reordering still working, and the haptic taps.
-- **1Password from the Chrome Web Store.** It installs and its background starts. Until an account is added in the extension, clicking it opens 1Password's welcome page in a tab instead of a popup: 1Password turns its popup off (`action.setPopup("")`) when neither the desktop app nor an account is connected, as it does in Chrome. Signing in on that page (email, Secret Key and password, or the QR code) adds the account. Before PR #64 the sign-in froze 1Password's background as soon as it was accepted (WebKit deadlocks on a WebSocket in an extension's service worker), so the page kept spinning and the popup and autofill never answered. Re-add 1Password after updating so it gets the new shim, then check sign-in, the popup and autofill.
+- **1Password autofill on login forms.** Verified on 2026-10-26 after PR #64: added from the Chrome Web Store, sign-in (QR code) completes, the vault shows in the toolbar popup, and a 1Password passkey signed in to Google. Next to check: autofill of saved passwords on login forms, the inline menu, and saving a new login.
 - The manual steps in the test plans of PRs #44–#48 (Separate logins with two accounts, ⌘K, restoring typed text after closing a tab, Link Scrolling, a pane pausing after 5 minutes, Add from Store).
 
 **Not done yet**
