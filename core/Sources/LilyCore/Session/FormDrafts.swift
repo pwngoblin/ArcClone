@@ -62,11 +62,23 @@ public final class FormDrafts {
         guard let page = Self.pageKey(url), !field.isEmpty, field.count <= Self.maxFieldKey else { return }
         let text = String(text.prefix(Self.maxCharacters))
         drafts.removeAll { $0.page == page && $0.field == field }
-        if text.trimmingCharacters(in: .whitespacesAndNewlines).count >= Self.minCharacters {
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).count >= Self.minCharacters, !Self.looksSecret(text) {
             drafts.insert(Draft(page: page, field: field, text: text, savedAt: now()), at: 0)
             if drafts.count > Self.maxDrafts { drafts.removeLast(drafts.count - Self.maxDrafts) }
         }
         scheduleSave()
+    }
+
+    /// Text that's a credential rather than writing: a PEM private key, one long unbroken token
+    /// (API keys, JWTs, hex secrets; prose has spaces), or a 12–24 word recovery phrase. Kept out
+    /// of drafts even when the page didn't mark the field, and an earlier draft of it is dropped.
+    nonisolated static func looksSecret(_ text: String) -> Bool {
+        if text.contains("-----BEGIN"), text.contains("PRIVATE KEY") { return true }
+        let words = text.split(whereSeparator: \.isWhitespace)
+        if words.count == 1 { return true }
+        let phraseLengths: Set<Int> = [12, 15, 18, 21, 24]
+        return phraseLengths.contains(words.count)
+            && words.allSatisfy { word in word.unicodeScalars.allSatisfy { ("a"..."z").contains($0) } }
     }
 
     /// The field was sent or emptied.
