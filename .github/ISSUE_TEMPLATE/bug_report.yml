@@ -1,0 +1,48 @@
+name: Bug report
+description: Something in Lily doesn't work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Security problem? Please use **Report a vulnerability** instead (see SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. Open …\n2. Click …"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Lily version
+      description: Lily → About Lily, or the DMG name.
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac
+      placeholder: macOS 26.1, MacBook Air M2
+    validations:
+      required: true
+  - type: input
+    id: extensions
+    attributes:
+      label: Extensions involved (if any)
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Optional. With Settings → General → *Show features for web developers* on:
+        `log stream --level debug --style compact --predicate 'subsystem == "dev.lily.browser"'`.
+        Check the output for addresses or personal data before pasting.
+      render: text
