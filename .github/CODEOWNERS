@@ -1,0 +1,10 @@
+# Every change needs the maintainer's review (enforced by the "main: reviewed PRs only" ruleset).
+*                       @pwngoblin
+
+# Security-sensitive areas, listed so they stay owned if more maintainers join.
+/scripts/               @pwngoblin
+/.github/               @pwngoblin
+/injections/            @pwngoblin
+/core/Sources/LilyCore/IPC/         @pwngoblin
+/core/Sources/LilyCore/Extensions/  @pwngoblin
+/core/Sources/LilyCore/Support/     @pwngoblin

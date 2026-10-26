@@ -8,7 +8,7 @@ Lily is written in Swift with AppKit and SwiftUI and renders pages with WebKit (
 
 > **Status:** early development (0.x). Everything listed under [Features](#features) is implemented and covered by tests or the self-test; [Known issues and limitations](#known-issues-and-limitations) lists what isn't finished, what is deliberately not supported, and what still needs a human to try.
 
-**Contents:** [Install](#install) · [Features](#features) · [Keyboard shortcuts](#keyboard-shortcuts) · [Privacy](#privacy) · [Security](#security) · [Architecture](#architecture) · [Where things are](#where-things-are) · [Development](#development) · [Adding a feature](#adding-a-feature) · [Known issues and limitations](#known-issues-and-limitations) · [Releases](#releases)
+**Contents:** [Install](#install) · [Features](#features) · [Keyboard shortcuts](#keyboard-shortcuts) · [Privacy](#privacy) · [Security](#security) · [Architecture](#architecture) · [Where things are](#where-things-are) · [Development](#development) · [Adding a feature](#adding-a-feature) · [Known issues and limitations](#known-issues-and-limitations) · [Releases](#releases) · [License](#license)
 
 ## Install
 
@@ -377,3 +377,7 @@ Signing and notarization turn on when these repository secrets are set:
 | `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD` | notarytool credentials (app-specific password) |
 
 Without them, builds are ad-hoc signed and the first launch has to be approved manually.
+
+## License
+
+Lily is free software under the [GNU General Public License v3.0](LICENSE) (GPL-3.0-only): you may use, study, share and change it, and anything you distribute that's built from it must be shared under the same license, with its source. Questions and ideas: [Discussions](https://github.com/pwngoblin/Lily/discussions); security reports: [SECURITY.md](SECURITY.md).

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/pwngoblin/Lily/discussions
+    about: Ask how something works or float an idea before filing it.
+  - name: Report a security vulnerability
+    url: https://github.com/pwngoblin/Lily/security/advisories/new
+    about: Please report security problems privately, not as a public issue.
