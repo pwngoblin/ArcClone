@@ -141,7 +141,7 @@ Lily's Web Inspector can't attach to extension backgrounds in practice, so debug
 4. **Process suspension** shows in `log show --predicate 'process == "Lily" AND category == "ProcessSuspension"'` (`PrepareToSuspend`).
 5. Reproduce in a unit test with a tiny MV3 extension (see `ExtensionWebSocketsTests`, `ExtensionMessageDiagnosticsTests`): signal progress with `chrome.action.setBadgeText` / `setTitle` and read `context.action(for: nil)`.
 
-What took 1Password from "opens a tab" to working: the popover presenter (#58), notifications (#59), extension pages in tabs (#60, #61), no process suspension (#63), WebSocket bridge (#64).
+**1Password status (2026-10-26): working.** Account sign-in succeeds, the vault and passwords show in the popup, and passkeys sign in to websites (tested on Google). What took 1Password from "opens a tab" to working: the popover presenter (#58), notifications (#59), extension pages in tabs (#60, #61), no process suspension (#63), WebSocket bridge (#64).
 
 ## 3. Runtime isolation
 
