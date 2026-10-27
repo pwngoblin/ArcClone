@@ -130,6 +130,23 @@ private let manifestV3 = #"{"name": "T", "version": "1", "manifest_version": 3, 
         #expect(try audit("not json").isBlocked)
     }
 
+    @Test func userScriptsBlocksInstallation() throws {
+        let result = try audit(#"{"name": "T", "version": "1", "manifest_version": 3, "permissions": ["userScripts"]}"#)
+        #expect(result.isBlocked)
+        #expect(try audit(#"{"name": "T", "version": "1", "manifest_version": 3, "optional_permissions": ["userScripts"]}"#).isBlocked)
+    }
+
+    @Test func clipboardWritesAndKeystrokeListenersAreWarnings() throws {
+        let manifest = #"{"name": "T", "version": "1", "manifest_version": 3, "permissions": ["clipboardWrite", "offscreen"], "content_scripts": [{"matches": ["<all_urls>"], "js": ["./content.js"]}]}"#
+        let result = try audit(manifest, ["content.js": "document.addEventListener('keydown', e => queue.push(e.key))",
+                                          "popup.js": "input.addEventListener('keydown', submitOnEnter)"])
+        #expect(!result.isBlocked)
+        let typing = result.findings.first { $0.title == "Watches what you type on websites" }
+        // Only content scripts run on websites; the popup's own listener isn't flagged.
+        #expect(typing?.severity == .warning && typing?.detail == "content.js")
+        #expect(result.findings.contains { $0.title == "Asks for sensitive permissions" && $0.detail.contains("clipboardWrite") && $0.detail.contains("offscreen") })
+    }
+
     @Test func riskyButCommonPatternsAreWarnings() throws {
         let sandbox = try audit(#"{"name": "T", "version": "1", "manifest_version": 3, "content_security_policy": {"sandbox": "sandbox allow-scripts; script-src 'self' 'unsafe-eval'"}}"#)
         #expect(!sandbox.isBlocked && sandbox.findings.contains { $0.severity == .warning })

@@ -33,7 +33,18 @@ struct ExtensionAudit: Sendable, Equatable {
         "cookies", "history", "webRequest", "webRequestBlocking", "debugger", "management", "proxy", "privacy",
         "declarativeNetRequestFeedback", "clipboardRead", "downloads", "tabCapture", "desktopCapture", "nativeMessaging",
         "browsingData", "topSites", "bookmarks", "pageCapture", "identity", "webNavigation", "scripting",
+        // Clipboard writes without a click ("ClickFix": a shell command waiting to be pasted into
+        // Terminal), every tab's address, redirecting requests, changing site settings.
+        "clipboardWrite", "offscreen", "tabs", "declarativeNetRequestWithHostAccess", "contentSettings",
     ]
+
+    /// Permissions that run code which was never part of the audited, pinned files.
+    static let blockedPermissions: Set<String> = ["userScripts"]
+
+    /// Key listeners in a content script see what you type on every page it runs on (password
+    /// managers need this; a keylogger is the same code).
+    private static let keyListener = try! NSRegularExpression(
+        pattern: #"addEventListener\(\s*["'`]key(down|up|press)["'`]|\.onkey(down|up|press)\s*="#, options: [.caseInsensitive])
 
     private static let codeExtensions: Set<String> = ["js", "mjs", "cjs", "html", "htm"]
     private static let codeChecks: [(Severity, String, String)] = [
@@ -79,6 +90,15 @@ struct ExtensionAudit: Sendable, Equatable {
             hosts.formUnion(found.hosts)
             telemetry.formUnion(found.telemetry)
         }
+        let contentScripts = Set(manifest.contentScripts.flatMap { $0.js ?? [] }.map(normalized))
+        let keyWatchers = package.files.keys.filter { contentScripts.contains(normalized($0)) }.sorted().filter { path in
+            guard let contents = package.files[path] else { return false }
+            let text = String(decoding: contents, as: UTF8.self)
+            return keyListener.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+        }
+        if !keyWatchers.isEmpty {
+            findings.append(Finding(severity: .warning, title: "Watches what you type on websites", detail: list(keyWatchers)))
+        }
         for (severity, title, _) in codeChecks {
             if let files = hits[title] { findings.append(Finding(severity: severity, title: title, detail: list(files))) }
         }
@@ -119,7 +139,12 @@ struct ExtensionAudit: Sendable, Equatable {
                                     detail: (unsafe + remote.map(String.init)).joined(separator: ", ")))
         }
 
-        let sensitive = (manifest.permissions + manifest.optionalPermissions).filter(sensitivePermissions.contains)
+        let requested = manifest.permissions + manifest.optionalPermissions
+        let blocked = requested.filter(blockedPermissions.contains)
+        if !blocked.isEmpty {
+            findings.append(Finding(severity: .blocked, title: "Can run code that isn't part of the extension", detail: list(blocked.sorted())))
+        }
+        let sensitive = requested.filter(sensitivePermissions.contains)
         if !sensitive.isEmpty { findings.append(Finding(severity: .warning, title: "Asks for sensitive permissions", detail: list(sensitive.sorted()))) }
         let hosts = manifest.allHostPatterns + manifest.contentScripts.flatMap(\.matches)
         if hosts.contains(where: { $0 == "<all_urls>" || $0.hasPrefix("*://*/") || $0.hasPrefix("http://*/") || $0.hasPrefix("https://*/") }) {
@@ -176,6 +201,13 @@ struct ExtensionAudit: Sendable, Equatable {
             }
         }
         return (hosts, telemetry)
+    }
+
+    /// Manifest paths may start with "/" or "./"; package paths don't.
+    private static func normalized(_ path: String) -> String {
+        var path = path
+        while path.hasPrefix("./") || path.hasPrefix("/") { path.removeFirst(path.hasPrefix("/") ? 1 : 2) }
+        return path
     }
 
     private static func list(_ items: [String], limit: Int = 4) -> String {

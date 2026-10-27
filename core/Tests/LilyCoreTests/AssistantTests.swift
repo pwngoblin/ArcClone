@@ -258,3 +258,15 @@ private func ollama(models: [String] = ["llama3.2:latest"], chat: @escaping @Sen
         #expect(AssistantConfiguration.normalizedHost("myhost").absoluteString == "http://myhost:11434")
     }
 }
+
+@Suite struct AssistantLinkTests {
+    /// A page can steer the model into a link whose text names another site; the reply shows
+    /// where each link really goes.
+    @Test func linksShowTheirRealHost() {
+        let reply = MarkdownRenderer.attributed("Verify at [paypal.com](https://evil.example/login), docs at [apple.com](https://www.apple.com/mac/), and [00:42] in the video.")
+        let text = String(reply.characters)
+        #expect(text == "Verify at paypal.com (evil.example), docs at apple.com, and 00:42 in the video.")
+        let links = reply.runs.compactMap(\.link)
+        #expect(links.contains(URL(string: "https://evil.example/login")!) && links.contains { $0.scheme == "lily-seek" })
+    }
+}
